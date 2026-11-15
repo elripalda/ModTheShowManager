@@ -208,6 +208,53 @@ class UniformsPage(CollectionPage):
     SUB = 'Pick a team and a uniform, then swap any part with your own PNG. Export a part first to get the exact template.'
     SEARCH = 'Find a team'
 
+    def __init__(self, main):
+        super().__init__(main)
+        from PySide6.QtWidgets import QStackedWidget
+        from .playerpreview import PlayerPreview
+        lay = self.grid.parentWidget().layout()
+        at = lay.indexOf(self.filter)
+        modes = QHBoxLayout()
+        modes.setSpacing(6)
+        self.mode_group = QButtonGroup(self)
+        for i, text in enumerate(('Textures', 'On a Player')):
+            b = QPushButton(text)
+            b.setObjectName('Chip')
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setChecked(i == 0)
+            self.mode_group.addButton(b, i)
+            modes.addWidget(b)
+        modes.addStretch(1)
+        lay.insertLayout(at, modes)
+        self.stack = QStackedWidget()
+        idx = lay.indexOf(self.grid)
+        lay.removeWidget(self.grid)
+        self.preview = PlayerPreview(main)
+        self.stack.addWidget(self.grid)
+        self.stack.addWidget(self.preview)
+        lay.insertWidget(idx, self.stack, 1)
+        self.mode_group.idClicked.connect(self._mode)
+
+    def _folder(self):
+        return self.packs[0].rsplit('/', 1)[0] if getattr(self, 'packs', None) else None
+
+    def _mode(self, i):
+        self.stack.setCurrentIndex(i)
+        self.filter.setVisible(i == 0)
+        if i == 1 and self._folder():
+            self.preview.show_uniform(self._folder())
+
+    def _set_packs(self, packs, variant):
+        super()._set_packs(packs, variant)
+        if self.stack.currentIndex() == 1 and self._folder():
+            self.preview.show_uniform(self._folder())
+
+    def refresh_overrides(self):
+        super().refresh_overrides()
+        if self.loaded and self.stack.currentIndex() == 1:
+            self.preview.refresh()
+
     def groups(self):
         out = []
         for g, rows in catalog.teams(self.main.game):

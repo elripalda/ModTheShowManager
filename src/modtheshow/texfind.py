@@ -11,7 +11,8 @@ from PIL import Image
 
 from . import texlib
 
-SHARED = ['NSW/STADIUMS/PROPS', 'NSW/STADIUMS/SHARED', 'NSW/OBJECTS', 'NSW/STADIUMS']
+SHARED = ['NSW/STADIUMS/PROPS', 'NSW/STADIUMS/SHARED', 'NSW/OBJECTS', 'NSW/STADIUMS', 'NSW/CHARACTERS/MASTERFILES',
+          'NSW/CHARACTERS/MASTERFILES/BODIES', 'NSW/CHARACTERS/ACCESSORIES']
 
 
 class TextureFinder:
@@ -19,6 +20,7 @@ class TextureFinder:
         """override(pack_rel, name) -> path of a PNG that replaces this texture, or None."""
         self.game = game
         self.override = override
+        self.uniform_folder = 'NSW/UNIFORMS/NL/ARI/HOME'   # team uniform slot used to dress player models
         self._folders = None
         self._names = {}
         self._lock = threading.Lock()
@@ -52,6 +54,9 @@ class TextureFinder:
         def add(p):
             if p in self._set and p not in out:
                 out.append(p)
+        if model_rel.startswith('NSW/CHARACTERS/') and self.uniform_folder:
+            for p in sorted(folders.get(self.uniform_folder, [])):
+                add(p)
         add(model_rel[:-4] + '.TEX')
         add(f'{d}/{texname.upper()}.TEX')
         parts = d.split('/')

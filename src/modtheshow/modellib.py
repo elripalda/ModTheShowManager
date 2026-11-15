@@ -52,8 +52,10 @@ def _strings(d, o, sz):
 class Attribute:
     def __init__(self, name, semantic, comps, offset):
         self.name, self.semantic, self.comps, self.offset = name, semantic, comps, offset
+        self.known = all(c in SCALAR or c in PACKED for c in comps)
         self.packed = comps[0] in PACKED
-        self.size = 4 if self.packed else sum(SCALAR[c][0] for c in comps)
+        self.size = (4 if self.packed else sum(SCALAR[c][0] for c in comps)) if self.known else 0
+        self.base = semantic.rstrip('0123456789') if semantic else semantic
 
     def decode(self, buf, stride, n):
         raw = np.frombuffer(buf, np.uint8, n * stride).reshape(n, stride)[:, self.offset:self.offset + self.size]
@@ -128,11 +130,20 @@ class Attribute:
 class Buffer:
     def __init__(self, name, attrs):
         self.name, self.attrs = name, attrs
+        self.known = all(a.known for a in attrs)
         self.stride = sum(a.size for a in attrs)
 
     def find(self, semantic, nth=0):
-        hits = [a for a in self.attrs if a.semantic == semantic]
+        hits = [a for a in self.attrs if a.known and a.base == semantic]
         return hits[nth] if len(hits) > nth else None
+
+
+def parse_layouts(xml):
+    """Every <InputLayout> in a model, in order: [(name, [Buffer])]."""
+    out = []
+    for block in re.findall(r'<InputLayout.*?</InputLayout>', xml, re.S):
+        out.append(parse_layout(block))
+    return out
 
 
 def parse_layout(xml):
@@ -144,9 +155,6 @@ def parse_layout(xml):
         attrs, off = [], 0
         for a in b.findall('AttributeDesc'):
             comps = [c.get('format') for c in a.findall('ComponentDesc')]
-            for c in comps:
-                if c not in SCALAR and c not in PACKED:
-                    raise ModelError(f'uses a vertex format ({c}) that is not supported yet')
             at = Attribute(a.get('name'), a.get('semantic'), comps, off)
             attrs.append(at)
             off += at.size
@@ -165,31 +173,76 @@ class Model:
         if 'STRGINLA' not in cm or 'VOID_VBO' not in cg:
             raise ModelError('not a standard model (no vertex layout)')
         o, _, sz = cm['STRGINLA'][0]
-        self.layout_name, self.buffers = parse_layout(desc[o + 0x10:o + 0x10 + sz].replace(b'\xad', b'').replace(b'\0', b'').decode('latin1'))
+        self.layouts = parse_layouts(desc[o + 0x10:o + 0x10 + sz].replace(b'\xad', b'').replace(b'\0', b'').decode('latin1'))
+        if not self.layouts:
+            raise ModelError('no vertex layout')
+        self.layout_name, self.buffers = self.layouts[0]
         self.names = []
         if 'STRGDGRP' in cm:
             self.names = [p.split('|')[1] for p in _strings(desc, cm['STRGDGRP'][0][0], cm['STRGDGRP'][0][2]) if '|' in p]
         self.textures = _strings(desc, cm['STRGTEXN'][0][0], cm['STRGTEXN'][0][2]) if 'STRGTEXN' in cm else []
         o, nvbo, _ = cm['CLAS_VBO'][0]
-        self.vbo_info = [struct.unpack_from('<IIII', desc, o + 0x10 + k * 0x40)[:3] for k in range(nvbo)]
+        raw = [struct.unpack_from('<III', desc, o + 0x10 + k * 0x40) for k in range(nvbo)]
+        # the stride field carries the layout in its high 16 bits when a model has several layouts
+        self.vbo_info = [(n, idx, st & 0xFFFF) for n, idx, st in raw]
+        self.vmap = {(st >> 16, idx): k for k, (n, idx, st) in enumerate(raw)}
+        self._cache = {}
         self.vbo_data = [(o + 0x10, a) for o, a, sz in cg['VOID_VBO']]
-        self.skinned = any(b.find('BLENDINDICES') for b in self.buffers) or len(self.vbo_info) != len(self.buffers)
-        eo, ecount, _ = cg['VOID_EBO'][0]
-        self.ebo_off, self.nidx = eo + 0x10, ecount
+        self.skinned = any(b.find('BLENDINDICES') for b in self.buffers) or len(self.vbo_info) != len(self.buffers) \
+            or not all(b.known for b in self.buffers) or len(self.layouts) > 1
+        self.ebos = [(o + 0x10, n) for o, n, _ in cg['VOID_EBO']]     # one index buffer per vertex layout
+        self.ebo_off, self.nidx = self.ebos[0]
         self.draws = []
         n = cm['INT0DRBL'][0][1]
         base = cm['VOIDDRBL'][0][0] + 0x10
         offs = [struct.unpack_from('<I', desc, cm['INT0DRBL'][0][0] + 0x10 + i * 0x10 + 8)[0] for i in range(n)]
         for i, rel in enumerate(offs):
             r = base + rel
-            ns = struct.unpack_from('<H', desc, r + 0x28)[0]
+            ns, blocks, lod_at, _lod_end = struct.unpack_from('<HHHH', desc, r + 0x28)
             vcount = struct.unpack_from('<I', desc, r + 0x0C)[0]
-            icount, istart = struct.unpack_from('<II', desc, r + 0x30)
-            vbases = [struct.unpack_from('<I', desc, r + 0x3C + k * 0x18)[0] for k in range(ns)]
+            icount, istart = struct.unpack_from('<II', desc, r + lod_at)      # LOD 0: the full-detail mesh
+            vbases = [struct.unpack_from('<I', desc, r + blocks + 4 + k * 0x18)[0] for k in range(ns)]
+            lods = max(1, struct.unpack_from('<H', desc, r + 0x08)[0]) if blocks != 0x38 else 1
+            end = base + (offs[i + 1] if i + 1 < len(offs) else cm['VOIDDRBL'][0][2])
             self.draws.append(dict(rec=r, streams=ns, vcount=vcount, icount=icount, istart=istart, vbases=vbases,
+                                   lods=lods, layout=self._draw_layout(r, end, ns, vbases, vcount),
                                    name=self.names[i] if i < len(self.names) else f'mesh{i}'))
-        self.editable = not self.skinned and all(d['streams'] == len(self.buffers) for d in self.draws)
+        self._name_groups()
+        self.editable = not self.skinned and all(d['streams'] == len(self.buffers) and d['lods'] == 1 for d in self.draws)
         self.materials = self._materials()
+
+    def _name_groups(self):
+        """Names belong to draw groups (count, first mesh); a group can span several meshes."""
+        if 'INT0DGRP' not in self.cm or not self.names:
+            return
+        o, n, _ = self.cm['INT0DGRP'][0]
+        for g in range(min(n, len(self.names))):
+            cnt, _pad, first = struct.unpack_from('<III', self.m, o + 0x10 + g * 0x10)
+            if cnt > 64 or first + cnt > len(self.draws):
+                return
+            for k in range(cnt):
+                self.draws[first + k]['name'] = self.names[g] + (f' ({k + 1})' if cnt > 1 else '')
+
+    def _draw_layout(self, r, end, ns, vbases, vcount):
+        """Which vertex layout a mesh uses. Its per-stream records hold each stream's stride times 8."""
+        if len(self.layouts) == 1:
+            return 0
+        strides = []
+        for o in range(r + 0x40, min(end, len(self.m)) - 8, 4):
+            if self.m[o:o + 4] == b'\x14\0\0\0':
+                s8 = struct.unpack_from('<H', self.m, o + 6)[0]
+                if s8 and s8 % 8 == 0:
+                    strides.append(s8 // 8)
+        best, score = 0, -1
+        for L, (_, bufs) in enumerate(self.layouts):
+            want = [self.vbo_info[self.vmap[(L, k)]][2] for k in range(len(bufs)) if (L, k) in self.vmap]
+            fits = all((L, k) in self.vmap and vbases[k] + vcount <= self.vbo_info[self.vmap[(L, k)]][0]
+                       for k in range(min(2, ns, len(vbases))))
+            match = sum(1 for a, b in zip(strides, want) if a == b) if strides else 0
+            sc = (len(bufs) == ns) * 4 + fits * 2 + match * 3
+            if sc > score:
+                best, score = L, sc
+        return best
 
     def _materials(self):
         """One dict per mesh: {param hash: texture name} for every texture the mesh's material uses."""
@@ -247,38 +300,59 @@ class Model:
         off, _ = self.vbo_data[k]
         return self.g[off:off + n * stride], n, stride
 
-    def attribute(self, semantic, nth=0):
-        """(values for every vertex, buffer index) for the nth attribute with this semantic."""
+    def attribute(self, semantic, nth=0, layout=0):
+        """(values for every vertex, buffer index) for the nth attribute with this semantic in a layout."""
         seen = 0
-        for k, b in enumerate(self.buffers):
+        _, bufs = self.layouts[layout]
+        for k, b in enumerate(bufs):
+            entry = self.vmap.get((layout, k))
+            if entry is None:
+                continue
             for a in b.attrs:
-                if a.semantic == semantic:
+                if a.known and a.base == semantic:
                     if seen == nth:
-                        buf, n, stride = self.stream(k)
-                        return a.decode(buf, stride, n), k
+                        key = (entry, a.offset, semantic)
+                        if key not in self._cache:
+                            buf, n, stride = self.stream(entry)
+                            self._cache[key] = a.decode(buf, stride, n)
+                        return self._cache[key], k
                     seen += 1
         return None, None
 
-    def indices(self):
-        return np.frombuffer(self.g, '<u2', self.nidx, self.ebo_off)
+    def indices(self, layout=0):
+        off, n = self.ebos[layout] if layout < len(self.ebos) else self.ebos[0]
+        return np.frombuffer(self.g, '<u2', n, off)
 
     def mesh(self, i):
         """positions (n,3), normals (n,3), uvs (n,2), triangles (m,3) for mesh i (vertex indices local to the mesh)."""
         dr = self.draws[i]
-        pos, _ = self.attribute('POSITION')
-        nrm, _ = self.attribute('NORMAL')
-        uv, _ = self.attribute('TEXCOORD')
-        vb = dr['vbases'][0] if dr['vbases'] else 0
-        sl = slice(vb, vb + dr['vcount'])
-        tris = self.indices()[dr['istart']:dr['istart'] + dr['icount']].astype(np.int64).reshape(-1, 3)
-        p = pos[sl, :3]
-        n = nrm[sl, :3] if nrm is not None else np.zeros_like(p)
-        t = uv[sl, :2] if uv is not None else np.zeros((len(p), 2), np.float32)
+        tris = self.indices(dr['layout'])[dr['istart']:dr['istart'] + dr['icount'] // 3 * 3].astype(np.int64).reshape(-1, 3)
+        count = max(dr['vcount'], int(tris.max()) + 1 if len(tris) else 0)
+        def part(semantic, width):
+            vals, k = self.attribute(semantic, layout=dr['layout'])
+            if vals is None:
+                return None
+            vb = dr['vbases'][k] if k < len(dr['vbases']) else (dr['vbases'][0] if dr['vbases'] else 0)
+            return vals[vb:vb + count, :width]
+        p = part('POSITION', 3)
+        n = part('NORMAL', 3)
+        t = part('TEXCOORD', 2)
+        if len(tris):
+            tris = tris[(tris < len(p)).all(1)]
+        if n is None or len(n) != len(p):
+            n = np.zeros_like(p)
+        if t is None or len(t) != len(p):
+            t = np.zeros((len(p), 2), np.float32)
         return p, n, t, tris
 
     def bounds(self):
-        pos, _ = self.attribute('POSITION')
-        return pos[:, :3].min(0), pos[:, :3].max(0)
+        pts = []
+        for L in range(len(self.layouts)):
+            pos, _ = self.attribute('POSITION', layout=L)
+            if pos is not None:
+                pts.append(pos[:, :3])
+        p = np.concatenate(pts)
+        return p.min(0), p.max(0)
 
     def write_obj(self, path, meshes=None):
         with open(path, 'w', encoding='utf-8') as f:
@@ -326,7 +400,7 @@ class Editor:
         seen = 0
         for k, b in enumerate(self.mdl.buffers):
             for a in b.attrs:
-                if a.semantic == semantic:
+                if a.known and a.base == semantic:
                     if seen == nth:
                         s = self.parts[i]['streams'][k]
                         return a.decode(s.tobytes(), b.stride, len(s))
@@ -337,7 +411,7 @@ class Editor:
         seen = 0
         for k, b in enumerate(self.mdl.buffers):
             for a in b.attrs:
-                if a.semantic == semantic:
+                if a.known and a.base == semantic:
                     if seen == nth:
                         a.encode(values, self.parts[i]['streams'][k], b.stride)
                         self.parts[i]['dirty'] = True
@@ -372,19 +446,19 @@ class Editor:
                 s[:] = old[k][0]
             uv_seen = 0
             for a in b.attrs:
-                if a.semantic == 'POSITION':
+                if a.base == 'POSITION':
                     w = np.polyval(self.posw, positions[:, 2]) if self.posw is not None else np.full(n, self.posw_const)
                     a.encode(np.column_stack([positions, w]), s, b.stride)
-                elif a.semantic == 'NORMAL':
+                elif a.base == 'NORMAL':
                     flag = a.decode(old[k][:1].tobytes(), b.stride, 1)[0, 3:] if len(old[k]) and len(a.comps) > 3 else []
                     a.encode(np.column_stack([normals] + ([np.full((n, 1), flag[0])] if len(flag) else [])), s, b.stride)
-                elif a.semantic == 'TANGENT':
+                elif a.base == 'TANGENT':
                     a.encode(np.column_stack([tangents, np.ones(n)]) if a.name != 'TanFlip' or len(a.comps) == 4 else tangents, s, b.stride)
-                elif a.semantic == 'TEXCOORD':
+                elif a.base == 'TEXCOORD':
                     if uv_seen == 0:
                         a.encode(uvs, s, b.stride)
                     uv_seen += 1
-                elif a.semantic == 'COLOR':
+                elif a.base == 'COLOR':
                     a.encode(np.ones((n, len(a.comps))), s, b.stride)
             streams.append(s)
         self.parts[i] = dict(streams=streams, idx=tris.astype(np.uint16).reshape(-1), dirty=True)

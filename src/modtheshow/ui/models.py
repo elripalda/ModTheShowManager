@@ -1,5 +1,6 @@
 """3D Models: browse the game's models, look at them, export OBJ, swap meshes."""
 import os
+import re
 import tempfile
 
 import numpy as np
@@ -15,8 +16,8 @@ from .workers import Job, start
 from . import theme
 from .common import SectionTitle, button, header, label, panel
 
-CATEGORIES = [('All Models', ''), ('Bats & Game Objects', 'NSW/OBJECTS/'), ('Stadium Props', 'NSW/STADIUMS/'),
-              ('Player Gear', 'NSW/CHARACTERS/'), ('Everything Else', '*')]
+CATEGORIES = [('All Switch Models', 'NSW/'), ('Bats & Game Objects', 'NSW/OBJECTS/'), ('Stadium Props', 'NSW/STADIUMS/'),
+              ('Players, Uniforms & Gear', 'NSW/CHARACTERS/'), ('Other Platforms (not loaded by the Switch game)', '*')]
 MESH_COLORS = ['#d9b98a', '#9fb4d9', '#c9c2b0', '#b8d0a2', '#d9a3a3', '#a9a3d9', '#d0c38a', '#8ec9c4']
 MAX_LIST = 2500
 
@@ -310,7 +311,7 @@ class ModelsPage(QWidget):
     def _filter(self):
         q = self.search.text().strip().upper()
         _, pre = CATEGORIES[self.cat.currentIndex()]
-        known = [p for _, p in CATEGORIES if p not in ('', '*')]
+        known = ['NSW/']
         hits = []
         for f in self.all:
             if pre == '*':
@@ -383,12 +384,14 @@ class ModelsPage(QWidget):
         tris = sum(d['icount'] for d in M.draws) // 3
         self.facts.setText(f'{M.vbo_info[0][0]:,} vertices  ·  {tris:,} triangles\n'
                            f'Size {size[0]:.2f} × {size[1]:.2f} × {size[2]:.2f}  ·  layout {M.layout_name}' +
-                           ('' if M.editable else '\nSkinned to a skeleton. Viewing and editing these comes next.'))
+                           ('' if M.editable else '\nSkinned to the player skeleton or built with LOD steps: view and export OBJ for now.'))
         self.meshes.blockSignals(True)
         for i, dr in enumerate(M.draws):
             it = QListWidgetItem(f'{dr["name"]}   ·   {dr["icount"] // 3:,} tris')
             it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Checked if i == 0 or not self._is_alt(M, i) else Qt.Unchecked)
+            if 'view only' in it.text():
+                pass
             it.setForeground(QColor(MESH_COLORS[i % len(MESH_COLORS)]))
             self.meshes.addItem(it)
         if self.meshes.count():
@@ -401,7 +404,19 @@ class ModelsPage(QWidget):
     def _is_alt(M, i):
         """The bat file holds several alternative bats on top of each other; show only the standard one by default."""
         names = [d['name'] for d in M.draws]
-        return names[0] == 'bat' and names[i] not in ('bat', 'batGrip_Cross')
+        n = names[i].lower()
+        if names[0] == 'bat':
+            return names[i] not in ('bat', 'batGrip_Cross')
+        if 'lowlod' in n or n.endswith('_lp') or '_lp_' in n or 'female' in n:
+            return True
+        if len(names) > 8:   # files full of alternatives (gloves, webs, sleeves): show the first of each kind
+            def kind(x):
+                m = re.match(r'[a-z]+|[A-Z][a-z]*', x)
+                side = '_L' if re.search(r'_L\d*\b|_L$', x) else '_R' if re.search(r'_R\d*\b|_R$', x) else ''
+                return (m.group(0).lower() if m else x) + side
+            k = kind(names[i])
+            return any(kind(names[j]) == k for j in range(i))
+        return False
 
     def _mesh_data(self, i):
         """positions, normals, uvs, triangles of mesh i as currently edited."""

@@ -194,7 +194,8 @@ class ModelView3D(QOpenGLWidget):
         m.vbo = m.tex = None
 
     def _upload(self, m):
-        tris = m.tris.reshape(-1)
+        t3 = m.tris.reshape(-1, 3)
+        tris = t3[(t3 < len(m.pos)).all(1)].reshape(-1) if len(t3) else t3.reshape(-1)
         n = m.nrm if m.nrm is not None and len(m.nrm) == len(m.pos) else np.zeros_like(m.pos)
         uv = m.uv if m.uv is not None and len(m.uv) == len(m.pos) else np.zeros((len(m.pos), 2), np.float32)
         data = np.hstack([m.pos[tris], n[tris], uv[tris]]).astype(np.float32)
