@@ -1,34 +1,48 @@
-"""GPU model viewer: textured, smooth-lit, full detail. Orbit with the left button, pan with right or middle, wheel to
-zoom, double-click to frame the model again."""
+"""GPU model viewer. Orbit with the left button, pan with right or middle, wheel to zoom, double-click to frame.
+
+Two looks:
+  Standard      textured, smooth-lit, fast on any GPU.
+  High Quality  normal and roughness maps, physically based lighting, a soft shadow from the key light onto the
+                model and a floor, filmic tone mapping, full-resolution textures and 8x anti-aliasing.
+"""
 import math
 
 import numpy as np
-from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMatrix4x4, QSurfaceFormat, QVector3D
-from PySide6.QtOpenGL import (QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram, QOpenGLTexture,
-                              QOpenGLVertexArrayObject)
+from PySide6.QtOpenGL import (QOpenGLBuffer, QOpenGLFramebufferObject, QOpenGLFramebufferObjectFormat, QOpenGLShader,
+                              QOpenGLShaderProgram, QOpenGLTexture, QOpenGLVertexArrayObject)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from . import theme
 
 GL_FLOAT, GL_TRIANGLES, GL_LINES = 0x1406, 0x0004, 0x0001
-GL_DEPTH_TEST, GL_CULL_FACE, GL_BLEND, GL_MULTISAMPLE = 0x0B71, 0x0B44, 0x0BE2, 0x809D
+GL_DEPTH_TEST = 0x0B71
 GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT = 0x4000, 0x0100
-GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_LEQUAL = 0x0302, 0x0303, 0x0203
+GL_LEQUAL = 0x0203
+GL_TEXTURE_2D, GL_TEXTURE0, GL_FRAMEBUFFER = 0x0DE1, 0x84C0, 0x8D40
+STRIDE = 48   # pos3 nrm3 uv2 tan4
+SHADOW = 2048
 
 VERT = """
 attribute vec3 a_pos;
 attribute vec3 a_nrm;
 attribute vec2 a_uv;
+attribute vec4 a_tan;
 uniform mat4 u_mvp;
 uniform mat4 u_model;
+uniform mat4 u_light;
 varying vec3 v_nrm;
 varying vec3 v_pos;
 varying vec2 v_uv;
+varying vec4 v_tan;
+varying vec4 v_lpos;
 void main() {
     v_nrm = (u_model * vec4(a_nrm, 0.0)).xyz;
+    v_tan = vec4((u_model * vec4(a_tan.xyz, 0.0)).xyz, a_tan.w);
     v_pos = (u_model * vec4(a_pos, 1.0)).xyz;
     v_uv = a_uv;
+    v_lpos = u_light * vec4(v_pos, 1.0);
     gl_Position = u_mvp * vec4(a_pos, 1.0);
 }
 """
@@ -37,12 +51,46 @@ FRAG = """
 varying vec3 v_nrm;
 varying vec3 v_pos;
 varying vec2 v_uv;
+varying vec4 v_tan;
+varying vec4 v_lpos;
 uniform sampler2D u_tex;
+uniform sampler2D u_ntex;
+uniform sampler2D u_rtex;
+uniform sampler2D u_shadow;
 uniform vec3 u_color;
 uniform vec3 u_eye;
+uniform vec3 u_key;
 uniform float u_textured;
 uniform float u_cutout;
 uniform float u_highlight;
+uniform float u_hq;
+uniform float u_has_n;
+uniform float u_has_r;
+uniform float u_metal;
+uniform float u_rough;
+uniform float u_shadow_on;
+uniform float u_texel;
+
+float unpack(vec4 c) { return dot(c, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0)); }
+
+float shadow_at(vec3 n) {
+    if (u_shadow_on < 0.5) return 1.0;
+    vec3 p = v_lpos.xyz / v_lpos.w * 0.5 + 0.5;
+    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
+    float bias = 0.0015 + 0.004 * (1.0 - max(dot(n, u_key), 0.0));
+    float lit = 0.0;
+    for (int x = -2; x <= 2; x++)
+        for (int y = -2; y <= 2; y++) {
+            float d = unpack(texture2D(u_shadow, p.xy + vec2(float(x), float(y)) * u_texel));
+            lit += (p.z - bias > d) ? 0.0 : 1.0;
+        }
+    return lit / 25.0;
+}
+
+vec3 aces(vec3 x) {
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+
 void main() {
     vec4 t = texture2D(u_tex, v_uv);
     if (u_cutout > 0.5 && t.a < 0.35) discard;
@@ -52,18 +100,116 @@ void main() {
     n = normalize(n);
     vec3 v = normalize(u_eye - v_pos);
     if (dot(n, v) < 0.0) n = -n;
-    vec3 key = normalize(vec3(0.45, 0.85, 0.55));
-    vec3 fill = normalize(vec3(-0.6, 0.3, -0.5));
-    float d = max(dot(n, key), 0.0);
-    float f = max(dot(n, fill), 0.0) * 0.35;
+
+    if (u_hq < 0.5) {
+        vec3 key = normalize(vec3(0.45, 0.85, 0.55));
+        vec3 fill = normalize(vec3(-0.6, 0.3, -0.5));
+        float d = max(dot(n, key), 0.0);
+        float f = max(dot(n, fill), 0.0) * 0.35;
+        float hemi = 0.5 + 0.5 * n.y;
+        vec3 ambient = mix(vec3(0.20, 0.21, 0.25), vec3(0.42, 0.45, 0.52), hemi);
+        float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.18;
+        vec3 h = normalize(key + v);
+        float spec = pow(max(dot(n, h), 0.0), 40.0) * 0.18;
+        vec3 c = base * (ambient + d * vec3(1.0, 0.97, 0.92) * 0.85 + f) + spec + rim;
+        c = mix(c, vec3(0.85, 0.20, 0.25), u_highlight * 0.35);
+        gl_FragColor = vec4(pow(c, vec3(0.95)), 1.0);
+        return;
+    }
+
+    // High Quality: tangent-space normal map, GGX specular, shadowed key light, sky/ground ambient
+    if (u_has_n > 0.5 && dot(v_tan.xyz, v_tan.xyz) > 0.01) {
+        vec3 tn = texture2D(u_ntex, v_uv).rgb * 2.0 - 1.0;
+        tn.z = sqrt(max(1.0 - dot(tn.xy, tn.xy), 0.0));
+        vec3 T = normalize(v_tan.xyz - n * dot(n, v_tan.xyz));
+        vec3 B = cross(n, T) * (v_tan.w < 0.5 ? -1.0 : 1.0);
+        n = normalize(T * tn.x + B * tn.y + n * tn.z);
+    }
+    vec3 albedo = pow(base, vec3(2.2));
+    float rough = u_has_r > 0.5 ? clamp(texture2D(u_rtex, v_uv).r, 0.08, 1.0) : u_rough;
+    float metal = u_metal;
+    vec3 f0 = mix(vec3(0.04), albedo, metal);
+    vec3 diffuse = albedo * (1.0 - metal);
+
+    vec3 L = u_key;
+    vec3 H = normalize(L + v);
+    float NL = max(dot(n, L), 0.0), NV = max(dot(n, v), 0.001), NH = max(dot(n, H), 0.0), VH = max(dot(v, H), 0.0);
+    float a = rough * rough, a2 = a * a;
+    float D = a2 / (3.14159 * pow(NH * NH * (a2 - 1.0) + 1.0, 2.0));
+    float k = (rough + 1.0) * (rough + 1.0) / 8.0;
+    float G = (NL / (NL * (1.0 - k) + k)) * (NV / (NV * (1.0 - k) + k));
+    vec3 F = f0 + (1.0 - f0) * pow(1.0 - VH, 5.0);
+    vec3 spec = D * G * F / max(4.0 * NL * NV, 0.001);
+    float sh = shadow_at(n);
+    vec3 sun = vec3(1.0, 0.95, 0.88) * 3.2;
+    vec3 direct = (diffuse / 3.14159 * (1.0 - F) + spec) * sun * NL * sh;
+
+    vec3 fillL = normalize(vec3(-0.55, 0.35, -0.6));
+    vec3 fill = diffuse * vec3(0.55, 0.62, 0.8) * 0.3 * max(dot(n, fillL), 0.0);
     float hemi = 0.5 + 0.5 * n.y;
-    vec3 ambient = mix(vec3(0.20, 0.21, 0.25), vec3(0.42, 0.45, 0.52), hemi);
-    float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.18;
-    vec3 h = normalize(key + v);
-    float spec = pow(max(dot(n, h), 0.0), 40.0) * 0.18;
-    vec3 c = base * (ambient + d * vec3(1.0, 0.97, 0.92) * 0.85 + f) + spec + rim;
+    vec3 sky = mix(vec3(0.10, 0.09, 0.08), vec3(0.42, 0.48, 0.58), hemi);
+    vec3 Fa = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - NV, 5.0);
+    vec3 ambient = diffuse * sky * 0.9 + Fa * sky * (1.0 - rough) * 0.6;
+    float rim = pow(1.0 - NV, 4.0) * 0.12;
+
+    vec3 c = direct + fill + ambient + rim;
+    c = aces(c * 1.05);
+    c = pow(c, vec3(1.0 / 2.2));
     c = mix(c, vec3(0.85, 0.20, 0.25), u_highlight * 0.35);
-    gl_FragColor = vec4(pow(c, vec3(0.95)), 1.0);
+    gl_FragColor = vec4(c, 1.0);
+}
+"""
+
+DEPTH_VERT = """
+attribute vec3 a_pos;
+attribute vec2 a_uv;
+uniform mat4 u_mvp;
+varying vec2 v_uv;
+void main() { v_uv = a_uv; gl_Position = u_mvp * vec4(a_pos, 1.0); }
+"""
+DEPTH_FRAG = """
+varying vec2 v_uv;
+uniform sampler2D u_tex;
+uniform float u_cutout;
+vec4 pack(float d) {
+    vec4 e = fract(d * vec4(1.0, 255.0, 65025.0, 16581375.0));
+    return e - e.yzww * vec4(1.0/255.0, 1.0/255.0, 1.0/255.0, 0.0);
+}
+void main() {
+    if (u_cutout > 0.5 && texture2D(u_tex, v_uv).a < 0.35) discard;
+    gl_FragColor = pack(gl_FragCoord.z);
+}
+"""
+
+FLOOR_VERT = """
+attribute vec3 a_pos;
+uniform mat4 u_mvp;
+uniform mat4 u_light;
+varying vec4 v_lpos;
+varying vec3 v_pos;
+void main() { v_pos = a_pos; v_lpos = u_light * vec4(a_pos, 1.0); gl_Position = u_mvp * vec4(a_pos, 1.0); }
+"""
+FLOOR_FRAG = """
+varying vec4 v_lpos;
+varying vec3 v_pos;
+uniform sampler2D u_shadow;
+uniform float u_texel;
+uniform float u_radius;
+uniform vec3 u_bg;
+float unpack(vec4 c) { return dot(c, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0)); }
+void main() {
+    vec3 p = v_lpos.xyz / v_lpos.w * 0.5 + 0.5;
+    float lit = 0.0;
+    for (int x = -2; x <= 2; x++)
+        for (int y = -2; y <= 2; y++) {
+            float d = unpack(texture2D(u_shadow, p.xy + vec2(float(x), float(y)) * u_texel * 1.5));
+            lit += (p.z - 0.002 > d) ? 0.0 : 1.0;
+        }
+    lit /= 25.0;
+    float fade = smoothstep(u_radius * 1.6, u_radius * 0.3, length(v_pos.xz));
+    vec3 c = mix(u_bg, u_bg * 2.6 + vec3(0.05, 0.055, 0.07), fade * 0.85);
+    c *= mix(1.0, 0.38, (1.0 - lit) * fade);
+    gl_FragColor = vec4(c, 1.0);
 }
 """
 
@@ -97,33 +243,36 @@ def available():
 
 
 class Mesh:
-    """What the viewer draws: positions/normals/uvs per vertex, triangles, and a texture or a flat colour."""
+    """What the viewer draws: per-vertex data, triangles, and textures or a flat colour."""
 
-    def __init__(self, pos, nrm, uv, tris, color='#c9c2b0', image=None, visible=True, cutout=False):
-        self.pos, self.nrm, self.uv, self.tris = pos, nrm, uv, tris
+    def __init__(self, pos, nrm, uv, tris, color='#c9c2b0', image=None, visible=True, cutout=False, tan=None,
+                 normal_map=None, rough_map=None, metal=0.0, rough=0.6):
+        self.pos, self.nrm, self.uv, self.tris, self.tan = pos, nrm, uv, tris, tan
         self.color, self.image, self.visible, self.cutout = QColor(color), image, visible, cutout
+        self.normal_map, self.rough_map, self.metal, self.rough = normal_map, rough_map, metal, rough
         self.highlight = False
-        self.vbo = self.tex = None
+        self.vbo = self.tex = self.ntex = self.rtex = None
         self.count = 0
+        self.has_tex = self.has_n = self.has_r = False
 
 
 class ModelView3D(QOpenGLWidget):
     failed = Signal(str)
 
-    def __init__(self):
+    def __init__(self, hq=False):
         super().__init__()
         fmt = QSurfaceFormat()
         fmt.setDepthBufferSize(24)
-        fmt.setSamples(4)
+        fmt.setSamples(8 if hq else 4)
         self.setFormat(fmt)
         self.setMinimumHeight(320)
+        self.hq = hq
         self.meshes = []
-        self._pending = None
         self.message = 'Pick a model on the left'
         self.textured = True
         self.up = 'y'
-        self.prog = self.lines = None
-        self._grid = None
+        self.prog = None
+        self._grid = self._floor = self._shadow = None
         self._drag = None
         self.center, self.radius, self.floor = np.zeros(3, np.float32), 1.0, 0.0
         self.reset()
@@ -158,7 +307,29 @@ class ModelView3D(QOpenGLWidget):
         v.lookAt(eye + self.pan, self.pan, QVector3D(0, 1, 0))
         return v, eye + self.pan
 
+    def _floor_y(self):
+        return float(self.floor - (self.center[1] if self.up == 'y' else self.center[2]))
+
+    @staticmethod
+    def _key():
+        k = QVector3D(0.45, 0.85, 0.55)
+        k.normalize()
+        return k
+
+    def _light(self):
+        """Orthographic view from the key light covering the model and the floor around it."""
+        r = self.radius * 1.7
+        v = QMatrix4x4()
+        v.lookAt(self._key() * (r * 2.5), QVector3D(0, 0, 0), QVector3D(0, 1, 0))
+        p = QMatrix4x4()
+        p.ortho(-r, r, -r, r, r * 0.2, r * 5.0)
+        return p * v
+
     # ---------------------------------------------------------- data
+    def set_quality(self, hq):
+        self.hq = hq
+        self.update()
+
     def set_meshes(self, meshes, message='', up='y', keep_camera=False):
         self.makeCurrent()
         for m in self.meshes:
@@ -187,49 +358,71 @@ class ModelView3D(QOpenGLWidget):
         self.update()
 
     def _free(self, m):
-        if m.vbo:
-            m.vbo.destroy()
-        if m.tex:
-            m.tex.destroy()
-        m.vbo = m.tex = None
+        for attr in ('vbo', 'tex', 'ntex', 'rtex'):
+            o = getattr(m, attr)
+            if o is not None:
+                o.destroy()
+            setattr(m, attr, None)
+
+    def free_textures(self, m):
+        for attr in ('tex', 'ntex', 'rtex'):
+            o = getattr(m, attr)
+            if o is not None:
+                o.destroy()
+            setattr(m, attr, None)
+
+    def _texture(self, img):
+        t = QOpenGLTexture(img)
+        t.setMinMagFilters(QOpenGLTexture.LinearMipMapLinear, QOpenGLTexture.Linear)
+        t.setWrapMode(QOpenGLTexture.Repeat)
+        if self.hq:
+            t.setMaximumAnisotropy(16.0)
+        return t
 
     def _upload(self, m):
         t3 = m.tris.reshape(-1, 3)
         tris = t3[(t3 < len(m.pos)).all(1)].reshape(-1) if len(t3) else t3.reshape(-1)
         n = m.nrm if m.nrm is not None and len(m.nrm) == len(m.pos) else np.zeros_like(m.pos)
         uv = m.uv if m.uv is not None and len(m.uv) == len(m.pos) else np.zeros((len(m.pos), 2), np.float32)
-        data = np.hstack([m.pos[tris], n[tris], uv[tris]]).astype(np.float32)
+        tan = m.tan if m.tan is not None and len(m.tan) == len(m.pos) else np.zeros((len(m.pos), 4), np.float32)
+        data = np.hstack([m.pos[tris], n[tris], uv[tris], tan[tris]]).astype(np.float32)
         m.count = len(tris)
         m.vbo = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
         m.vbo.create()
         m.vbo.bind()
         m.vbo.allocate(data.tobytes(), data.nbytes)
         m.vbo.release()
-        img = m.image if isinstance(m.image, QImage) and not m.image.isNull() else self._white
-        m.tex = QOpenGLTexture(img.mirrored(False, False))
-        m.tex.setMinMagFilters(QOpenGLTexture.LinearMipMapLinear, QOpenGLTexture.Linear)
-        m.tex.setWrapMode(QOpenGLTexture.Repeat)
-        m.has_tex = img is not self._white
+
+    def _textures(self, m):
+        ok = lambda q: isinstance(q, QImage) and not q.isNull()
+        if m.tex is None:
+            m.has_tex = ok(m.image)
+            m.tex = self._texture(m.image if m.has_tex else self._white)
+        if m.ntex is None:
+            m.has_n = ok(m.normal_map)
+            m.ntex = self._texture(m.normal_map if m.has_n else self._white)
+        if m.rtex is None:
+            m.has_r = ok(m.rough_map)
+            m.rtex = self._texture(m.rough_map if m.has_r else self._white)
 
     # ---------------------------------------------------------- GL
+    def _program(self, vs, fs, attrs):
+        p = QOpenGLShaderProgram(self)
+        ok = p.addShaderFromSourceCode(QOpenGLShader.Vertex, vs) and p.addShaderFromSourceCode(QOpenGLShader.Fragment, fs)
+        for i, a in enumerate(attrs):
+            p.bindAttributeLocation(a, i)
+        if not (ok and p.link()):
+            raise RuntimeError(p.log())
+        return p
+
     def initializeGL(self):
         try:
             self.vao = QOpenGLVertexArrayObject()
             self.vao.create()
-            self.prog = QOpenGLShaderProgram(self)
-            ok = (self.prog.addShaderFromSourceCode(QOpenGLShader.Vertex, VERT) and
-                  self.prog.addShaderFromSourceCode(QOpenGLShader.Fragment, FRAG))
-            self.prog.bindAttributeLocation('a_pos', 0)
-            self.prog.bindAttributeLocation('a_nrm', 1)
-            self.prog.bindAttributeLocation('a_uv', 2)
-            ok = ok and self.prog.link()
-            self.lines = QOpenGLShaderProgram(self)
-            ok = ok and self.lines.addShaderFromSourceCode(QOpenGLShader.Vertex, LINE_VERT) and \
-                self.lines.addShaderFromSourceCode(QOpenGLShader.Fragment, LINE_FRAG)
-            self.lines.bindAttributeLocation('a_pos', 0)
-            ok = ok and self.lines.link()
-            if not ok:
-                raise RuntimeError(self.prog.log() + self.lines.log())
+            self.prog = self._program(VERT, FRAG, ['a_pos', 'a_nrm', 'a_uv', 'a_tan'])
+            self.lines = self._program(LINE_VERT, LINE_FRAG, ['a_pos'])
+            self.depth = self._program(DEPTH_VERT, DEPTH_FRAG, ['a_pos', 'a_uv'])
+            self.floorp = self._program(FLOOR_VERT, FLOOR_FRAG, ['a_pos'])
             self._white = QImage(4, 4, QImage.Format_RGBA8888)
             self._white.fill(QColor('white'))
         except Exception as x:
@@ -238,6 +431,55 @@ class ModelView3D(QOpenGLWidget):
 
     def resizeGL(self, w, h):
         pass
+
+    @staticmethod
+    def _u(prog, name, value):
+        loc = prog.uniformLocation(name)
+        if isinstance(value, bool):
+            prog.setUniformValue1f(loc, 1.0 if value else 0.0)
+        elif isinstance(value, float):
+            prog.setUniformValue1f(loc, value)
+        elif isinstance(value, int):
+            prog.setUniformValue1i(loc, value)
+        else:
+            prog.setUniformValue(loc, value)
+
+    def _attrs(self, prog, m, full=True):
+        m.vbo.bind()
+        prog.enableAttributeArray(0)
+        prog.setAttributeBuffer(0, GL_FLOAT, 0, 3, STRIDE)
+        if full:
+            for loc, off, size in ((1, 12, 3), (2, 24, 2), (3, 32, 4)):
+                prog.enableAttributeArray(loc)
+                prog.setAttributeBuffer(loc, GL_FLOAT, off, size, STRIDE)
+        else:
+            prog.enableAttributeArray(1)
+            prog.setAttributeBuffer(1, GL_FLOAT, 24, 2, STRIDE)
+
+    def _shadow_pass(self, f, vis, model):
+        if self._shadow is None:
+            fmt = QOpenGLFramebufferObjectFormat()
+            fmt.setAttachment(QOpenGLFramebufferObject.Depth)
+            self._shadow = QOpenGLFramebufferObject(SHADOW, SHADOW, fmt)
+        self._shadow.bind()
+        f.glViewport(0, 0, SHADOW, SHADOW)
+        f.glClearColor(1, 1, 1, 1)
+        f.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        d = self.depth
+        d.bind()
+        self._u(d, 'u_mvp', self._light() * model)
+        self._u(d, 'u_tex', 0)
+        for m in vis:
+            self._attrs(d, m, full=False)
+            self._u(d, 'u_cutout', bool(self.textured and m.has_tex and m.cutout))
+            m.tex.bind(0)
+            f.glDrawArrays(GL_TRIANGLES, 0, m.count)
+            m.vbo.release()
+        d.release()
+        self._shadow.release()
+        f.glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+        ratio = self.devicePixelRatioF()
+        f.glViewport(0, 0, int(self.width() * ratio), int(self.height() * ratio))
 
     def paintGL(self):
         f = self.context().functions()
@@ -252,43 +494,89 @@ class ModelView3D(QOpenGLWidget):
         f.glEnable(GL_DEPTH_TEST)
         f.glDepthFunc(GL_LEQUAL)
         self.vao.bind()
-        proj = QMatrix4x4()
-        proj.perspective(32, max(self.width(), 1) / max(self.height(), 1), self.radius * 0.02, self.radius * 50)
-        view, eye = self._view()
-        model = self._model()
-        mvp = proj * view * model
-        self.prog.bind()
-        self.prog.setUniformValue(self.prog.uniformLocation('u_mvp'), mvp)
-        self.prog.setUniformValue(self.prog.uniformLocation('u_model'), model)
-        self.prog.setUniformValue(self.prog.uniformLocation('u_tex'), int(0))
-        self.prog.setUniformValue(self.prog.uniformLocation('u_eye'), eye)
         for m in vis:
             if m.vbo is None:
                 self._upload(m)
-            m.vbo.bind()
-            self.prog.enableAttributeArray(0)
-            self.prog.enableAttributeArray(1)
-            self.prog.enableAttributeArray(2)
-            self.prog.setAttributeBuffer(0, GL_FLOAT, 0, 3, 32)
-            self.prog.setAttributeBuffer(1, GL_FLOAT, 12, 3, 32)
-            self.prog.setAttributeBuffer(2, GL_FLOAT, 24, 2, 32)
+            self._textures(m)
+        model = self._model()
+        if self.hq:
+            self._shadow_pass(f, vis, model)
+            f.glClearColor(bg.redF(), bg.greenF(), bg.blueF(), 1)
+            f.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        proj = QMatrix4x4()
+        proj.perspective(32, max(self.width(), 1) / max(self.height(), 1),
+                         self.radius * 0.02, self.radius * 50)
+        view, eye = self._view()
+        p = self.prog
+        p.bind()
+        self._u(p, 'u_mvp', proj * view * model)
+        self._u(p, 'u_model', model)
+        self._u(p, 'u_light', self._light())
+        self._u(p, 'u_eye', eye)
+        self._u(p, 'u_key', self._key())
+        self._u(p, 'u_hq', bool(self.hq))
+        self._u(p, 'u_shadow_on', bool(self.hq))
+        self._u(p, 'u_texel', 1.0 / SHADOW)
+        for name, unit in (('u_tex', 0), ('u_ntex', 1), ('u_rtex', 2), ('u_shadow', 3)):
+            self._u(p, name, unit)
+        if self.hq:
+            f.glActiveTexture(GL_TEXTURE0 + 3)
+            f.glBindTexture(GL_TEXTURE_2D, self._shadow.texture())
+            f.glActiveTexture(GL_TEXTURE0)
+        for m in vis:
+            self._attrs(p, m)
             c = m.color
-            self.prog.setUniformValue(self.prog.uniformLocation('u_color'), QVector3D(c.redF(), c.greenF(), c.blueF()))
-            self.prog.setUniformValue1f(self.prog.uniformLocation('u_textured'), 1.0 if (self.textured and m.has_tex) else 0.0)
-            self.prog.setUniformValue1f(self.prog.uniformLocation('u_cutout'), 1.0 if (self.textured and m.has_tex and m.cutout) else 0.0)
-            self.prog.setUniformValue1f(self.prog.uniformLocation('u_highlight'), 1.0 if m.highlight else 0.0)
+            self._u(p, 'u_color', QVector3D(c.redF(), c.greenF(), c.blueF()))
+            self._u(p, 'u_textured', bool(self.textured and m.has_tex))
+            self._u(p, 'u_cutout', bool(self.textured and m.has_tex and m.cutout))
+            self._u(p, 'u_highlight', bool(m.highlight))
+            self._u(p, 'u_has_n', bool(self.hq and m.has_n))
+            self._u(p, 'u_has_r', bool(self.hq and m.has_r))
+            self._u(p, 'u_metal', float(m.metal))
+            self._u(p, 'u_rough', float(m.rough))
             m.tex.bind(0)
+            m.ntex.bind(1)
+            m.rtex.bind(2)
             f.glDrawArrays(GL_TRIANGLES, 0, m.count)
-            m.tex.release()
             m.vbo.release()
-        self.prog.release()
-        self._draw_grid(f, proj * view)
+        p.release()
+        if self.hq:
+            self._draw_floor(f, proj * view)
+        else:
+            self._draw_grid(f, proj * view)
+        f.glActiveTexture(GL_TEXTURE0)
         self.vao.release()
+
+    def _draw_floor(self, f, pv):
+        r = self.radius * 3
+        y = self._floor_y()
+        data = np.array([(-r, y, -r), (r, y, -r), (r, y, r), (-r, y, -r), (r, y, r), (-r, y, r)], np.float32)
+        if self._floor is None:
+            self._floor = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
+            self._floor.create()
+        self._floor.bind()
+        self._floor.allocate(data.tobytes(), data.nbytes)
+        fp = self.floorp
+        fp.bind()
+        self._u(fp, 'u_mvp', pv)
+        self._u(fp, 'u_light', self._light())
+        self._u(fp, 'u_texel', 1.0 / SHADOW)
+        self._u(fp, 'u_radius', float(self.radius))
+        bg = QColor(theme.BG)
+        self._u(fp, 'u_bg', QVector3D(bg.redF(), bg.greenF(), bg.blueF()))
+        self._u(fp, 'u_shadow', 3)
+        f.glActiveTexture(GL_TEXTURE0 + 3)
+        f.glBindTexture(GL_TEXTURE_2D, self._shadow.texture())
+        fp.enableAttributeArray(0)
+        fp.setAttributeBuffer(0, GL_FLOAT, 0, 3, 12)
+        f.glDrawArrays(GL_TRIANGLES, 0, 6)
+        fp.release()
+        self._floor.release()
 
     def _draw_grid(self, f, pv):
         r = self.radius * 1.6
         step = r / 8
-        y = (self.floor - (self.center[1] if self.up == 'y' else self.center[2]))
+        y = self._floor_y()
         pts = []
         for k in range(-8, 9):
             pts += [(-r, y, k * step), (r, y, k * step), (k * step, y, -r), (k * step, y, r)]
@@ -299,7 +587,7 @@ class ModelView3D(QOpenGLWidget):
         self._grid.bind()
         self._grid.allocate(data.tobytes(), data.nbytes)
         self.lines.bind()
-        self.lines.setUniformValue(self.lines.uniformLocation('u_mvp'), pv)
+        self._u(self.lines, 'u_mvp', pv)
         c = QColor(theme.LINE)
         self.lines.setUniformValue(self.lines.uniformLocation('u_color'), c.redF(), c.greenF(), c.blueF(), 1.0)
         self.lines.enableAttributeArray(0)
@@ -358,4 +646,12 @@ def pil_to_qimage(img):
     return q.copy()
 
 
-_ = QPointF   # keep the import list stable for PyInstaller's analysis
+def tangents_from(t):
+    """(n,4) tangent array from a decoded TANGENT attribute (xyz + handedness bits in w)."""
+    if t is None:
+        return None
+    t = np.asarray(t, np.float32)
+    out = np.zeros((len(t), 4), np.float32)
+    out[:, :3] = t[:, :3]
+    out[:, 3] = t[:, 3] if t.shape[1] > 3 else 1.0
+    return out

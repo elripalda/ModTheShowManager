@@ -400,12 +400,24 @@ class ModsPage(QWidget):
         if not self._check_game():
             return
         if QMessageBox.question(self, 'Restore Original Game',
-                                'Put every original game file back? Your mods stay in the list.') != QMessageBox.Yes:
+                                'Put every original game file back and switch all mods off?\n\n'
+                                'Your mods stay in the list, so you can switch them back on and Apply later.'
+                                ) != QMessageBox.Yes:
             return
         self._busy(True, 'Restoring...')
         lib = self.lib
-        job = workers.Job(lambda j: lib.restore(log=j.log))
-        job.sig.done.connect(lambda r: (self._busy(False), self.main.cache_clear(), self.refresh(), self.applied.emit(),
-                                        self.status.setText(f'Restored {len(r)} original file(s). The game is untouched.')))
+
+        def work(j):
+            rels = lib.restore(log=j.log)
+            for m in lib.list():
+                if m.enabled:
+                    lib.set_enabled(m, False)
+            return rels
+
+        job = workers.Job(work)
+        job.sig.done.connect(lambda r: (self._busy(False), self.main.cache_clear(), self.main.changed(), self.refresh(),
+                                        self.applied.emit(),
+                                        self.status.setText(f'Restored {len(r)} original file(s) and switched every mod '
+                                                            'off. The game is back to stock.')))
         job.sig.failed.connect(self._failed)
         self._job = workers.start(job)

@@ -1,5 +1,6 @@
 """Pieces every screen shares: headings, the texture grid and the inspector."""
 import os
+import re
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
@@ -169,8 +170,9 @@ class TextureGrid(QListWidget):
             ld.wait(2000)
         self.loaders = []
 
-    def show_packs(self, packs, overrides=None, filter_text=''):
-        """packs: [(pack rel, Tex)]; overrides: {pack rel: {texture name: png}} from enabled mods."""
+    def show_packs(self, packs, overrides=None, filter_text='', hide_maps=False):
+        """packs: [(pack rel, Tex)]; overrides: {pack rel: {texture name: png}} from enabled mods.
+        hide_maps leaves out normal, roughness, metal and occlusion maps."""
         self.stop()
         self.clear()
         self.items = {}
@@ -181,6 +183,8 @@ class TextureGrid(QListWidget):
             mods = overrides.get(rel.upper(), {})
             for i, e in enumerate(tex.entries):
                 if ft and ft not in e['name'].lower():
+                    continue
+                if hide_maps and is_surface_map(e['name']):
                     continue
                 text = f"{e['name']}\n{e['w']}×{e['h']}" + ('  · Modded' if e['name'] in mods else '')
                 it = QListWidgetItem(ph, text)
@@ -211,6 +215,16 @@ class TextureGrid(QListWidget):
             self.picked.emit(rel, idx)
 
 
+SURFACE_MAP = re.compile(r'normal|rough|metal(ness|lic)?\b|[-_]ao\b|ambientocclusion|occlude|specular|[-_]nrm\b', re.I)
+
+
+def is_surface_map(name):
+    return SURFACE_MAP.search(name) is not None
+
+
+BAT_PACKS = ('NSW/OBJECTS/BATSKINS.TEX', 'NSW/OBJECTS/G4BATTEXTURES.TEX')
+
+
 class Inspector(QFrame):
     """Preview of the picked texture with Original / Modded, its facts and what you can do with it."""
 
@@ -231,6 +245,10 @@ class Inspector(QFrame):
         self.group = QButtonGroup(self)
         self.b_orig = QPushButton('Original')
         self.b_mod = QPushButton('Modded')
+        self.b_bat = QPushButton('On a Bat')
+        self.b_bat.setCheckable(True)
+        self.b_bat.setObjectName('Seg')
+        self.b_bat.toggled.connect(lambda _: self._render())
         for b in (self.b_orig, self.b_mod):
             b.setObjectName('Seg')
             b.setCheckable(True)
@@ -238,11 +256,18 @@ class Inspector(QFrame):
             seg.addWidget(b)
             b.clicked.connect(self._render)
         self.b_orig.setChecked(True)
+        seg.addWidget(self.b_bat)
+        self.b_bat.hide()
         lay.addLayout(seg)
+        from PySide6.QtWidgets import QStackedWidget
+        self.stack = QStackedWidget()
         self.view = ImageView()
         self.view.setMinimumHeight(230)
         self.view.dropped.connect(self.replace_from)
-        lay.addWidget(self.view, 1)
+        self.stack.addWidget(self.view)
+        self.bat_view = None
+        self._bat_model = None
+        lay.addWidget(self.stack, 1)
         self.facts = QGridLayout()
         self.facts.setHorizontalSpacing(16)
         self.facts.setVerticalSpacing(6)
@@ -305,6 +330,10 @@ class Inspector(QFrame):
         self.b_replace.setToolTip('' if importable else 'This format can be exported but not replaced yet')
         self.b_mod.setEnabled(bool(mod))
         (self.b_mod if mod else self.b_orig).setChecked(True)
+        bat = rel.upper() in BAT_PACKS and not is_surface_map(e['name']) and 'grip' not in e['name'].lower()
+        self.b_bat.setVisible(bat)
+        if not bat and self.b_bat.isChecked():
+            self.b_bat.setChecked(False)
         self.b_revert.setEnabled(bool(self.main.active_mod() and self.main.lib.texture_path(
             self.main.active_mod(), rel, e['name']) and os.path.exists(self.main.lib.texture_path(
                 self.main.active_mod(), rel, e['name']))))
@@ -321,9 +350,59 @@ class Inspector(QFrame):
                 img = Image.open(mod[1])
             else:
                 img = tex.image(e)
+            if self.b_bat.isChecked() and self.b_bat.isVisible() and self._show_on_bat(rel, tex, e, img):
+                return
+            self.stack.setCurrentIndex(0)
             self.view.set_image(pil_to_qimage(for_display(rel, img)))
         except Exception as x:
+            self.stack.setCurrentIndex(0)
             self.view.set_image(None, f'Cannot preview this one yet\n{str(x)[:80]}')
+
+    def _show_on_bat(self, rel, tex, e, img):
+        """Wrap the texture around the game bat. False when 3D isn't available."""
+        from . import viewer3d
+        from .. import modellib
+        if self.bat_view is None:
+            if not viewer3d.available():
+                return False
+            self.bat_view = viewer3d.ModelView3D(self.main.settings.get('render_quality') == 'high')
+            self.bat_view.setMinimumHeight(230)
+            self.stack.addWidget(self.bat_view)
+        if self._bat_model is None:
+            try:
+                rel_mod = 'NSW/OBJECTS/G4GAMEBAT.MOD'
+                M = modellib.Model.open(self.main.game.original(rel_mod),
+                                        self.main.game.original(modellib.gpu_path(rel_mod)))
+                parts = []
+                for i, d in enumerate(M.draws):
+                    if d['name'] in ('bat', 'batGrip_Cross'):
+                        p, n, uv, t = M.mesh(i)
+                        parts.append((d['name'], p, n, uv, t, M.tangents(i)))
+                self._bat_model = parts
+            except Exception:
+                return False
+        normal = None
+        if self.bat_view.hq:
+            nm = re.sub(r'-color$', '-normal', e['name'])
+            hit = tex.find(nm) if nm != e['name'] else []
+            if hit:
+                try:
+                    normal = pil_to_qimage(tex.image(hit[0]))
+                except Exception:
+                    normal = None
+        q = pil_to_qimage(img.convert('RGBA'))
+        meshes = []
+        for name, p, n, uv, t, tan in self._bat_model:
+            grip = 'Grip' in name
+            meshes.append(viewer3d.Mesh(p, n, uv, t, color='#20242c' if grip else '#d9b98a',
+                                        image=None if grip else q, tan=tan,
+                                        normal_map=None if grip else normal, rough=0.45))
+        first = not self.bat_view.meshes
+        self.bat_view.set_meshes(meshes, '', up='z', keep_camera=not first)
+        if first:
+            self.bat_view.yaw, self.bat_view.pitch, self.bat_view.dist = 0.9, 0.1, 3.3
+        self.stack.setCurrentWidget(self.bat_view)
+        return True
 
     # ---- actions
     def export(self):
@@ -480,4 +559,10 @@ class FilterBar(QWidget):
         self.edit.setClearButtonEnabled(True)
         self.edit.textChanged.connect(self.changed.emit)
         lay.addWidget(self.edit, 1)
+        from PySide6.QtWidgets import QCheckBox
+        self.maps = QCheckBox('Show surface maps')
+        self.maps.setToolTip('Normal, roughness, metal and occlusion maps. They look strange on their own; '
+                             'most mods only change the colour textures.')
+        self.maps.toggled.connect(lambda _: self.changed.emit(self.edit.text()))
+        lay.addWidget(self.maps)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)

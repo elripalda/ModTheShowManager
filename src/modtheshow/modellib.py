@@ -269,6 +269,24 @@ class Model:
             out.append({})
         return out
 
+    def material_maps(self, i):
+        """{'color', 'normal', 'rough', 'metal'} texture names for mesh i (None where there isn't one)."""
+        color = self.color_texture(i)
+        names = list((self.materials[i] if i < len(self.materials) else {}).values())
+        out = {'color': color, 'normal': None, 'rough': None, 'metal': None}
+        base = None
+        if color:
+            base = re.sub(r'([-_](base_?)?colou?r|_c|-c)$', '', color, flags=re.I).lower()
+        keys = {'normal': r'normal', 'rough': r'rough', 'metal': r'metal'}
+        for slot, pat in keys.items():
+            cands = [n for n in names if re.search(pat, n, re.I) and not re.search(r'flat|tar\d|^gray|^grey', n, re.I)]
+            if base:
+                same = sorted((n for n in cands if n.lower().startswith(base)), key=len)
+                cands = same or cands
+            if cands:
+                out[slot] = cands[0]
+        return out
+
     def color_texture(self, i):
         """Best guess at the colour (albedo) texture of mesh i, or None."""
         params = self.materials[i] if i < len(self.materials) else {}
@@ -344,6 +362,22 @@ class Model:
         if t is None or len(t) != len(p):
             t = np.zeros((len(p), 2), np.float32)
         return p, n, t, tris
+
+    def tangents(self, i):
+        """(n,4) tangents for mesh i (xyz + handedness), or None."""
+        dr = self.draws[i]
+        vals, k = self.attribute('TANGENT', layout=dr['layout'])
+        if vals is None:
+            return None
+        p, _, _, tris = self.mesh(i)
+        vb = dr['vbases'][k] if k < len(dr['vbases']) else 0
+        t = vals[vb:vb + len(p)]
+        if len(t) != len(p):
+            return None
+        out = np.zeros((len(t), 4), np.float32)
+        out[:, :3] = t[:, :3]
+        out[:, 3] = t[:, 3] if t.shape[1] > 3 else 1.0
+        return out
 
     def bounds(self):
         pts = []

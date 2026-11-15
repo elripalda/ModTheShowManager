@@ -167,7 +167,8 @@ class CollectionPage(QWidget):
             t = self.main.tex(rel)
             if t is not None:
                 texs.append((rel, t))
-        self.grid.show_packs(texs, self.main.overrides(), self.filter.edit.text())
+        self.grid.show_packs(texs, self.main.overrides(), self.filter.edit.text(),
+                             hide_maps=not self.filter.maps.isChecked())
 
     def _tex_picked(self, rel, idx):
         t = self.main.tex(rel)

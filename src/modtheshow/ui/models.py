@@ -201,12 +201,21 @@ class ModelsPage(QWidget):
         tools.addWidget(self.textures)
         self.tex_note = label('', 'Sub')
         tools.addWidget(self.tex_note, 1)
+        self.quality = QComboBox()
+        self.quality.addItems(['Standard', 'High Quality'])
+        self.quality.setToolTip('High Quality adds normal and roughness maps, real shadows, filmic lighting, '
+                                'full-size textures and 8x anti-aliasing. Best on a strong GPU.')
+        self.quality.setCurrentIndex(1 if main.settings.get('render_quality') == 'high' else 0)
+        self.quality.currentIndexChanged.connect(self._quality_changed)
+        tools.addWidget(self.quality)
         self.b_shot = button('Save Image', on_click=self.save_image)
         tools.addWidget(self.b_shot)
         ml.addLayout(tools)
         self.gl = viewer3d.available()
-        self.view = viewer3d.ModelView3D() if self.gl else ModelView()
+        self._mid = ml
+        self.view = viewer3d.ModelView3D(self._hq()) if self.gl else ModelView()
         ml.addWidget(self.view, 1)
+        self.quality.setVisible(self.gl)
         self.finder = TextureFinder(main.game, self._override)
         self._token = 0
         split.addWidget(mid)
@@ -462,11 +471,16 @@ class ModelsPage(QWidget):
         for i, dr in enumerate(self.model.draws):
             p, n, uv, t = self._mesh_data(i)
             tex = self._texname(i)
+            try:
+                tan = self.editor.get(i, 'TANGENT') if self.editor else self.model.tangents(i)
+                tan = viewer3d.tangents_from(tan) if tan is not None and len(tan) == len(p) else None
+            except Exception:
+                tan = None
             meshes.append(viewer3d.Mesh(np.asarray(p, np.float32), None if n is None else np.asarray(n, np.float32),
                                         None if uv is None else np.asarray(uv, np.float32), t,
                                         color=MESH_COLORS[i % len(MESH_COLORS)],
                                         visible=self.meshes.item(i).checkState() == Qt.Checked,
-                                        cutout=self._cutout(dr['name'], tex or '')))
+                                        cutout=self._cutout(dr['name'], tex or ''), tan=tan))
         self.view.set_meshes(meshes, hidden, up=self._up_axis(), keep_camera=keep_camera)
         self._load_textures()
 
@@ -482,28 +496,56 @@ class ModelsPage(QWidget):
             self.tex_note.setText('')
             return
         self._token += 1
-        token, rel = self._token, self.rel
-        names = [self._texname(i) for i in range(len(self.model.draws))]
+        token, rel, hq = self._token, self.rel, self._hq()
+        maps = []
+        for i in range(len(self.model.draws)):
+            mm = self.model.material_maps(i)
+            mm['color'] = self._texname(i)
+            maps.append(mm)
         self.tex_note.setText('Loading textures…')
+        size = 4096 if hq else 1024
 
         def work(job):
-            cache, out = {}, []
-            for n in names:
+            cache = {}
+            def load(n):
+                if not n:
+                    return None
                 if n not in cache:
-                    img = self.finder.image(rel, n) if n else None
+                    img = self.finder.image(rel, n, size)
                     cache[n] = viewer3d.pil_to_qimage(img) if img is not None else None
-                out.append(cache[n])
+                return cache[n]
+            out = []
+            for mm in maps:
+                entry = {'color': load(mm['color'])}
+                if hq:
+                    for slot in ('normal', 'rough'):
+                        n = mm.get(slot)
+                        if n and re.fullmatch(r'gr[ae]y_?(\d+)', n, re.I):
+                            entry[slot + '_value'] = int(re.findall(r'\d+', n)[0]) / 100.0
+                        else:
+                            entry[slot] = load(n)
+                    m = mm.get('metal')
+                    if m and re.fullmatch(r'gr[ae]y_?(\d+)', m, re.I):
+                        entry['metal_value'] = int(re.findall(r'\d+', m)[0]) / 100.0
+                out.append(entry)
             return out
 
-        def done(images):
+        def done(entries):
             if token != self._token or not self.view.meshes:
                 return
+            images = [e['color'] for e in entries]
             found = sum(1 for q in images if q is not None)
             self.view.makeCurrent()
-            for m, q in zip(self.view.meshes, images):
-                if q is not None:
-                    self.view._free(m)
-                    m.image = q
+            for m, e in zip(self.view.meshes, entries):
+                self.view.free_textures(m)
+                if e['color'] is not None:
+                    m.image = e['color']
+                m.normal_map = e.get('normal')
+                m.rough_map = e.get('rough')
+                if 'rough_value' in e:
+                    m.rough = max(0.08, e['rough_value'])
+                if 'metal_value' in e:
+                    m.metal = e['metal_value']
             self.view.doneCurrent()
             self.view.update()
             total = len(images)
@@ -515,6 +557,28 @@ class ModelsPage(QWidget):
         job.sig.failed.connect(lambda tb: (print(tb), self.tex_note.setText('Textures could not be loaded')))
         self._job = job          # keep it alive until it reports back
         start(job)
+
+    def _hq(self):
+        return self.main.settings.get('render_quality') == 'high'
+
+    def _quality_changed(self, i):
+        self.main.settings['render_quality'] = 'high' if i == 1 else 'standard'
+        try:
+            from ..game import save_settings
+            save_settings(self.main.settings)
+        except Exception:
+            pass
+        if not self.gl:
+            return
+        # anti-aliasing is fixed when the view is made, so make a new one
+        old = self.view
+        self.view = viewer3d.ModelView3D(self._hq())
+        self._mid.replaceWidget(old, self.view)
+        old.hide()
+        old.deleteLater()
+        self.view.set_textured(self.textures.isChecked())
+        if self.model:
+            self._redraw()
 
     def _textures_toggled(self, on):
         if self.gl:
