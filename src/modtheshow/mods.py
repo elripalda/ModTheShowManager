@@ -1,0 +1,348 @@
+"""Mods: folders in <game>/mods, switched on and off, ordered, and installed into the game.
+
+A mod folder:
+  mod.json                                   name, author, version, description
+  textures/<pack path>/<texture name>.png    replaces one texture inside a .TEX pack
+  romfs/<path>                               replaces a whole game file
+The library state (order, which mods are off) is in mods/modtheshow.json, so mod folders stay clean to share.
+Mods lower in the list win when two touch the same thing. Originals are kept in <game>/mod-backup.
+"""
+import hashlib
+import json
+import os
+import re
+import shutil
+import time
+import zipfile
+
+from .texlib import Tex
+
+STATE = 'modtheshow.json'
+APPLIED = 'applied.json'
+
+
+def norm(rel):
+    return rel.replace('\\', '/').strip('/').upper()
+
+
+def _put(src, dst):
+    if os.path.exists(dst):
+        os.chmod(dst, 0o666)
+    shutil.copy2(src, dst)
+    os.chmod(dst, 0o666)
+
+
+class Mod:
+    def __init__(self, folder, path):
+        self.folder, self.path = folder, path
+        self.meta = {}
+        try:
+            with open(os.path.join(path, 'mod.json'), encoding='utf-8') as f:
+                self.meta = json.load(f)
+        except (OSError, ValueError):
+            pass
+        self.enabled = True
+
+    @property
+    def name(self):
+        return self.meta.get('name') or self.folder.lstrip('_')
+
+    def save_meta(self):
+        with open(os.path.join(self.path, 'mod.json'), 'w', encoding='utf-8') as f:
+            json.dump(self.meta, f, indent=2)
+
+    def textures(self):
+        """{pack rel (upper): {texture name: png path}}"""
+        out = {}
+        root = os.path.join(self.path, 'textures')
+        for dp, _, fs in os.walk(root):
+            pngs = [f for f in fs if f.lower().endswith('.png')]
+            if pngs:
+                rel = norm(os.path.relpath(dp, root))
+                for f in pngs:
+                    out.setdefault(rel, {})[f[:-4]] = os.path.join(dp, f)
+        return out
+
+    def files(self):
+        """{romfs rel (upper): source path}"""
+        out = {}
+        root = os.path.join(self.path, 'romfs')
+        for dp, _, fs in os.walk(root):
+            for f in fs:
+                src = os.path.join(dp, f)
+                out[norm(os.path.relpath(src, root))] = src
+        return out
+
+    def counts(self):
+        t = self.textures()
+        return sum(len(v) for v in t.values()), len(self.files())
+
+    def signature(self):
+        h = hashlib.sha1()
+        for dp, _, fs in sorted(os.walk(self.path)):
+            for f in sorted(fs):
+                p = os.path.join(dp, f)
+                st = os.stat(p)
+                h.update(f'{os.path.relpath(p, self.path)}|{st.st_size}|{int(st.st_mtime)}'.encode())
+        return h.hexdigest()
+
+
+class Library:
+    def __init__(self, game):
+        self.game = game
+        self.root = game.mods
+        os.makedirs(self.root, exist_ok=True)
+
+    # ---- state
+    def _state(self):
+        try:
+            with open(os.path.join(self.root, STATE), encoding='utf-8') as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {'order': [], 'disabled': []}
+
+    def _save_state(self, st):
+        with open(os.path.join(self.root, STATE), 'w', encoding='utf-8') as f:
+            json.dump(st, f, indent=2)
+
+    def list(self):
+        st = self._state()
+        folders = [d for d in os.listdir(self.root) if os.path.isdir(os.path.join(self.root, d))]
+        order = [f for f in st.get('order', []) if f in folders]
+        order += sorted(f for f in folders if f not in order)
+        mods = []
+        for f in order:
+            m = Mod(f, os.path.join(self.root, f))
+            m.enabled = f not in st.get('disabled', []) and not f.startswith('_')
+            mods.append(m)
+        return mods
+
+    def save_order(self, mods):
+        st = self._state()
+        st['order'] = [m.folder for m in mods]
+        st['disabled'] = [m.folder for m in mods if not m.enabled]
+        self._save_state(st)
+
+    def set_enabled(self, mod, on):
+        mods = self.list()
+        for m in mods:
+            if m.folder == mod.folder:
+                m.enabled = on
+        self.save_order(mods)
+
+    def move(self, mod, delta):
+        mods = self.list()
+        i = next(i for i, m in enumerate(mods) if m.folder == mod.folder)
+        j = max(0, min(len(mods) - 1, i + delta))
+        mods.insert(j, mods.pop(i))
+        self.save_order(mods)
+
+    # ---- editing
+    def create(self, name, author='', description=''):
+        slug = re.sub(r'[<>:"/\\|?*]+', '', name).strip() or 'New Mod'
+        folder, n = slug, 2
+        while os.path.exists(os.path.join(self.root, folder)):
+            folder, n = f'{slug} {n}', n + 1
+        path = os.path.join(self.root, folder)
+        os.makedirs(path)
+        m = Mod(folder, path)
+        m.meta = {'name': name, 'author': author, 'version': '1.0', 'description': description}
+        m.save_meta()
+        mods = self.list()
+        self.save_order(mods)
+        return m
+
+    def delete(self, mod):
+        shutil.rmtree(mod.path)
+        self.save_order(self.list())
+
+    def texture_path(self, mod, pack_rel, tex_name):
+        return os.path.join(mod.path, 'textures', *norm(pack_rel).split('/'), tex_name + '.png')
+
+    def add_texture(self, mod, pack_rel, tex_name, image):
+        """image: a PIL image or a path to a PNG."""
+        from PIL import Image
+        dst = self.texture_path(mod, pack_rel, tex_name)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        img = Image.open(image) if isinstance(image, str) else image
+        img.convert('RGBA').save(dst)
+        return dst
+
+    def remove_texture(self, mod, pack_rel, tex_name):
+        p = self.texture_path(mod, pack_rel, tex_name)
+        if os.path.exists(p):
+            os.remove(p)
+
+    def add_file(self, mod, rel, src):
+        dst = os.path.join(mod.path, 'romfs', *norm(rel).split('/'))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+        return dst
+
+    def export_zip(self, mod, out):
+        with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
+            for dp, _, fs in os.walk(mod.path):
+                for f in fs:
+                    p = os.path.join(dp, f)
+                    z.write(p, os.path.join(mod.folder, os.path.relpath(p, mod.path)))
+
+    def import_zip(self, path):
+        with zipfile.ZipFile(path) as z:
+            names = [n for n in z.namelist() if not n.endswith('/')]
+            tops = {n.split('/')[0] for n in names}
+            single = len(tops) == 1 and any('/' in n for n in names)
+            base = os.path.splitext(os.path.basename(path))[0]
+            folder = tops.pop() if single else base
+            target, n = folder, 2
+            while os.path.exists(os.path.join(self.root, target)):
+                target, n = f'{folder} {n}', n + 1
+            dest = os.path.join(self.root, target)
+            for name in names:
+                rel = name.split('/', 1)[1] if single else name
+                if not rel or '..' in rel.split('/'):
+                    continue
+                out = os.path.join(dest, *rel.split('/'))
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                with z.open(name) as src, open(out, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+        self.save_order(self.list())
+        return Mod(target, dest)
+
+    # ---- what wins
+    def winners(self):
+        """Final texture and file sources from enabled mods, in order (later wins)."""
+        tex, files = {}, {}
+        for m in self.list():
+            if not m.enabled:
+                continue
+            for pack, names in m.textures().items():
+                for n, png in names.items():
+                    tex.setdefault(pack, {})[n] = (m, png)
+            for rel, src in m.files().items():
+                files[rel] = (m, src)
+        return tex, files
+
+    def conflicts(self):
+        seen, out = {}, {}
+        for m in self.list():
+            if not m.enabled:
+                continue
+            keys = [(p, n) for p, ns in m.textures().items() for n in ns] + [(r, None) for r in m.files()]
+            for k in keys:
+                if k in seen:
+                    out.setdefault(k, [seen[k]]).append(m.name)
+                seen[k] = m.name
+        return out
+
+    # ---- install
+    def _signature(self):
+        return [[m.folder, m.signature()] for m in self.list() if m.enabled]
+
+    def pending_count(self):
+        """How many mods differ from what is in the game (turned on, off or edited since the last apply)."""
+        try:
+            with open(os.path.join(self.game.backup, APPLIED), encoding='utf-8') as f:
+                done = dict(map(tuple, json.load(f).get('mods', [])))
+        except (OSError, ValueError):
+            done = {}
+        now = dict(map(tuple, self._signature()))
+        return sum(1 for k in set(done) | set(now) if done.get(k) != now.get(k))
+
+    def pending(self):
+        try:
+            with open(os.path.join(self.game.backup, APPLIED), encoding='utf-8') as f:
+                done = json.load(f).get('mods', [])
+        except (OSError, ValueError):
+            done = []
+        return done != self._signature()
+
+    def _backed_up(self):
+        out = []
+        for dp, _, fs in os.walk(self.game.backup):
+            for f in fs:
+                if f == APPLIED and dp == self.game.backup:
+                    continue
+                out.append(os.path.relpath(os.path.join(dp, f), self.game.backup).replace('\\', '/'))
+        return out
+
+    def _back_up(self, rel):
+        b = os.path.join(self.game.backup, *rel.split('/'))
+        if not os.path.exists(b):
+            os.makedirs(os.path.dirname(b), exist_ok=True)
+            shutil.copy2(self.game.path(rel), b)
+
+    def _fix_sizes(self, rels):
+        tsv = self.game.tsv
+        if not rels or not os.path.exists(tsv):
+            return
+        want = {'/' + norm(r): os.path.getsize(self.game.path(r)) for r in rels if os.path.exists(self.game.path(r))}
+        with open(tsv, encoding='utf-8', newline='') as f:
+            lines = f.read().split('\n')
+        for i, line in enumerate(lines):
+            p = line.split('\t')
+            key = p[-1].rstrip('\r').upper()
+            if len(p) == 3 and key in want:
+                p[0] = str(want[key])
+                lines[i] = '\t'.join(p)
+        with open(tsv, 'w', encoding='utf-8', newline='') as f:
+            f.write('\n'.join(lines))
+
+    def restore(self, log=print):
+        rels = self._backed_up()
+        for rel in rels:
+            _put(os.path.join(self.game.backup, *rel.split('/')), self.game.path(rel))
+        self._fix_sizes(rels)
+        try:
+            os.remove(os.path.join(self.game.backup, APPLIED))
+        except OSError:
+            pass
+        log(f'Restored {len(rels)} original file(s)')
+        return rels
+
+    def apply(self, log=print, progress=lambda done, total: None):
+        """Install every enabled mod. Returns (files changed, problems)."""
+        from PIL import Image
+        t0 = time.time()
+        self.restore(log=lambda *_: None)
+        tex, files = self.winners()
+        total = len(files) + sum(len(v) for v in tex.values())
+        done, problems, changed = 0, [], []
+        for rel, (m, src) in files.items():
+            if not os.path.exists(self.game.path(rel)):
+                problems.append(f'{m.name}: {rel} is not a game file')
+                continue
+            self._back_up(rel)
+            _put(src, self.game.path(rel))
+            changed.append(rel)
+            done += 1
+            progress(done, total)
+            log(f'{rel}  ({m.name})')
+        for rel, names in tex.items():
+            if not os.path.exists(self.game.path(rel)):
+                problems.append(f'{rel} is not a game file')
+                continue
+            self._back_up(rel)
+            t = Tex(self.game.path(rel) if rel in files else self.game.original(rel))
+            n = 0
+            for name, (m, png) in sorted(names.items()):
+                hits = t.find(name.split('__')[0])
+                try:
+                    if not hits:
+                        raise ValueError(f'no texture named {name} in {rel}')
+                    for e in hits:
+                        t.replace(e, Image.open(png))
+                    n += 1
+                except Exception as x:
+                    problems.append(f'{m.name}: {name}: {x}')
+                done += 1
+                progress(done, total)
+            os.chmod(self.game.path(rel), 0o666)
+            t.save(self.game.path(rel))
+            changed.append(rel)
+            log(f'{rel}  ({n} texture(s))')
+        self._fix_sizes(changed)
+        os.makedirs(self.game.backup, exist_ok=True)
+        with open(os.path.join(self.game.backup, APPLIED), 'w', encoding='utf-8') as f:
+            json.dump({'mods': self._signature(), 'when': time.time()}, f)
+        log(f'Done in {time.time() - t0:.1f}s: {len(set(changed))} game file(s) changed')
+        return changed, problems
