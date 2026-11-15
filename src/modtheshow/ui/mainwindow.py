@@ -13,13 +13,15 @@ from . import theme, workers
 from .common import PickModDialog, button, label
 from .gamefiles import GameFilesPage
 from .models import ModelsPage
+from .sounds import SoundsPage
 from .modspage import ModsPage
 from .pages import BatsPage, MenusPage, ScoreboardsPage, StadiumsPage, UniformsPage
 
 NAV = [('LIBRARY', [('Mods', ModsPage), ('Game Files', GameFilesPage)]),
        ('CREATE', [('Uniforms', UniformsPage), ('Bats', BatsPage), ('Stadiums', StadiumsPage),
-                   ('Scoreboards', ScoreboardsPage), ('Menus & Loading Screens', MenusPage), ('3D Models', ModelsPage)]),
-       ('LATER', [('Sound Effects', None), ('Code Plugins', None)])]
+                   ('Scoreboards', ScoreboardsPage), ('Menus & Loading Screens', MenusPage), ('3D Models', ModelsPage),
+                   ('Sounds', SoundsPage)]),
+       ('LATER', [('Code Plugins', None)])]
 
 
 class Setup(QWidget):

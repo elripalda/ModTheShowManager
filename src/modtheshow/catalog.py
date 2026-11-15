@@ -165,28 +165,63 @@ def parks(game):
     return [(g, sorted(rows, key=lambda r: r[1])) for g, rows in groups.items() if rows]
 
 
+def _nice(p, strip=''):
+    n = p.rsplit('/', 1)[1][:-4]
+    if strip and n.startswith(strip):
+        n = n[len(strip):]
+    return n.replace('_', ' ').title().strip() or p.rsplit('/', 1)[1][:-4].title()
+
+
+def scoreboard_groups(game):
+    """[(group, [(label, pack)])] - every in-game overlay pack."""
+    themes = {'THEME1': 'Theme 1', 'THEME2': 'Theme 2', 'THEME3': 'Theme 3', 'THEME4': 'Theme 4',
+              'THEMEMOMENTS': 'Moments', 'GAME': 'In-Game Shared', 'TRAIN': 'Training'}
+    bugs, pres, other = [], [], []
+    for p in packs_in(game, 'NSW/UI/GAME', recursive=True):
+        code = p.rsplit('/', 1)[1][:-4]
+        if '/PRES/' in p:
+            pres.append(('Presentation ' + _nice(p, 'PRESOSDS'), p))
+        elif code in themes:
+            bugs.append((themes[code], p))
+        else:
+            other.append((_nice(p), p))
+    bugs.sort(key=lambda r: list(themes.values()).index(r[0]) if r[0] in themes.values() else 99)
+    for folder, label in (('NSW/OSD', 'On-Screen Display'), ('NSW/UI/HRDERBY', 'Home Run Derby')):
+        for p in packs_in(game, folder, recursive=True):
+            other.append((f'{label}: {_nice(p)}', p))
+    out = [('SCOREBUG THEMES', bugs), ('BROADCAST PRESENTATION', pres), ('OTHER OVERLAYS', other)]
+    return [(g, rows) for g, rows in out if rows]
+
+
 def scoreboard_packs(game):
-    rows = [('THEME1', 'Theme 1'), ('THEME2', 'Theme 2'), ('THEME3', 'Theme 3'), ('THEME4', 'Theme 4'),
-            ('THEMEMOMENTS', 'Moments'), ('GAME', 'In-Game Shared'), ('TRAIN', 'Training')]
-    out = [(label, f'NSW/UI/GAME/{code}.TEX') for code, label in rows if _dir(game, f'NSW/UI/GAME/{code}.TEX')]
-    for p in packs_in(game, 'NSW/UI/GAME/PRES'):
-        out.append(('Presentation ' + p.rsplit('/', 1)[1][8:-4].title(), p))
-    return out
+    return [r for _, rows in scoreboard_groups(game) for r in rows]
+
+
+def menu_groups(game):
+    """[(group, [(label, pack)])] - front end, loading screens, creators, player art."""
+    def packs(folder, recursive=True):
+        return packs_in(game, folder, recursive=recursive)
+    groups = []
+    rows = [('Loading: ' + _nice(p), p) for p in packs('NSW/LOADINGSCREENBACKGROUNDS')]
+    rows += [(_nice(p), p) for p in ('NSW/UI/STATS/DYNAMICLOADINGSCREENS.TEX',) if _dir(game, p)]
+    groups.append(('LOADING SCREENS', rows))
+    rows = [(_nice(p), p) for p in ('NSW/UI/FRONTEND/FRONTEND.TEX', 'NSW/UI/OPTIONS.TEX', 'NSW/UI/CREATEPLAYEROPTIONS.TEX',
+                                     'NSW/UI/QUIRKS.TEX') if _dir(game, p)]
+    rows += [(_nice(p), p) for p in packs('NSW/UI/FRONTEND') if p != 'NSW/UI/FRONTEND/FRONTEND.TEX']
+    rows += [('Art: ' + _nice(p), p) for p in packs('NSW/UI/ART/TEXTURES')]
+    rows += [('Fonts: ' + _nice(p), p) for p in packs('NSW/UI/ART/FONTS')]
+    rows += [('Headshots: ' + _nice(p), p) for p in packs('NSW/UI/ART/MUGS')]
+    rows += [('Live Content: ' + _nice(p), p) for p in packs('NSW/LIVECONTENT')]
+    groups.append(('MENUS & FRONT END', rows))
+    groups.append(('UNIFORM CREATOR (fonts, patches, templates)', [(_nice(p), p) for p in packs('NSW/CREATEUNIFORM')]))
+    groups.append(('PLAYER CREATOR', [(_nice(p), p) for p in packs('NSW/CREATEPLAYER')]))
+    groups.append(('SKY & LIGHTING', [(_nice(p), p) for p in packs('NSW/LIGHTING') + packs('NSW/GROUNDPLANE')]))
+    groups.append(('PLAYER ACTION SHOTS', [(_nice(p), p) for p in packs('NSW/UI/ART/ACTIONSHOTS')]))
+    return [(g, rows) for g, rows in groups if rows]
 
 
 def menu_packs(game):
-    out = []
-    for p in packs_in(game, 'NSW/LOADINGSCREENBACKGROUNDS'):
-        out.append(('Loading: ' + p.rsplit('/', 1)[1][:-4].replace('_', ' ').title(), p))
-    for p in ['NSW/UI/STATS/DYNAMICLOADINGSCREENS.TEX', 'NSW/UI/FRONTEND/FRONTEND.TEX', 'NSW/UI/OPTIONS.TEX',
-              'NSW/UI/CREATEPLAYEROPTIONS.TEX', 'NSW/UI/QUIRKS.TEX', 'NSW/UI/HRDERBY/HRDERBY.TEX']:
-        if _dir(game, p):
-            out.append((p.rsplit('/', 1)[1][:-4].replace('_', ' ').title(), p))
-    for p in packs_in(game, 'NSW/UI/ART/TEXTURES'):
-        out.append(('Art: ' + p.rsplit('/', 1)[1][:-4].replace('_', ' ').title(), p))
-    for p in packs_in(game, 'NSW/UI/ART/FONTS'):
-        out.append(('Fonts: ' + p.rsplit('/', 1)[1][:-4].title(), p))
-    return out
+    return [r for _, rows in menu_groups(game) for r in rows]
 
 
 def bat_packs(game):

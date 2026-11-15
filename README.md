@@ -11,10 +11,16 @@ drop in your own art and switch mods on and off.
   about them: by team and uniform, by ballpark, by scorebug theme.
 - **Mods** – each mod is a folder in `<game>\mods`. Turn them on and off, set the order, Apply. Restore puts the
   original files back.
-- **3D Models** – bats, balls and stadium props. Spin them around, export OBJ for Blender, bring an OBJ back in
-  to replace a mesh, scale or hide meshes. Bat Shapes turns every bat in the game into a wiffle bat, a big
-  barrel toy bat or a fungo in one click. Player gear that's skinned to a skeleton is view-only for now.
+- **3D Models** – bats, balls, stadium props, players' gear, gloves, jerseys and bodies, drawn with their game
+  textures. Export OBJ for Blender, bring an OBJ back in to replace a mesh on bats, balls and props, scale or
+  hide meshes. Bat Shapes turns every bat in the game into a wiffle bat, a big barrel toy bat or a fungo.
+- **Uniforms on a player** – flip the Uniforms page to *On a Player* and see the uniform you're editing on a
+  mannequin, your replaced PNGs included.
+- **Sounds** – every sound file in the game. Sound banks and AT9 clips play and export as WAV.
 - Replaced textures keep the game's format: BC1, BC3, BC4 and BC7, with mip levels and loading previews rebuilt.
+
+See the **[modding guide](docs/MODDING_GUIDE.md)** for where everything lives, how to find what you want and how
+the file formats work.
 
 ## Get it
 
@@ -54,6 +60,7 @@ pyinstaller ModTheShowManager.spec      # build the exe
 ## Credits
 
 Made by [Ripalda](https://www.elripalda.com). Runs on top of
-[mlbts-native](https://github.com/sam110411/mlbts-native). Fonts: Inter, Anton (SIL Open Font License).
+[mlbts-native](https://github.com/sam110411/mlbts-native). Audio decoding by [vgmstream](https://vgmstream.org).
+Fonts: Inter, Anton (SIL Open Font License).
 
 Licensed under GPL-3.0.

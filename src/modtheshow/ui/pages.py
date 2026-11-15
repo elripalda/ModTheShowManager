@@ -297,18 +297,22 @@ class _ListOfPacks(CollectionPage):
 
 class ScoreboardsPage(_ListOfPacks):
     TITLE = 'Scoreboards'
-    SUB = "The scorebug themes from the game's settings. Reskin any piece now; moving pieces comes with the layout editor."
+    SUB = "Scorebug themes, broadcast graphics and every other in-game overlay. Reskin any piece; moving pieces comes " \
+          "with the layout editor."
     SEARCH = 'Find a theme'
-    GROUP = 'SCOREBUG THEMES'
-    ROWS = staticmethod(catalog.scoreboard_packs)
+
+    def groups(self):
+        return [(g, [(rel, name) for name, rel in rows]) for g, rows in catalog.scoreboard_groups(self.main.game)]
 
 
 class MenusPage(_ListOfPacks):
     TITLE = 'Menus & Loading Screens'
-    SUB = 'Loading screens, menu art, logos and fonts used across the front end.'
+    SUB = 'Loading screens, menu art, fonts, headshots, the uniform and player creators, sky textures and the ' \
+          'player action shots. Card art and announcements are WEBP files under Game Files › CROSS/LIVE.'
     SEARCH = 'Find a pack'
-    GROUP = 'MENUS & LOADING'
-    ROWS = staticmethod(catalog.menu_packs)
+
+    def groups(self):
+        return [(g, [(rel, name) for name, rel in rows]) for g, rows in catalog.menu_groups(self.main.game)]
 
 
 class BatsPage(_ListOfPacks):

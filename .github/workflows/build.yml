@@ -28,6 +28,16 @@ jobs:
       - name: Check the texture engine
         run: python tests/test_texlib.py && python tests/test_modellib.py
 
+      - name: Fetch the audio decoder (vgmstream)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/vgmstream/vgmstream/releases/download/r2117/vgmstream-win64.zip -OutFile vgm.zip
+          Expand-Archive vgm.zip -DestinationPath vgm
+          New-Item -ItemType Directory -Force src/modtheshow/assets/vgmstream | Out-Null
+          Get-ChildItem vgm -Recurse -File | Where-Object { $_.Name -notmatch '^(in_|xmp-)' } |
+            Copy-Item -Destination src/modtheshow/assets/vgmstream
+          Get-ChildItem src/modtheshow/assets/vgmstream
+
       - name: Build exe
         run: pyinstaller --noconfirm ModTheShowManager.spec
 
