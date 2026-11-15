@@ -67,6 +67,10 @@ QPushButton#Chip:checked {{ background: {S2}; color: {TEXT}; border-color: {LINE
 QPushButton#Icon {{ min-height: 34px; min-width: 34px; padding: 0 8px; background: transparent; border-color: transparent;
                    color: {MUTED}; }}
 QPushButton#Icon:hover {{ background: {S2}; border-color: {LINE}; color: {TEXT}; }}
+QDoubleSpinBox {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; padding: 0 6px; min-height: 38px;
+    color: {TEXT}; selection-background-color: {RED}; }}
+QDoubleSpinBox:focus {{ border-color: {LINE_HI}; }}
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ width: 16px; border: none; background: transparent; }}
 QLineEdit, QComboBox, QPlainTextEdit {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px;
     padding: 0 10px; min-height: 38px; selection-background-color: {RED}; }}
 QPlainTextEdit {{ padding: 8px; font-family: 'Consolas', monospace; font-size: 12px; }}

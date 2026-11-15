@@ -11,6 +11,9 @@ drop in your own art and switch mods on and off.
   about them: by team and uniform, by ballpark, by scorebug theme.
 - **Mods** – each mod is a folder in `<game>\mods`. Turn them on and off, set the order, Apply. Restore puts the
   original files back.
+- **3D Models** – bats, balls and stadium props. Spin them around, export OBJ for Blender, bring an OBJ back in
+  to replace a mesh, scale or hide meshes. Bat Shapes turns every bat in the game into a wiffle bat, a big
+  barrel toy bat or a fungo in one click. Player gear that's skinned to a skeleton is view-only for now.
 - Replaced textures keep the game's format: BC1, BC3, BC4 and BC7, with mip levels and loading previews rebuilt.
 
 ## Get it
@@ -31,7 +34,12 @@ mods/My Mod/
   mod.json
   textures/NSW/STADIUMS/ARZ/TEXTURES_COLOR.TEX/rolling_sign_basecolor.png
   romfs/NSW/STADIUMS/ARZ/PROPS.XML
+  romfs/NSW/OBJECTS/G4GAMEBAT.MOD        (models are two files:
+  romfs/NSW/OBJECTS/G4GAMEBAT.0.MOD       the description and the geometry)
 ```
+
+For a custom model, export the original OBJ first and build over it in Blender so the size and axes match,
+then export with the same axis settings.
 
 Share your own work, not the game's original files.
 

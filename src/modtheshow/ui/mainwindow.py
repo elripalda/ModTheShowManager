@@ -4,7 +4,7 @@ from collections import OrderedDict
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-                               QMessageBox, QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
+                               QMessageBox, QProgressBar, QPushButton, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget)
 
 from .. import __version__, game as gamemod
 from ..mods import Library
@@ -12,13 +12,14 @@ from ..texlib import Tex
 from . import theme, workers
 from .common import PickModDialog, button, label
 from .gamefiles import GameFilesPage
+from .models import ModelsPage
 from .modspage import ModsPage
 from .pages import BatsPage, MenusPage, ScoreboardsPage, StadiumsPage, UniformsPage
 
 NAV = [('LIBRARY', [('Mods', ModsPage), ('Game Files', GameFilesPage)]),
        ('CREATE', [('Uniforms', UniformsPage), ('Bats', BatsPage), ('Stadiums', StadiumsPage),
-                   ('Scoreboards', ScoreboardsPage), ('Menus & Loading Screens', MenusPage)]),
-       ('LATER', [('3D Models', None), ('Sound Effects', None), ('Code Plugins', None)])]
+                   ('Scoreboards', ScoreboardsPage), ('Menus & Loading Screens', MenusPage), ('3D Models', ModelsPage)]),
+       ('LATER', [('Sound Effects', None), ('Code Plugins', None)])]
 
 
 class Setup(QWidget):
@@ -194,9 +195,11 @@ class MainWindow(QMainWindow):
             cl.addWidget(v)
             self.cells[key] = v
             bl.addWidget(cell)
+        bug.setMinimumWidth(bug.sizeHint().width() + 40)
         lay.addWidget(bug)
         lay.addSpacing(8)
         self.toast_label = label('', 'Sub')
+        self.toast_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         lay.addWidget(self.toast_label, 1)
         self.progress = QProgressBar()
         self.progress.setFixedWidth(160)
@@ -349,6 +352,7 @@ class MainWindow(QMainWindow):
 
     def toast(self, text):
         self.toast_label.setText(text)
+        self.toast_label.setToolTip(text)
         QTimer.singleShot(8000, lambda t=text: self.toast_label.text() == t and self.toast_label.setText(''))
 
     def run(self, fn, text, done=None):
