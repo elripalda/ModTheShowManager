@@ -21,7 +21,7 @@ GL_DEPTH_TEST = 0x0B71
 GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT = 0x4000, 0x0100
 GL_LEQUAL = 0x0203
 GL_TEXTURE_2D, GL_TEXTURE0, GL_FRAMEBUFFER = 0x0DE1, 0x84C0, 0x8D40
-STRIDE = 48   # pos3 nrm3 uv2 tan4
+STRIDE = 56   # pos3 nrm3 uv2 tan4 uvn2 (name/number uv)
 SHADOW = 2048
 
 VERT = """
@@ -29,6 +29,7 @@ attribute vec3 a_pos;
 attribute vec3 a_nrm;
 attribute vec2 a_uv;
 attribute vec4 a_tan;
+attribute vec2 a_uvn;
 uniform mat4 u_mvp;
 uniform mat4 u_model;
 uniform mat4 u_light;
@@ -37,7 +38,9 @@ varying vec3 v_pos;
 varying vec2 v_uv;
 varying vec4 v_tan;
 varying vec4 v_lpos;
+varying vec2 v_uvn;
 void main() {
+    v_uvn = a_uvn;
     v_nrm = (u_model * vec4(a_nrm, 0.0)).xyz;
     v_tan = vec4((u_model * vec4(a_tan.xyz, 0.0)).xyz, a_tan.w);
     v_pos = (u_model * vec4(a_pos, 1.0)).xyz;
@@ -53,7 +56,10 @@ varying vec3 v_pos;
 varying vec2 v_uv;
 varying vec4 v_tan;
 varying vec4 v_lpos;
+varying vec2 v_uvn;
 uniform sampler2D u_tex;
+uniform sampler2D u_otex;
+uniform float u_has_o;
 uniform sampler2D u_ntex;
 uniform sampler2D u_rtex;
 uniform sampler2D u_shadow;
@@ -95,6 +101,10 @@ void main() {
     vec4 t = texture2D(u_tex, v_uv);
     if (u_cutout > 0.5 && t.a < 0.35) discard;
     vec3 base = mix(u_color, t.rgb, u_textured);
+    if (u_has_o > 0.5 && v_uvn.x >= 0.0 && v_uvn.x <= 1.0 && v_uvn.y >= 0.0 && v_uvn.y <= 1.0) {
+        vec4 o = texture2D(u_otex, v_uvn);
+        base = mix(base, o.rgb, o.a);
+    }
     vec3 n = v_nrm;
     if (dot(n, n) < 0.01) n = cross(dFdx(v_pos), dFdy(v_pos));
     n = normalize(n);
@@ -246,10 +256,13 @@ class Mesh:
     """What the viewer draws: per-vertex data, triangles, and textures or a flat colour."""
 
     def __init__(self, pos, nrm, uv, tris, color='#c9c2b0', image=None, visible=True, cutout=False, tan=None,
-                 normal_map=None, rough_map=None, metal=0.0, rough=0.6):
+                 normal_map=None, rough_map=None, metal=0.0, rough=0.6, uvn=None, overlay=None):
         self.pos, self.nrm, self.uv, self.tris, self.tan = pos, nrm, uv, tris, tan
         self.color, self.image, self.visible, self.cutout = QColor(color), image, visible, cutout
         self.normal_map, self.rough_map, self.metal, self.rough = normal_map, rough_map, metal, rough
+        self.uvn, self.overlay = uvn, overlay
+        self.otex = None
+        self.has_o = False
         self.highlight = False
         self.vbo = self.tex = self.ntex = self.rtex = None
         self.count = 0
@@ -358,14 +371,14 @@ class ModelView3D(QOpenGLWidget):
         self.update()
 
     def _free(self, m):
-        for attr in ('vbo', 'tex', 'ntex', 'rtex'):
-            o = getattr(m, attr)
+        for attr in ('vbo', 'tex', 'ntex', 'rtex', 'otex'):
+            o = getattr(m, attr, None)
             if o is not None:
                 o.destroy()
             setattr(m, attr, None)
 
     def free_textures(self, m):
-        for attr in ('tex', 'ntex', 'rtex'):
+        for attr in ('tex', 'ntex', 'rtex', 'otex'):
             o = getattr(m, attr)
             if o is not None:
                 o.destroy()
@@ -385,7 +398,8 @@ class ModelView3D(QOpenGLWidget):
         n = m.nrm if m.nrm is not None and len(m.nrm) == len(m.pos) else np.zeros_like(m.pos)
         uv = m.uv if m.uv is not None and len(m.uv) == len(m.pos) else np.zeros((len(m.pos), 2), np.float32)
         tan = m.tan if m.tan is not None and len(m.tan) == len(m.pos) else np.zeros((len(m.pos), 4), np.float32)
-        data = np.hstack([m.pos[tris], n[tris], uv[tris], tan[tris]]).astype(np.float32)
+        uvn = m.uvn if m.uvn is not None and len(m.uvn) == len(m.pos) else np.full((len(m.pos), 2), -1.0, np.float32)
+        data = np.hstack([m.pos[tris], n[tris], uv[tris], tan[tris], uvn[tris]]).astype(np.float32)
         m.count = len(tris)
         m.vbo = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
         m.vbo.create()
@@ -397,7 +411,18 @@ class ModelView3D(QOpenGLWidget):
         ok = lambda q: isinstance(q, QImage) and not q.isNull()
         if m.tex is None:
             m.has_tex = ok(m.image)
-            m.tex = self._texture(m.image if m.has_tex else self._white)
+            img = m.image if m.has_tex else self._white
+            if m.has_tex and not m.cutout:
+                # alpha in game textures is a mask (team-colour tint, paint zones), not transparency:
+                # drop it so nothing turns black when the texture is uploaded premultiplied
+                img = img.convertToFormat(QImage.Format_RGBX8888)
+            m.tex = self._texture(img)
+        if getattr(m, 'otex', None) is None:
+            m.has_o = ok(m.overlay)
+            o = QOpenGLTexture(m.overlay if m.has_o else self._white)
+            o.setMinMagFilters(QOpenGLTexture.LinearMipMapLinear, QOpenGLTexture.Linear)
+            o.setWrapMode(QOpenGLTexture.ClampToEdge)
+            m.otex = o
         if m.ntex is None:
             m.has_n = ok(m.normal_map)
             m.ntex = self._texture(m.normal_map if m.has_n else self._white)
@@ -419,7 +444,7 @@ class ModelView3D(QOpenGLWidget):
         try:
             self.vao = QOpenGLVertexArrayObject()
             self.vao.create()
-            self.prog = self._program(VERT, FRAG, ['a_pos', 'a_nrm', 'a_uv', 'a_tan'])
+            self.prog = self._program(VERT, FRAG, ['a_pos', 'a_nrm', 'a_uv', 'a_tan', 'a_uvn'])
             self.lines = self._program(LINE_VERT, LINE_FRAG, ['a_pos'])
             self.depth = self._program(DEPTH_VERT, DEPTH_FRAG, ['a_pos', 'a_uv'])
             self.floorp = self._program(FLOOR_VERT, FLOOR_FRAG, ['a_pos'])
@@ -449,7 +474,7 @@ class ModelView3D(QOpenGLWidget):
         prog.enableAttributeArray(0)
         prog.setAttributeBuffer(0, GL_FLOAT, 0, 3, STRIDE)
         if full:
-            for loc, off, size in ((1, 12, 3), (2, 24, 2), (3, 32, 4)):
+            for loc, off, size in ((1, 12, 3), (2, 24, 2), (3, 32, 4), (4, 48, 2)):
                 prog.enableAttributeArray(loc)
                 prog.setAttributeBuffer(loc, GL_FLOAT, off, size, STRIDE)
         else:
@@ -517,7 +542,7 @@ class ModelView3D(QOpenGLWidget):
         self._u(p, 'u_hq', bool(self.hq))
         self._u(p, 'u_shadow_on', bool(self.hq))
         self._u(p, 'u_texel', 1.0 / SHADOW)
-        for name, unit in (('u_tex', 0), ('u_ntex', 1), ('u_rtex', 2), ('u_shadow', 3)):
+        for name, unit in (('u_tex', 0), ('u_ntex', 1), ('u_rtex', 2), ('u_shadow', 3), ('u_otex', 4)):
             self._u(p, name, unit)
         if self.hq:
             f.glActiveTexture(GL_TEXTURE0 + 3)
@@ -534,9 +559,11 @@ class ModelView3D(QOpenGLWidget):
             self._u(p, 'u_has_r', bool(self.hq and m.has_r))
             self._u(p, 'u_metal', float(m.metal))
             self._u(p, 'u_rough', float(m.rough))
+            self._u(p, 'u_has_o', bool(m.has_o))
             m.tex.bind(0)
             m.ntex.bind(1)
             m.rtex.bind(2)
+            m.otex.bind(4)
             f.glDrawArrays(GL_TRIANGLES, 0, m.count)
             m.vbo.release()
         p.release()

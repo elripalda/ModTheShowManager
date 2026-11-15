@@ -3,9 +3,10 @@ editing and any PNGs your mod has put over it. Used by the Uniforms page as a li
 import os
 
 import numpy as np
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QVBoxLayout, QWidget
 
-from .. import modellib
+from .. import modellib, uniform_text
 from ..texfind import TextureFinder
 from . import viewer3d
 from .common import button, label
@@ -14,7 +15,7 @@ from .workers import Job, start
 PARTS = [
     ('NSW/CHARACTERS/MASTERFILES/CLOTH/JERSEY/G4JERSEY_BUFF.MOD', None),
     ('NSW/CHARACTERS/MASTERFILES/CLOTH/PANTS/G4PANTS_LONG.MOD', None),
-    ('NSW/CHARACTERS/MASTERFILES/BODIES/STANDARDMALE/MALEBODY.MOD', ('Arm_L', 'Arm_R', 'socksHi')),
+    ('NSW/CHARACTERS/MASTERFILES/BODIES/STANDARDMALE/MALEBODY.MOD', ('Arm_L', 'Arm_R')),
     ('NSW/CHARACTERS/ACCESSORIES/SHOES/SHOES_NIKE_ALPHAHUARACHEELITE4.MOD', None),
     ('NSW/CHARACTERS/ACCESSORIES/SHOES/SHOES_ADIDAS_ADIZEROEDGEPLUS.MOD', None),
 ]
@@ -32,6 +33,30 @@ class PlayerPreview(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
         bar = QHBoxLayout()
+        bar.setSpacing(8)
+        self.name = QLineEdit(main.settings.get('preview_name', 'RIPALDA'))
+        self.name.setPlaceholderText('Name on the back')
+        self.name.setMaximumWidth(170)
+        self.number = QLineEdit(main.settings.get('preview_number', '26'))
+        self.number.setPlaceholderText('No.')
+        self.number.setMaxLength(2)
+        self.number.setMaximumWidth(56)
+        self._retext = QTimer(self, singleShot=True, interval=350, timeout=self._text_changed)
+        self.name.textChanged.connect(lambda _: self._retext.start())
+        self.number.textChanged.connect(lambda _: self._retext.start())
+        bar.addWidget(self.name)
+        bar.addWidget(self.number)
+        self.font = QComboBox()
+        self.font.setToolTip("Use another team's lettering and numbers on this uniform (saved into your mod)")
+        self.font.addItem('Font: this team')
+        self._font_rows = []
+        self.font.activated.connect(self._font_picked)
+        bar.addWidget(self.font)
+        self.quality = QComboBox()
+        self.quality.addItems(['Standard', 'High Quality'])
+        self.quality.setCurrentIndex(1 if main.settings.get('render_quality') == 'high' else 0)
+        self.quality.currentIndexChanged.connect(self._quality_changed)
+        bar.addWidget(self.quality)
         self.note = label('', 'Sub')
         bar.addWidget(self.note, 1)
         bar.addWidget(button('Front', on_click=lambda: self._turn(0.0)))
@@ -39,8 +64,9 @@ class PlayerPreview(QWidget):
         bar.addWidget(button('Save Image', on_click=self.save_image))
         lay.addLayout(bar)
         self.gl = viewer3d.available()
+        self._lay = lay
         if self.gl:
-            self.view = viewer3d.ModelView3D()
+            self.view = viewer3d.ModelView3D(main.settings.get('render_quality') == 'high')
             self.view.message = 'Loading the player…'
         else:
             self.view = label('This PC could not start the 3D preview (OpenGL).', 'Sub')
@@ -56,6 +82,63 @@ class PlayerPreview(QWidget):
         hit = self.main.mod_png(pack, name)
         return hit[1] if hit else None
 
+    def _fill_fonts(self):
+        if self._font_rows:
+            return
+        from .. import catalog
+        for _, rows in catalog.teams(self.main.game):
+            for code, name, league in rows:
+                folder = f'NSW/UNIFORMS/{league}/{code}/HOME'
+                if f'{folder}/UNIFORM.TEX' in self.main.game.files and all(f != folder for _, f in self._font_rows):
+                    self._font_rows.append((name, folder))
+        for name, _ in self._font_rows:
+            self.font.addItem(f'Font: {name}')
+
+    def _font_picked(self, i):
+        if i <= 0 or not self.folder:
+            return
+        name, src = self._font_rows[i - 1]
+        mod = self.main.active_mod(ask=True)
+        if not mod:
+            self.font.setCurrentIndex(0)
+            return
+        from ..texlib import Tex
+        dst_pack = f'{self.folder}/UNIFORM.TEX'
+        try:
+            with Tex(self.main.game.original(f'{src}/UNIFORM.TEX'), readonly=True) as srct, \
+                    Tex(self.main.game.original(dst_pack), readonly=True) as dstt:
+                for tex in ('letters-color', 'numbers-color'):
+                    a, b = srct.find(tex), dstt.find(tex)
+                    if not a or not b:
+                        continue
+                    img = srct.image(a[0])
+                    if img.size != (b[0]['w'], b[0]['h']):
+                        from PIL import Image
+                        img = img.resize((b[0]['w'], b[0]['h']), Image.LANCZOS)
+                    self.main.lib.add_texture(mod, dst_pack, tex, img)
+        except Exception as x:
+            self.note.setText(f'Could not copy that font: {x}')
+            return
+        self.font.setCurrentIndex(0)
+        self.main.changed(f"{name} lettering saved into {mod.name} for this uniform. Apply to see it in the game.")
+        self.refresh()
+
+    def _text_changed(self):
+        self.main.settings['preview_name'] = self.name.text()
+        self.main.settings['preview_number'] = self.number.text()
+        self.refresh()
+
+    def _quality_changed(self, i):
+        self.main.settings['render_quality'] = 'high' if i == 1 else 'standard'
+        if not self.gl:
+            return
+        old = self.view
+        self.view = viewer3d.ModelView3D(i == 1)
+        self._lay.replaceWidget(old, self.view)
+        old.hide()
+        old.deleteLater()
+        self.refresh()
+
     def _turn(self, yaw):
         if self.gl:
             self.view.yaw, self.view.pitch = yaw, 0.12
@@ -64,16 +147,24 @@ class PlayerPreview(QWidget):
     def show_uniform(self, folder):
         """folder: a uniform slot, e.g. NSW/UNIFORMS/NL/ARI/HOME."""
         self.folder = folder
+        self._fill_fonts()
         if not self.gl:
             return
         self.finder.uniform_folder = folder
         self._token += 1
         token = self._token
         files = set(self.main.game.files)
+        hq = self.gl and self.view.hq
+        pname, pnum = self.name.text().strip(), self.number.text().strip()
         self.note.setText('Dressing the player…')
 
         def work(job):
             meshes = []
+            size = 4096 if hq else 1024
+            any_rel = PARTS[0][0]
+            letters = self.finder.image(any_rel, 'letters-color', 4096)
+            numbers = self.finder.image(any_rel, 'numbers-color', 4096)
+            overlay = uniform_text.back_image(letters, numbers, pname, pnum) if (pname or pnum) else None
             shoes_done = False
             for rel, keep in PARTS:
                 if 'SHOES' in rel and shoes_done:
@@ -104,19 +195,37 @@ class PlayerPreview(QWidget):
                         p, n, uv, t = M.mesh(i)
                     except Exception:
                         continue
-                    tex = M.color_texture(i)
-                    img = self.finder.image(rel, tex, 1024) if tex else None
+                    maps = M.material_maps(i)
+                    tex = maps['color']
+                    img = self.finder.image(rel, tex, size) if tex else None
                     skin = 'arm' in low
-                    meshes.append(dict(p=p, n=n, uv=uv, t=t, img=None if skin else img,
-                                       color=SKIN if skin else '#d8d2c4'))
+                    entry = dict(p=p, n=n, uv=uv, t=t, img=None if skin else img,
+                                 color=SKIN if skin else '#d8d2c4', tan=M.tangents(i))
+                    if hq and not skin:
+                        entry['normal'] = self.finder.image(rel, maps['normal'], size) if maps['normal'] else None
+                        entry['rough'] = self.finder.image(rel, maps['rough'], size) if maps['rough'] else None
+                    if 'JERSEY' in rel and overlay is not None:
+                        entry['uvn'] = uniform_text.back_uv(p, n)
+                        entry['overlay'] = overlay
+                    meshes.append(entry)
             return meshes
 
         def done(parts):
             if token != self._token:
                 return
+            q = lambda im: viewer3d.pil_to_qimage(im) if im is not None else None
+            ov_cache = {}
+            def ov(im):
+                if im is None:
+                    return None
+                if id(im) not in ov_cache:
+                    ov_cache[id(im)] = q(im)
+                return ov_cache[id(im)]
             ms = [viewer3d.Mesh(np.asarray(m['p'], np.float32), np.asarray(m['n'], np.float32),
-                                np.asarray(m['uv'], np.float32), m['t'], color=m['color'],
-                                image=viewer3d.pil_to_qimage(m['img']) if m['img'] is not None else None)
+                                np.asarray(m['uv'], np.float32), m['t'], color=m['color'], image=q(m['img']),
+                                tan=m.get('tan'), normal_map=q(m.get('normal')), rough_map=q(m.get('rough')),
+                                uvn=None if m.get('uvn') is None else np.asarray(m['uvn'], np.float32),
+                                overlay=ov(m.get('overlay')))
                   for m in parts]
             first = not self.view.meshes
             self.view.set_meshes(ms, 'No player parts found in this game folder.', up='y', keep_camera=not first)

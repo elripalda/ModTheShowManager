@@ -363,6 +363,17 @@ class Model:
             t = np.zeros((len(p), 2), np.float32)
         return p, n, t, tris
 
+    def extra_uv(self, i, semantic):
+        """Another per-vertex attribute of mesh i by semantic (e.g. TEXCOORD_UV_PLAYER_NUMBER), or None."""
+        dr = self.draws[i]
+        vals, k = self.attribute(semantic, layout=dr['layout'])
+        if vals is None:
+            return None
+        p, _, _, _ = self.mesh(i)
+        vb = dr['vbases'][k] if k < len(dr['vbases']) else 0
+        v = vals[vb:vb + len(p), :2]
+        return v if len(v) == len(p) else None
+
     def tangents(self, i):
         """(n,4) tangents for mesh i (xyz + handedness), or None."""
         dr = self.draws[i]
