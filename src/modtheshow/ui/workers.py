@@ -44,9 +44,9 @@ class ThumbLoader(QThread):
     """Decodes every texture in a pack one after another and emits thumbnails as they come."""
     thumb = Signal(int, object)          # entry index, QImage (or None)
 
-    def __init__(self, tex, size=128, overrides=None):
+    def __init__(self, tex, size=128, overrides=None, opaque=False):
         super().__init__()
-        self.tex, self.size, self.overrides = tex, size, overrides or {}
+        self.tex, self.size, self.overrides, self.opaque = tex, size, overrides or {}, opaque
         self._stop = False
 
     def stop(self):
@@ -60,6 +60,8 @@ class ThumbLoader(QThread):
             try:
                 png = self.overrides.get(e['name'])
                 img = Image.open(png) if png else self.tex.image(e)
+                if self.opaque:
+                    img = img.convert('RGB').convert('RGBA')
                 img.thumbnail((self.size, self.size))
                 self.thumb.emit(i, pil_to_qimage(img))
             except Exception:

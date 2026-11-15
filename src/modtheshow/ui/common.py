@@ -99,6 +99,17 @@ def section_title(text, right=()):
     return w
 
 
+def masked(rel):
+    """Uniform textures use alpha as a mask (lettering, trim), not as transparency."""
+    return rel.upper().startswith('NSW/UNIFORMS')
+
+
+def for_display(rel, img):
+    if masked(rel):
+        return img.convert('RGB').convert('RGBA')
+    return img
+
+
 def fmt_size(n):
     for unit in ('B', 'KB', 'MB', 'GB'):
         if n < 1024 or unit == 'GB':
@@ -178,7 +189,7 @@ class TextureGrid(QListWidget):
                 it.setSizeHint(QSize(134, 160))
                 self.addItem(it)
                 self.items[(rel, i)] = it
-            ld = ThumbLoader(tex, 112, mods)
+            ld = ThumbLoader(tex, 112, mods, opaque=masked(rel))
             ld.thumb.connect(lambda idx, img, r=rel: self._thumb(r, idx, img))
             self.loaders.append(ld)
         # load one pack after another so the first pack fills in first
@@ -310,7 +321,7 @@ class Inspector(QFrame):
                 img = Image.open(mod[1])
             else:
                 img = tex.image(e)
-            self.view.set_image(pil_to_qimage(img))
+            self.view.set_image(pil_to_qimage(for_display(rel, img)))
         except Exception as x:
             self.view.set_image(None, f'Cannot preview this one yet\n{str(x)[:80]}')
 
@@ -323,8 +334,14 @@ class Inspector(QFrame):
                                               'PNG (*.png)')
         if path:
             self.main.remember_dir(path)
-            tex.image(e).save(path)
-            self.main.toast(f'Exported {os.path.basename(path)}')
+            img = tex.image(e)
+            if masked(rel):
+                img.convert('RGB').save(path)
+                img.split()[3].save(path[:-4] + '_mask.png')
+                self.main.toast(f'Exported {os.path.basename(path)} (and its mask)')
+            else:
+                img.save(path)
+                self.main.toast(f'Exported {os.path.basename(path)}')
 
     def export_all(self):
         if not self.cur:
@@ -366,6 +383,9 @@ class Inspector(QFrame):
             if r != QMessageBox.Yes:
                 return
             img = img.resize((e['w'], e['h']), Image.LANCZOS)
+        if masked(rel) and img.split()[3].getextrema()[0] == 255:
+            # an opaque PNG keeps the game's mask, so lettering and trim still behave
+            img.putalpha(tex.image(e).split()[3])
         self.main.lib.add_texture(mod, rel, e['name'], img)
         self.main.changed(f'{e["name"]} saved to {mod.name}')
         idx = tex.entries.index(e)
