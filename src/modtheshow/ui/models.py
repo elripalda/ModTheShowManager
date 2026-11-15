@@ -9,6 +9,9 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog
                                QListWidget, QListWidgetItem, QMessageBox, QSplitter, QVBoxLayout, QWidget)
 
 from .. import batshapes, modellib
+from ..texfind import TextureFinder
+from . import viewer3d
+from .workers import Job, start
 from . import theme
 from .common import SectionTitle, button, header, label, panel
 
@@ -189,8 +192,22 @@ class ModelsPage(QWidget):
         ml.addWidget(self.title)
         self.path = label('', 'Sub', wrap=True)
         ml.addWidget(self.path)
-        self.view = ModelView()
+        tools = QHBoxLayout()
+        tools.setSpacing(10)
+        self.textures = QCheckBox('Show Textures')
+        self.textures.setChecked(True)
+        self.textures.toggled.connect(self._textures_toggled)
+        tools.addWidget(self.textures)
+        self.tex_note = label('', 'Sub')
+        tools.addWidget(self.tex_note, 1)
+        self.b_shot = button('Save Image', on_click=self.save_image)
+        tools.addWidget(self.b_shot)
+        ml.addLayout(tools)
+        self.gl = viewer3d.available()
+        self.view = viewer3d.ModelView3D() if self.gl else ModelView()
         ml.addWidget(self.view, 1)
+        self.finder = TextureFinder(main.game, self._override)
+        self._token = 0
         split.addWidget(mid)
         # right: meshes and actions
         right = panel()
@@ -203,6 +220,7 @@ class ModelsPage(QWidget):
         self.meshes = QListWidget()
         self.meshes.setStyleSheet('QListWidget { border: none; padding: 0; background: transparent; }')
         self.meshes.itemChanged.connect(self._mesh_toggled)
+        self.meshes.currentRowChanged.connect(self._mesh_selected)
         rl.addWidget(self.meshes, 1)
         self.fit = QCheckBox('Fit imported OBJ to the original mesh size')
         self.fit.setChecked(True)
@@ -353,6 +371,7 @@ class ModelsPage(QWidget):
             self.title.set(name, ['Not readable'])
             self.facts.setText(str(x))
             self.view.set_meshes([], f'This model can\'t be shown yet.\n{x}')
+            self.tex_note.setText('')
             self._enable(False)
             return
         M = self.model
@@ -372,9 +391,9 @@ class ModelsPage(QWidget):
             it.setCheckState(Qt.Checked if i == 0 or not self._is_alt(M, i) else Qt.Unchecked)
             it.setForeground(QColor(MESH_COLORS[i % len(MESH_COLORS)]))
             self.meshes.addItem(it)
-        self.meshes.blockSignals(False)
         if self.meshes.count():
             self.meshes.setCurrentRow(0)
+        self.meshes.blockSignals(False)
         self._redraw()
         self._enable(True, M.editable)
 
@@ -385,28 +404,130 @@ class ModelsPage(QWidget):
         return names[0] == 'bat' and names[i] not in ('bat', 'batGrip_Cross')
 
     def _mesh_data(self, i):
-        if self.editor:
-            pos = self.editor.get(i, 'POSITION')[:, :3]
-            tris = self.editor.parts[i]['idx'].astype(np.int64).reshape(-1, 3)
-            return pos, tris
+        """positions, normals, uvs, triangles of mesh i as currently edited."""
+        empty = (np.zeros((0, 3), np.float32), None, None, np.zeros((0, 3), np.int64))
         try:
-            p, _, _, t = self.model.mesh(i)
-            return p, t
+            if self.editor:
+                pos = self.editor.get(i, 'POSITION')[:, :3]
+                n = self.editor.get(i, 'NORMAL')
+                uv = self.editor.get(i, 'TEXCOORD')
+                tris = self.editor.parts[i]['idx'].astype(np.int64).reshape(-1, 3)
+                return pos, (n[:, :3] if n is not None else None), (uv[:, :2] if uv is not None else None), tris
+            return self.model.mesh(i)
         except Exception:
-            return np.zeros((0, 3)), np.zeros((0, 3), np.int64)
+            return empty
 
-    def _redraw(self):
+    def _override(self, pack, name):
+        hit = self.main.mod_png(pack, name)
+        return hit[1] if hit else None
+
+    def _up_axis(self):
+        mn, mx = self.model.bounds()
+        size = mx - mn
+        return 'z' if self.rel == batshapes.BAT or (size[2] > 2.5 * max(size[0], size[1]) and 'BAT' in self.rel) else 'y'
+
+    @staticmethod
+    def _cutout(name, tex):
+        s = f'{name} {tex}'.lower()
+        return any(k in s for k in ('tree', 'leaf', 'leaves', 'foliage', 'canopy', 'plant', 'bush', 'grass', 'net',
+                                    'fence', 'flag', 'penant', 'pennant', 'hair', 'lash', 'brow', 'crowd'))
+
+    def _redraw(self, keep_camera=False):
         if not self.model:
             return
+        hidden = 'Every mesh is switched off. Tick one in the Meshes list to show it.'
+        if not self.gl:
+            meshes = []
+            for i in range(len(self.model.draws)):
+                p, _, _, t = self._mesh_data(i)
+                meshes.append((p, t, MESH_COLORS[i % len(MESH_COLORS)], self.meshes.item(i).checkState() == Qt.Checked))
+            self.view.set_meshes(meshes, hidden)
+            return
         meshes = []
-        for i in range(len(self.model.draws)):
-            it = self.meshes.item(i)
-            p, t = self._mesh_data(i)
-            meshes.append((p, t, MESH_COLORS[i % len(MESH_COLORS)], it.checkState() == Qt.Checked))
-        self.view.set_meshes(meshes, 'Turn a mesh on in the list to see it')
+        for i, dr in enumerate(self.model.draws):
+            p, n, uv, t = self._mesh_data(i)
+            tex = self._texname(i)
+            meshes.append(viewer3d.Mesh(np.asarray(p, np.float32), None if n is None else np.asarray(n, np.float32),
+                                        None if uv is None else np.asarray(uv, np.float32), t,
+                                        color=MESH_COLORS[i % len(MESH_COLORS)],
+                                        visible=self.meshes.item(i).checkState() == Qt.Checked,
+                                        cutout=self._cutout(dr['name'], tex or '')))
+        self.view.set_meshes(meshes, hidden, up=self._up_axis(), keep_camera=keep_camera)
+        self._load_textures()
 
-    def _mesh_toggled(self, _it):
-        self._redraw()
+    def _texname(self, i):
+        t = self.model.color_texture(i)
+        name = self.model.draws[i]['name'].lower()
+        if 'grip' in name and t and 'grip' not in t.lower():
+            return 'batgrip_generic-color'
+        return t
+
+    def _load_textures(self):
+        if not self.gl or not self.textures.isChecked():
+            self.tex_note.setText('')
+            return
+        self._token += 1
+        token, rel = self._token, self.rel
+        names = [self._texname(i) for i in range(len(self.model.draws))]
+        self.tex_note.setText('Loading textures…')
+
+        def work(job):
+            cache, out = {}, []
+            for n in names:
+                if n not in cache:
+                    img = self.finder.image(rel, n) if n else None
+                    cache[n] = viewer3d.pil_to_qimage(img) if img is not None else None
+                out.append(cache[n])
+            return out
+
+        def done(images):
+            if token != self._token or not self.view.meshes:
+                return
+            found = sum(1 for q in images if q is not None)
+            self.view.makeCurrent()
+            for m, q in zip(self.view.meshes, images):
+                if q is not None:
+                    self.view._free(m)
+                    m.image = q
+            self.view.doneCurrent()
+            self.view.update()
+            total = len(images)
+            self.tex_note.setText('' if found == total else
+                                  f'{found} of {total} meshes have a texture the manager could find')
+
+        job = Job(work)
+        job.sig.done.connect(done)
+        job.sig.failed.connect(lambda tb: (print(tb), self.tex_note.setText('Textures could not be loaded')))
+        self._job = job          # keep it alive until it reports back
+        start(job)
+
+    def _textures_toggled(self, on):
+        if self.gl:
+            self.view.set_textured(on)
+            if on and self.model and not any(m.image for m in self.view.meshes):
+                self._load_textures()
+
+    def _mesh_toggled(self, it):
+        if self.gl:
+            self.view.set_visible(self.meshes.row(it), it.checkState() == Qt.Checked)
+        else:
+            self._redraw()
+
+    def _mesh_selected(self, row):
+        if self.gl and self.model and len(self.model.draws) > 1:
+            self.view.set_highlight(row)
+
+    def save_image(self):
+        if not self.model:
+            return
+        name = self.rel.rsplit('/', 1)[-1][:-4]
+        start_at = os.path.join(self.main.settings.get('last_dir', os.path.expanduser('~')), name + '.png')
+        out, _ = QFileDialog.getSaveFileName(self, 'Save Image', start_at, 'PNG image (*.png)')
+        if not out:
+            return
+        img = self.view.snapshot() if self.gl else self.view.grab()
+        img.save(out)
+        self.main.toast(f'Saved {os.path.basename(out)}')
 
     def _selected(self):
         r = self.meshes.currentRow()

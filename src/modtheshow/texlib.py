@@ -35,7 +35,7 @@ FORMATS = {
     0x13: ('bc4', 8, 4, True),    # one channel (greyscale): barrel stamps, masks
     0x02: ('rgba', 4, 1, True),
     0x05: ('bc1', 8, 4, False),   # normal maps (UI)
-    0x59: ('bc5', 16, 4, False),  # normal maps (stadiums)
+    0x59: ('astc', 16, 6, False), # ASTC 6x6: stadium props, roughness and normal maps
 }
 
 
@@ -44,9 +44,16 @@ def _div(a, b):
 
 
 class Tex:
-    def __init__(self, path):
+    def __init__(self, path, readonly=False):
+        """readonly maps the file instead of loading it, for looking at a few textures in a big pack. Call close()."""
         self.path = path
-        self.d = bytearray(open(path, 'rb').read())
+        self._f = None
+        if readonly:
+            import mmap
+            self._f = open(path, 'rb')
+            self.d = mmap.mmap(self._f.fileno(), 0, access=mmap.ACCESS_READ)
+        else:
+            self.d = bytearray(open(path, 'rb').read())
         if self.d[:7] != b'TX12NSW':
             raise ValueError(f'{path}: not a TX12NSW texture pack')
         self.entries = []
@@ -84,6 +91,18 @@ class Tex:
     def find(self, name):
         return [e for e in self.entries if e['name'].lower() == name.lower()]
 
+    def close(self):
+        if self._f:
+            self.d.close()
+            self._f.close()
+            self._f = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self.close()
+
     def readable(self, e):
         return e['fmt'] in FORMATS and e['levels'] is not None
 
@@ -106,13 +125,16 @@ class Tex:
         if codec == 'rgba':
             return Image.frombytes('RGBA', (wb, hb), lin).crop((0, 0, e['w'], e['h']))
         import texture2ddecoder
-        dec = getattr(texture2ddecoder, 'decode_' + codec)
-        img = Image.new('RGBA', (wb * 4, hb * 4))
+        if codec == 'astc':
+            dec = lambda data, w, h: texture2ddecoder.decode_astc(data, w, h, bs, bs)
+        else:
+            dec = getattr(texture2ddecoder, 'decode_' + codec)
+        img = Image.new('RGBA', (wb * bs, hb * bs))
         row = wb * bpb
         for y in range(0, hb, STRIP):
             n = min(STRIP, hb - y)
-            px = dec(lin[y * row:(y + n) * row], wb * 4, n * 4)
-            img.paste(Image.frombytes('RGBA', (wb * 4, n * 4), px, 'raw', 'BGRA'), (0, y * 4))
+            px = dec(lin[y * row:(y + n) * row], wb * bs, n * bs)
+            img.paste(Image.frombytes('RGBA', (wb * bs, n * bs), px, 'raw', 'BGRA'), (0, y * bs))
         img = img.crop((0, 0, e['w'], e['h']))
         if codec == 'bc4':                      # one channel: show it as greyscale
             r = img.split()[0]
@@ -288,3 +310,25 @@ def swizzle(linear, w_blocks, h_blocks, bpb=16):
             a = _addr(x, y, wb, bh)
             out[a:a + step] = linear[y * wb + x:y * wb + x + step]
     return bytes(out)
+
+
+def names(path):
+    """Texture names in a pack, reading only its entry table."""
+    out = []
+    with open(path, 'rb') as f:
+        if f.read(0x20)[:7] != b'TX12NSW':
+            return out
+        first, o = None, 0x20
+        while first is None or o + ENTRY <= first:
+            f.seek(o)
+            e = f.read(ENTRY)
+            if len(e) < ENTRY:
+                break
+            off = struct.unpack_from('<I', e, 0x134)[0]
+            name = e[0x10:0x50].split(b'\0')[0].decode('ascii', 'replace')
+            if not name or off < o + ENTRY:
+                break
+            first = off if first is None else min(first, off)
+            out.append(name)
+            o += ENTRY
+    return out

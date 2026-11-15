@@ -189,6 +189,51 @@ class Model:
             self.draws.append(dict(rec=r, streams=ns, vcount=vcount, icount=icount, istart=istart, vbases=vbases,
                                    name=self.names[i] if i < len(self.names) else f'mesh{i}'))
         self.editable = not self.skinned and all(d['streams'] == len(self.buffers) for d in self.draws)
+        self.materials = self._materials()
+
+    def _materials(self):
+        """One dict per mesh: {param hash: texture name} for every texture the mesh's material uses."""
+        cm, m = self.cm, self.m
+        if 'VOIDPRMS' not in cm or 'INT0MREF' not in cm:
+            return [{} for _ in self.draws]
+        po = cm['VOIDPRMS'][0][0] + 0x20
+        mo, count, _ = cm['INT0MREF'][0]
+        out = []
+        for i in range(count):
+            _h, _a, n, _b, start = struct.unpack_from('<IIIII', m, mo + 0x10 + i * 0x18)
+            params = {}
+            for j in range(start, start + n):
+                e = po + j * 0x28
+                if e + 0x28 > len(m):
+                    break
+                h, = struct.unpack_from('<I', m, e)
+                v, = struct.unpack_from('<I', m, e + 0x10)
+                typ, = struct.unpack_from('<I', m, e + 0x18)
+                if typ == 0x12345 and v < len(self.textures) and self.textures[v]:
+                    params[h] = self.textures[v]
+            out.append(params)
+        while len(out) < len(self.draws):
+            out.append({})
+        return out
+
+    def color_texture(self, i):
+        """Best guess at the colour (albedo) texture of mesh i, or None."""
+        params = self.materials[i] if i < len(self.materials) else {}
+        names = list(params.values())
+        def bad(n):
+            n = n.lower()
+            return re.search(r'normal|rough|metalness|metallic|spec|emiss|_ao\b|-ao\b|mask|lightmap|tar\d', n) is not None or \
+                re.fullmatch(r'(gray|grey)_?\d+|f{6}|0{6}|flatnormalmap|black|white', n) is not None
+        for key in (0xD5DBE45D, 0x61E0008D):
+            if key in params and not bad(params[key]):
+                return params[key]
+        for n in names:
+            if re.search(r'(base_?)?colou?r|diffuse|albedo|_d$|-c$', n.lower()) and not bad(n):
+                return n
+        for n in names:
+            if not bad(n):
+                return n
+        return None
 
     @classmethod
     def open(cls, desc_path, gpu_path):
