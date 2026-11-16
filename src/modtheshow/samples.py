@@ -238,14 +238,15 @@ def scorebug_brick(game, lib, current_file):
 
 def wide_top_bar(lay):
     """Rearrange Theme 1's scorebug into one wide strip across the top: away row, home row, then inning, bases,
-    count and outs in a line. The pitcher and batter bars keep rising above it. Works on the stock layout."""
+    count and outs in a line. The pitcher and batter bars keep rising above it, so the strip sits low enough for
+    the tallest of them. Works on the stock layout."""
     a = lay.find('Scorebar')
     c = a.container() if a else None
     if c is None or not c.children or not c.children[0].children:
         raise ValueError('The scorebug was not found in the layout.')
-    G = c.children[0].children[0]
-    H, RW, IW = 62, 315, 250                 # strip height, team row width, width of the inning-to-outs block
+    H, RW, IW = 62, 315, 260                 # strip height, team row width, width of the inning-to-outs block
     W = 2 * RW + IW
+    TOP = 148                                # the strip's top edge on screen: room for the batter panel above it
 
     def at(rel, kind=None):
         n = lay.node_at(a, rel, kind)
@@ -254,9 +255,10 @@ def wide_top_bar(lay):
         return n
     panel, info, home, away = at(0x4910, 0x0F), at(0x4BA0, 0x0F), at(0x9BC8, 0x0F), at(0x9D40, 0x0F)
     win, banner, glow, kzone = at(0x9EB8, 0x0F), at(0xA0E0, 0x0F), at(0x10250, 0x0F), at(0x102F0, 0x1C)
-    if G.children.index(home) < 0 or round(away.w) != 259 or round(info.w) != 212:
+    card = at(0x3F48, 0x0F)
+    if round(away.w) != 259 or round(info.w) != 212:
         raise ValueError('This scorebug has already been rearranged. Start from the stock layout.')
-    lay.move(c, (1920 - W) / 2, 41)                        # centred, with room above for the two bars
+    lay.move(c, (1920 - W) / 2, TOP - 55)              # the strip starts 55 below the container's own top
     lay.resize(c, W + 10, c.h)
     # the frame behind everything
     lay.resize(panel, W, H + 4)
@@ -278,19 +280,24 @@ def wide_top_bar(lay):
     lay.resize(info, IW, H)
     slide = info.children[0]
     lay.resize(slide, IW, H)
-    body = at(0x4C40, 0x0F)
-    looks = at(0x4C90, 0x1C)
-    play = at(0x4DF0, 0x0F)
+    lay._keys(slide, uilayout.P_X, lambda v: v if v < 100 else v + (IW - 214))     # it slides a full block aside
+    body, looks, play = at(0x4C40, 0x0F), at(0x4C90, 0x1C), at(0x4DF0, 0x0F)
     for n in (body, looks, play):
         lay.resize(n, IW, H)
     bases, outs, inning, count, lines = at(0x4E40), at(0x6710), at(0x6E28), at(0x7288), at(0x7358)
-    lay.scale_tree(inning, 0.72)
-    lay.move(inning, -22, -4)
-    lay.scale_tree(bases, 0.70)
-    lay.move(bases, 28, 6)
-    lay.move(count, 104, 6)
-    lay.move(outs, 176, 6)
+    lay.scale_tree(inning, 0.80)
+    lay.move(inning, -20, -9)
+    lay.scale_tree(bases, 0.74)
+    lay.move(bases, 44, 5)
+    lay.move(count, 118, 6)
+    lay.move(outs, 190, 6)
     lay.recolor(lines, alpha=0)
+    # "MID 1ST": the block that slides in between innings
+    eoi = at(0x8F38, 0x0F)
+    lay.move(eoi, -IW, 0)
+    lay.resize(eoi, IW, H)
+    for k in eoi.children:
+        lay.resize(k, IW, H)
     # what sits on top of the strip
     lay.resize(win, W, H)
     lay.resize(glow, W, glow.h)
@@ -299,6 +306,8 @@ def wide_top_bar(lay):
     lay.move(kzone, 5 + 2 * RW, 14)
     lay.scale_tree(kzone, H / 103)
     lay.recolor(banner, alpha=0)
+    # the player card is too tall to rise above a top bar: it hangs under the strip's right end instead
+    lay.move(card, 5 + W - card.w, 14 + H + 8)
     return a
 
 

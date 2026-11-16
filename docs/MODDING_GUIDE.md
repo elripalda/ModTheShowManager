@@ -105,6 +105,8 @@ with the original game put back. Code mods only ever hold code: anything else yo
 
 ## Scorebug layout
 
+Making a whole look of your own, from the sandbox or from Photoshop: [Designing your own scorebug](SCOREBUG_DESIGN.md).
+
 **Scoreboards › Layout** draws a theme's overlays (the scorebug, the bottom ticker, transitions) the way the game
 lays them out, with their real textures. Drag the red box or type X and Y to place one, then save. The layout file
 (`NSW/UI/GAME/THEMEn.NSW`) goes into your mod with only what you changed. Scale is there too, but not every theme
@@ -119,6 +121,10 @@ overlay redraws the way the game would show it, because the manager reads the sa
 **In play / Scene** picks which big piece is up (the scorebug, or the team panels the game shows between innings),
 and the pop-up list fades in the panels that come and go: the batter bar, a home run, a strikeout. The switch list
 under it still lets you force any single part to any look; **Follow the Game** hands them back.
+
+Type a team's abbreviation (`SD`, `HOU`, `TOR`...) and the preview uses that team's own logo from the game and its
+colour. The same sandbox opens the presentation screens under **Broadcast Presentation**: starting lineups, the
+matchup, due up, lower thirds.
 
 **Show animation layers** adds the glows the game flashes in. **Zoom in** fills the view with the overlay. Theme 1
 is checked against the game; themes 2 to 4 draw but still have rough spots.

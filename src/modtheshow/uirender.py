@@ -177,8 +177,9 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
                 # the team-colour wash: the game paints it from the team this copy is handed
                 team = ctx.child(layout.instance_args(n)).args
                 rgb = situation.team_color(team[0] if team else 0)
+                # in a game the row comes out the team's full colour, so the copy's own 70% is not thinned again
                 fill = Image.new('RGBA', (8, 8), (int(rgb[0] * c[0]), int(rgb[1] * c[1]), int(rgb[2] * c[2]),
-                                                  int(255 * c[3])))
+                                                  int(255 * min(1.0, c[3] / 0.7))))
                 blit(fill, clip[0], clip[1], clip[2] - clip[0], clip[3] - clip[1], clip, False)
                 return
             if sub is not None and depth < 8 and sub.root() is not None:

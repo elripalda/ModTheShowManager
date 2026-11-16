@@ -59,13 +59,18 @@ jobs:
         shell: pwsh
         run: git archive --format=zip --prefix=ModTheShowManager-src/ -o dist/ModTheShowManager-source.zip HEAD
 
+      # two downloads, nothing else: the installer, and the source
       - uses: actions/upload-artifact@v4
         with:
-          name: ModTheShowManager-windows
-          path: |
-            dist/ModTheShowManager-Setup.exe
-            dist/ModTheShowManager.exe
-            dist/ModTheShowManager-source.zip
+          name: ModTheShowManager-Setup
+          path: dist/ModTheShowManager-Setup.exe
+          compression-level: 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ModTheShowManager-source
+          path: dist/ModTheShowManager-source.zip
+          compression-level: 0
 
       - name: Patch notes for the draft
         id: notes
@@ -90,5 +95,4 @@ jobs:
           body_path: release-notes.md
           files: |
             dist/ModTheShowManager-Setup.exe
-            dist/ModTheShowManager.exe
             dist/ModTheShowManager-source.zip

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDoubleSpinBo
                                QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMessageBox,
                                QSlider, QSpinBox, QVBoxLayout, QWidget)
 
-from .. import fontlib, recipes, samples, uilang, uilayout, uiquery, uirender
+from .. import fontlib, recipes, samples, teamart, uilang, uilayout, uiquery, uirender
 from . import theme
 from .common import button, label
 from .widgets import pil_to_qimage
@@ -188,6 +188,7 @@ class LayoutEditor(QWidget):
         lay.addLayout(row)
         # the game: a pretend moment (teams, score, inning, count, runners) the overlay is drawn for
         self.sit = uiquery.Situation()
+        self._logos = {}
         self.lang = None
         self._scene = 0
         self._reveal = set()
@@ -205,7 +206,7 @@ class LayoutEditor(QWidget):
 
         def word(value, tip, attr):
             e = QLineEdit(value)
-            e.setMaxLength(4)
+            e.setMaxLength(6)
             e.setFixedWidth(58)
             e.setToolTip(tip)
             e.textEdited.connect(lambda v, a=attr: self._sit_set(a, v.upper()))
@@ -441,6 +442,7 @@ class LayoutEditor(QWidget):
             self.which.addItem(n)
         self.which.blockSignals(False)
         self._fill_styles()
+        self._team_art()
         self._asset_changed()
 
     def _empty(self, why):
@@ -716,7 +718,32 @@ class LayoutEditor(QWidget):
     # ------------------------------------------------------------------ the game
     def _sit_set(self, attr, value):
         setattr(self.sit, attr, value)
+        if attr in ('away', 'home'):
+            self._team_art()
         self._redraw()
+
+    def _team_art(self):
+        """Each team's logo (the game's own) and row colour, for the two teams typed in the Game row."""
+        for side in ('away', 'home'):
+            abbr = getattr(self.sit, side)
+            dark = (19, 74, 142) if side == 'away' else (20, 20, 20)
+            setattr(self.sit, side + '_color', teamart.color(abbr, dark))
+            setattr(self.sit, side + '_logo', self._logo(abbr))
+
+    def _logo(self, abbr):
+        key = str(abbr).upper()
+        if key not in self._logos:
+            img = None
+            try:
+                pack, name = teamart.logo_name(abbr)
+                if pack in self.main.game.file_set():
+                    tex = self.main.tex(pack)
+                    e = next((e for e in tex.entries if e['name'].lower() == name), None)
+                    img = tex.image(e).convert('RGBA') if e else None
+            except Exception:
+                img = None
+            self._logos[key] = img
+        return self._logos[key]
 
     def _fill_scenes(self):
         self._scene, self._reveal = 0, set()

@@ -268,6 +268,14 @@ def test_lang_and_place():
         assert uilayout.place(N, 50, 10, 200, 40) == want, hex(anchor)
 
 
+def test_team_art():
+    from modtheshow import teamart
+    assert teamart.color('sd') == (0x2F, 0x24, 0x1D) and teamart.color('SD_CC') == teamart.color('SD')
+    assert teamart.color('???', (1, 2, 3)) == (1, 2, 3)
+    assert teamart.logo_name('HOU') == ('NSW/UI/ART/TEXTURES/LOGO2.TEX', 'logo2_hou')
+    assert teamart.logo_name('sd', 'tile', True) == ('NSW/UI/ART/TEXTURES/LOGO4.TEX', 'logo4_sd_cc')
+
+
 def test_hash():
     assert H('PBInterface\\ScoreBar') == 0xF3657054
     assert H('') == uilayout.NONE
@@ -283,4 +291,5 @@ if __name__ == '__main__':
     test_text()
     test_queries()
     test_lang_and_place()
+    test_team_art()
     print('ui layout ok')

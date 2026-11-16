@@ -77,6 +77,14 @@ keyframes. The scorebug has 75, and the game starts them by name: `ACT_BATTER_BA
 snap back the moment it animated. The manager now moves the keyframes with the piece, and can play any of them.
 [Animations](MODDING_GUIDE.md#ui-layouts-iff0assh)
 
+## Team logos and the rest of the broadcast
+
+Every team's logos sit in five packs, `NSW/UI/ART/TEXTURES/LOGO1.TEX` to `LOGO5.TEX`: a wordmark, a flat primary,
+a tile and two large ones, each named `logoN_<abbreviation>`, with a `_cc` copy for City Connect. The minor
+leagues, national teams and colleges are in there too. The starting lineup, matchup and lower-third screens are
+layouts in `NSW/UI/GAME/PRES/PRESOSDSn.NSW`, the same format as the scorebug. The transition wipes are not: they
+are Bink videos under `CROSS/MOVIES/PRESENTATION`.
+
 ## How a scorebug knows the score
 
 Overlays read the game through small bracketed queries written in the game's own words: `[ SCOREBAR OUT_TAB ]` picks

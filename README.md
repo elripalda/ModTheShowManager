@@ -33,7 +33,7 @@ isn't an emulator tool: it reads and writes the files the recomp installs from y
 ## Get it
 
 Download `ModTheShowManager-Setup.exe` from [Releases](https://github.com/elripalda/ModTheShowManager/releases)
-and run it. There's a plain `ModTheShowManager.exe` too if you'd rather not install. On first start it looks for
+and run it. On first start it looks for
 the game in `C:\Games\MLB The Show 26` and asks if it isn't there.
 
 New here? The [quick start](docs/QUICK_START.md) gets a mod into the game in about five minutes.
