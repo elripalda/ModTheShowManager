@@ -44,6 +44,40 @@ def px(n):
     return f'{max(9, round(n * SCALE))}px'
 
 
+_CHECK = ''
+
+
+def check_png():
+    """Path of the tick drawn inside a checked box (made once, on first use), '' when it can't be made yet."""
+    global _CHECK
+    if _CHECK:
+        return _CHECK
+    try:
+        import tempfile
+
+        from PySide6.QtCore import QPointF, Qt
+        from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
+        from PySide6.QtWidgets import QApplication
+        if QApplication.instance() is None:
+            return ''
+        img = QImage(18, 18, QImage.Format_ARGB32_Premultiplied)
+        img.fill(Qt.transparent)
+        p = QPainter(img)
+        p.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(QColor('#ffffff'), 2.2)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.drawPolyline(QPolygonF([QPointF(4.6, 9.4), QPointF(7.8, 12.4), QPointF(13.4, 6.0)]))
+        p.end()
+        path = os.path.join(tempfile.gettempdir(), 'modtheshow_check.png')
+        if img.save(path):
+            _CHECK = path.replace('\\', '/')
+    except Exception:
+        pass
+    return _CHECK
+
+
 def build(name='Dark', scale=1.0):
     global NAME, SCALE, QSS, HOVER, PRESSED, DIM, CHECK_A, CHECK_B
     NAME = name if name in PALETTES else 'Dark'
@@ -151,7 +185,13 @@ QMenu::item:selected {{ background: {S2}; }}
 QMenu::separator {{ height: 1px; background: {LINE}; margin: 4px 8px; }}
 QToolTip {{ background: {S2}; border: 1px solid {LINE}; color: {TEXT}; padding: 6px; }}
 QDialog, QMessageBox {{ background: {BG}; }}
-QCheckBox {{ spacing: 8px; }}
+QCheckBox {{ spacing: 10px; }}
+QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 6px; border: 1px solid {LINE_HI};
+    background: {S2}; }}
+QCheckBox::indicator:hover {{ border-color: {MUTED}; }}
+QCheckBox::indicator:checked {{ background: {RED}; border-color: {RED}; image: url({check_png()}); }}
+QCheckBox::indicator:disabled {{ background: {dis_bg}; border-color: {LINE}; }}
+QCheckBox:disabled {{ color: {DIM}; }}
 QLabel#Toast {{ background: {TEXT}; border: none; border-radius: 12px; padding: 12px 22px; color: {BG};
     font-weight: 500; }}
 QFrame#Card {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; }}

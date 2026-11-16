@@ -1,71 +1,97 @@
-<p align="center"><img src="src/modtheshow/assets/logo.png" width="360" alt="Mod the Show Manager"></p>
+<p align="center"><img src="docs/images/banner.png" alt="Mod the Show Manager: the mod manager for the MLB The Show 26 PC recomp" width="100%"></p>
 
-A mod manager for the MLB The Show 26 PC recomp. Browse every file in the game, preview any texture, export it,
-drop in your own art and switch mods on and off.
+<p align="center">
+  <a href="https://github.com/elripalda/ModTheShowManager/releases/latest"><b>Download</b></a> ·
+  <a href="docs/QUICK_START.md">Quick start</a> ·
+  <a href="docs/MODDING_GUIDE.md">Modding guide</a> ·
+  <a href="docs/README.md">All docs</a>
+</p>
 
-## What it does
+<p align="center">
+  <a href="https://recomplauncher.com"><img src="docs/images/recomplauncher-badge.svg" alt="Get the game on RecompLauncher" height="56"></a>
+</p>
 
-- **Game Files** – all 84,634 files in the game, searchable. Texture packs open as a grid you can preview,
-  export or replace. Images and text files preview too.
-- **Uniforms, Bats, Stadiums, Scoreboards, Menus & Loading Screens** – the same textures, sorted the way you think
-  about them: by team and uniform, by ballpark, by scorebug theme.
-- **Mods** – each mod is a folder in `<game>\mods`. Turn them on and off, set the order, Apply. Restore puts the
-  original files back.
-- **3D Models** – bats, balls, stadium props, players' gear, gloves, jerseys and bodies, drawn with their game
-  textures. Export OBJ for Blender, bring an OBJ back in to replace a mesh on bats, balls and props, scale or
-  hide meshes. Bat Shapes turns every bat in the game into a wiffle bat, a big barrel toy bat or a fungo.
-- **Uniforms on a player** – flip the Uniforms page to *On a Player* and see the uniform you're editing on a
-  mannequin with the cap, name and number, your replaced PNGs included.
-- **Sounds** – every sound in the game plays and exports as WAV: crowd and reaction streams, sound banks, and
-  the commentary, PA and music archives sample by sample. Streams can be replaced with your own WAV.
-- **Scorebug layout** – move the scorebug and other overlays anywhere on screen.
-- **Uniform schedule** – choose what each team wears and when, rename uniforms, hide them from the picker.
-- **Teams & Rosters** – rename teams, edit players, ratings, numbers and gear, move players, swap face textures,
-  and edit the custom team builder's names. Rosters export to and import from a plain
-  [JSON file](docs/ROSTER_FILES.md), so a classic roster can be typed up (or written by an AI) and dropped in.
-- **Code Plugins** – build instruction patches from mods into the game and switch them per launch. Comes with
-  arcade samples: Auto PCI, moonshot home runs, a juiced ball, thin air. See [code mods](docs/CODE_MODS.md).
-- **Launcher** – Home shows what state the game is in (stock or modded files, standard or code-mod build), has a
-  Play button and the game's display settings.
-- **Sample Mods** – four ready-made mods, built on your PC from your own game files, one of each kind.
-- Dark, Light and OLED looks, text size, and an update check.
-- **Stadiums in 3D** – orbit a ballpark or fly through it.
-- Replaced textures keep the game's format: BC1, BC3, BC4 and BC7, with mip levels and loading previews rebuilt.
+---
 
-See the **[modding guide](docs/MODDING_GUIDE.md)** for where everything lives, how to find what you want and how
-the file formats work.
+Mod the Show Manager opens up the MLB The Show 26 PC recomp. Browse every file in the game, swap textures,
+edit rosters, move the scorebug, replace sounds and switch gameplay mods on and off, all from one app. Your
+original files are never lost: everything a mod changes is backed up first and one button puts the game back.
+
+## What it works with
+
+This is for the **PC recomp of the Nintendo Switch version** of MLB The Show 26
+([mlbts-native](https://github.com/sam110411/mlbts-native)). It doesn't work with the PS5 or Xbox game, and it
+isn't an emulator tool: it reads and writes the files the recomp installs from your own Switch dump.
+
+- Windows 10 or 11.
+- The recomp installed and working. You can get it through [RecompLauncher](https://recomplauncher.com) or set
+  it up yourself from the recomp's page. Either way you bring your own copy of the game.
+- For code mods only: the recomp's own folder (the one `MLBTS-Setup.exe` is in), because the game has to be
+  rebuilt. Code mods were made on game version 1.0.15; on any other version the manager checks each one and
+  leaves out the ones that don't fit.
 
 ## Get it
 
-Download `ModTheShowManager-Setup.exe` from Releases and run it (or the plain `ModTheShowManager.exe` if you'd
-rather not install). It looks for the game in `C:\Games\MLB The Show 26`
-and asks if it isn't there.
+Download `ModTheShowManager-Setup.exe` from [Releases](https://github.com/elripalda/ModTheShowManager/releases)
+and run it. There's a plain `ModTheShowManager.exe` too if you'd rather not install. On first start it looks for
+the game in `C:\Games\MLB The Show 26` and asks if it isn't there.
+
+New here? The [quick start](docs/QUICK_START.md) gets a mod into the game in about five minutes.
+
+## What you can do
+
+| | |
+| --- | --- |
+| **Textures** | Uniforms, bats, stadium signs, scorebugs, menus and loading screens. Preview, export, drop your own PNG in. |
+| **Uniforms** | See a uniform on a player with the cap, name and number. Set what each team wears and when. |
+| **Stadiums** | Every ad board and wall in each park, plus a 3D view you can orbit or fly through. |
+| **Scorebug** | Move and scale the scorebug and other overlays. |
+| **Teams & Rosters** | Edit names, ratings, numbers and gear, move players, auto-fill lineups. Import and export rosters as a [plain file](docs/ROSTER_FILES.md) you can write by hand or with an AI. |
+| **Sounds** | Play and export every sound in the game, commentary included. Replace streams with your own WAV. |
+| **3D Models** | View bats, balls, gear and props with their textures. Export OBJ, bring one back in. |
+| **Code mods** | Gameplay changes built into the game and switched per launch: Auto PCI, moonshot home runs, a juiced ball, thin air and more. |
+| **Mods** | Each mod is a folder. Switch them on and off, set the order, apply. Restore puts the stock game back. |
+| **Launcher** | See what state the game is in and press Play. |
+
+<p align="center">
+  <img src="docs/images/code-plugins.png" alt="Code Plugins" width="49%">
+  <img src="docs/images/rosters.png" alt="Teams & Rosters" width="49%">
+</p>
+<p align="center">
+  <img src="docs/images/sounds.png" alt="Sounds" width="49%">
+  <img src="docs/images/mods.png" alt="Mods" width="49%">
+</p>
 
 ## Making a mod
 
 1. Pick the mod your changes go into from **Saving To** at the top (or make a new one).
-2. Find a texture, export it, edit it, then **Replace With PNG** (or drop the PNG on the preview).
+2. Change something: replace a texture, edit a roster, move the scorebug.
 3. Go to **Mods** and press **Apply**. Close the game first.
 
-A mod folder looks like this, so mods can be zipped and shared:
+**Sample Mods** on the Mods page builds four ready-made ones from your own game files, one of each kind, if you
+want something to switch on straight away.
+
+A mod is a folder in `<game>\mods`, so it can be zipped and shared:
 
 ```
 mods/My Mod/
   mod.json
   textures/NSW/STADIUMS/ARZ/TEXTURES_COLOR.TEX/rolling_sign_basecolor.png
-  romfs/NSW/STADIUMS/ARZ/PROPS.XML
-  romfs/NSW/OBJECTS/G4GAMEBAT.MOD        (models are two files:
-  romfs/NSW/OBJECTS/G4GAMEBAT.0.MOD       the description and the geometry)
+  romfs/FRONTEND/STATS/ROSTERS.BIN
+  code/my code mod.patch
 ```
-
-For a custom model, export the original OBJ first and build over it in Blender so the size and axes match,
-then export with the same axis settings.
 
 Share your own work, not the game's original files.
 
-Nothing a mod does touches the originals for good. Apply copies each file it is about to change into
-`<game>\mod-backup` first. Switch a mod off and Apply again and its files go back; **Restore Original Game** puts
-everything back at once, the standard `mlb.exe` included.
+## Docs
+
+| | |
+| --- | --- |
+| [Quick start](docs/QUICK_START.md) | Install, connect the game, first mod, undo everything. |
+| [Modding guide](docs/MODDING_GUIDE.md) | Where everything lives in the game and how to find what you want. |
+| [Roster files](docs/ROSTER_FILES.md) | The roster file format, with every rating and gear slot. |
+| [Code mods](docs/CODE_MODS.md) | The samples, how to write your own, and the map of the gameplay code. |
+| [What we've found](docs/DISCOVERIES.md) | How the game works inside: file formats, the audio codec, the databases, the code. |
 
 ## Building
 
@@ -78,7 +104,7 @@ pyinstaller ModTheShowManager.spec      # build the exe
 ## Credits
 
 Made by [Ripalda](https://www.elripalda.com). Runs on top of
-[mlbts-native](https://github.com/sam110411/mlbts-native). Audio decoding by [vgmstream](https://vgmstream.org).
-Fonts: Poppins, Anton (SIL Open Font License).
+[mlbts-native](https://github.com/sam110411/mlbts-native). Audio decoding for sound banks and ATRAC9 by
+[vgmstream](https://vgmstream.org). Fonts: Poppins, Anton (SIL Open Font License).
 
-Licensed under GPL-3.0.
+Not affiliated with Sony Interactive Entertainment, San Diego Studio, MLB or Nintendo. Licensed under GPL-3.0.

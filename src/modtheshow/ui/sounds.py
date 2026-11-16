@@ -105,8 +105,8 @@ class SoundsPage(QWidget):
         self._show_inside(False)
         self._enable(False)
         if not self.dec.ok:
-            self.status.setText('The audio decoder (vgmstream) is missing, so sounds can be listed and exported '
-                                'as original files but not played.')
+            self.status.setText('The extra audio decoder (vgmstream) is missing, so sound banks and AT9 clips can '
+                                'only be exported as original files. Streams and archives still play.')
 
     # ---------------------------------------------------------- list
     def showEvent(self, e):
