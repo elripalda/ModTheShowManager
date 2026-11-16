@@ -7,7 +7,7 @@ import os
 import struct
 import tempfile
 
-from . import codemods, rosterjson, rosters as R, uilayout
+from . import rosterjson, rosters as R, uilayout
 from .uilayout import name_hash
 
 AUTHOR = 'Mod the Show Manager'
@@ -1015,15 +1015,6 @@ def scorebug_flat(game, lib, current_file):
                            'chevrons, black lines and scores.', FLAT_WHITE)
 
 
-def arcade_code(game, lib, current_file):
-    mod = _mod(lib, codemods.ARCADE_NAME, 'Auto PCI, moonshots, juiced ball and more. Switch them on in Code Plugins.')
-    folder = os.path.join(mod.path, 'code')
-    os.makedirs(folder, exist_ok=True)
-    with open(os.path.join(folder, 'arcade.patch'), 'w', encoding='utf-8') as f:
-        f.write(codemods.ARCADE)
-    return mod, 'Tick the ones you want in Code Plugins, then Rebuild Game.'
-
-
 BALLS = 'NSW/OBJECTS/BALLTEXTURES.TEX'
 
 
@@ -1060,13 +1051,12 @@ def fireball(game, lib, current_file):
     from . import texlib
     if BALLS not in game.file_set():
         raise ValueError('This install has no ball textures (BALLTEXTURES.TEX).')
-    mod = _mod(lib, 'Sample: Fireball', 'The ball burns: glowing leather, ember seams. Switch on Fireball in Code '
-                    'Plugins as well and every pitch comes in 30% faster.')
+    mod = _mod(lib, 'Sample: Fireball', 'The ball burns: glowing leather, ember seams.')
     with texlib.Tex(game.original(BALLS), readonly=True) as t:
         for e in t.entries:
             if e['name'].endswith('-color'):
                 lib.add_texture(mod, BALLS, e['name'], fireball_skin(t.image(e)))
-    return mod, 'Apply and start a game. For the speed, tick Fireball in Code Plugins and rebuild once.'
+    return mod, 'Apply and start a game.'
 
 
 SAMPLES = [
@@ -1095,9 +1085,7 @@ SAMPLES = [
      scorebug_text_test),
     ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',
      scorebug_flat),
-    ('fireball', 'Sample: Fireball', 'A texture mod: the ball burns. Pairs with the Fireball code mod.', fireball),
-    ('arcade', codemods.ARCADE_NAME, 'Code mods: Auto PCI, moonshots, exit velocity that shows on screen, fireball pitches, wiffle ball and more.',
-     arcade_code),
+    ('fireball', 'Sample: Fireball', 'A texture mod: the ball burns.', fireball),
 ]
 
 

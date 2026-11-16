@@ -125,7 +125,7 @@ class HomePage(QWidget):
                            'them on, rebuild once, and play.', 'Sub', wrap=True))
         fl.addLayout(fc, 1)
         b1 = button('Arcade Rosters', on_click=lambda: main.go('Teams & Rosters'))
-        b2 = button('Code Plugins', True, lambda: main.go('Code Plugins'))
+        b2 = button('Code Mods', True, lambda: main.go('Code Mods'))
         for b in (b1, b2):
             b.setMinimumWidth(170)
             fl.addWidget(b)

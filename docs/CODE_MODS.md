@@ -1,82 +1,119 @@
 # Code mods
 
 The recomp turns the game's code into C when it installs, so `mlb.exe` can't be patched afterwards the way a
-normal PC game can. Its builder takes a patch table instead and bakes the changes in. **Code Plugins** drives that:
-it joins the patch tables of the mods that are switched on, runs the recomp's generator and build, and swaps
-`mlb.exe` (the one it replaced is kept as `mlb.original.exe`).
+normal PC game can. Its builder takes a patch table instead and bakes the changes in. **Code Mods** drives that:
+it joins every code mod into one table, runs the recomp's generator and build, and swaps `mlb.exe` (the one it
+replaced is kept as `mlb.original.exe`).
 
 You need the recomp folder for this, the one `MLBTS-Setup.exe` is in. A rebuild takes about two minutes.
 
-One thing the manager does on top: the runtime library the recomp ships was built with no patch sets, so its
-switches are never filled in and a baked-in patch would stay off for good. The manager adds a small file of its
-own to the build that holds the switches and fills them in when the game starts.
+## Using them
 
-## The samples
+Everything is on one page. The manager's own code mods are always in the list, and so is the code of any mod you
+have, whether that mod is on or off in Mods. Each code mod has one switch.
 
-**Add Arcade Samples** puts these in a mod called Arcade Code Mods. Tick what you want, **Rebuild Game** once, then
-start the game. After that, ticking and unticking takes effect the next time the game starts, with no rebuild.
+1. Press **Rebuild Game** once. Every code mod in the list is built in, switched off.
+2. Switch on what you want and play.
 
-| Sample | What it does |
+After that first rebuild nothing needs rebuilding again until the list itself changes (you import a code mod, or
+the manager updates its own).
+
+Some code mods have a **dial**: a number you can turn. Exit Velocity's dial is how many times harder the ball
+comes off the bat; Air's is how much air it flies through.
+
+## In the game
+
+**F4** opens the same list over the game.
+
+| Key | Controller | What it does |
+| --- | --- | --- |
+| F4 | Options closes | Open and close the list |
+| Up, Down | D-pad | Move |
+| Enter | Any face button | Switch the mod on or off |
+| Left, Right | D-pad | Turn its dial (on a mod without one: off and on) |
+
+Changes take effect at once and are remembered. While the list is open the game ignores the controller, the same
+as with its own F1 menu. **F2** and **F3** still work with the list closed: F2 steps through the mods, F3 switches
+the one shown.
+
+## What comes with the manager
+
+| Code mod | What it does |
 | --- | --- |
+| Exit Velocity (dial) | Every ball comes off the bat harder, and the exit velocity on screen shows it. |
 | Auto PCI | Your PCI snaps onto the ball on every swing. You still have to time it. |
 | Auto PCI Everyone | The same for every hitter, CPU included. |
-| Auto PCI Visual | The PCI on screen moves onto the pitch by itself, so you can see it. New. |
+| Auto PCI Visual | The PCI on screen moves onto the pitch by itself. Experimental. |
 | Perfect Perfect | Every ball you put in play counts as perfect PCI and perfect timing. Experimental. |
-| Orbit Shots, God Power, Moonshot, Juiced Ball | Balls leave the bat 3x, 2x, 1.5x and 1.25x faster. |
-| Gap Power | Balls leave the bat 10% faster: more balls off the wall, the odd extra home run. |
-| Dead Ball | Balls leave the bat 20% slower. |
-| Exit Velo x1.25, x1.5, x2, x3 | The hit's power itself goes up, so the ball flies faster and the exit velocity on screen shows it. New. |
-| Fireball | Every pitch comes in about 30% faster. Pairs with the Sample: Fireball ball skin. Experimental. |
-| Wiffle Ball | Four times the air: pitches should break far more and fly balls drop early. Experimental. |
-| Thin Air | A quarter of the air density everywhere. Fly balls carry. |
-| Heavy Air | Twice the air density. Fly balls die at the warning track. |
+| Unbreakable Bats | Bats never break. |
+| Air (dial) | How much air the ball flies through. Low and fly balls carry forever; high and they die early. |
 | Rocket Arms | Thrown balls travel 1.25x faster. Experimental. |
 | Heat, Soft Toss | Every pitch comes in about 15% faster, or 15% slower. Experimental. |
-| Unbreakable Bats | Bats never break. |
 | Iron Arms | Pitchers tire four times slower. Experimental. |
 
-These are for offline play. None of them have been through a full season, so try one at a time first.
+Experimental means it is built from reading the code and hasn't been confirmed in a game yet. These are for
+offline play.
 
-## Switching while you play
+## Checking that one works
 
-With the game window in front, **F2** steps through the code mods and **F3** turns the one shown on or off. The
-window title shows which one for a few seconds and a tone confirms it: high for on, low for off. What you set
-this way is remembered.
+Code Mods shows it for you after a game:
 
-## Checking that one is on
+- Under each mod: how many times its code ran in your last game. A mod that was on and ran zero times never got
+  its turn, which is worth reporting.
+- **Last game**: what the game itself recorded. The hardest ball hit (with Exit Velocity on it goes well past
+  120 mph), the air density (about 0.075 untouched), the biggest pitch break, and how far off the PCI was on the
+  last swing (0.00 with Auto PCI).
 
-- **Code Plugins** says what the game had on the last time it started, and what its log recorded about your
-  last swing.
-- `<game>\logs\mts-code.log` is written every time the game starts: one line per code mod, `1` for on, and
-  where the answer came from.
-- `<game>\logs\mlb.log` has the game's own notes. After a swing with Auto PCI on, the `ErrorXY` in
-  `BATTER SWING DIAGNOSTICS` reads `0.00, 0.00`. With Perfect Perfect on, the `PERFECT PERFECT` line reads `1 1`.
+The files behind that, if you want to look yourself: `<game>\logs\mts-code.log` (what was on, each dial, how
+often each mod ran) and `<game>\logs\mlb.log` (the game's own notes: `AutoHit::m_fPowerMPH`,
+`AutoHit::m_fAirDensity`, `Actual Pitch Movement`, `BATTER SWING DIAGNOSTICS`). Your switches and dials are saved
+in `<game>\mts-code.cfg`, which the game reads when it starts, so they hold whether you launch from the manager
+or not.
 
-Your ticks are saved in `<game>\mts-code.cfg`, which the game reads when it starts, so they hold whether you
-launch from the manager or not.
+## Getting more
 
-## Writing one
+- **Get More** opens Discover, where shared mods can carry code.
+- **Import** takes a `.patch` file someone sent you, or a shared mod's `.zip`.
 
-A mod carries its patches in `code/*.patch`. **New Code Mod** makes a starter file with the format explained.
+Either way the code mods show up in the list switched off, and the next Rebuild Game builds them in.
+
+## Making your own
+
+**Make Your Own** puts a starter file in your mod's `code` folder with the format explained in it.
 
 ```
-set  moonshot MLB_MOD_MOONSHOT 0
-site moonshot main 167d0b4 72a7f769 72a80189
+#group Hitting
+#: big_fly: Balls come off the bat harder.
+#dial big_fly 1.5 0.5 4 0.25 Power x
+set  big_fly MLB_MOD_BIGFLY 0
+site big_fly main 167d0b8 bd404a60 bd404a60 $big_fly:s1 1e210800 bd004a60
 ```
 
-- `set <name> <SWITCH> <default>` is one switchable group. The switch is an environment variable the manager sets
-  when it launches the game.
+- `set <name> <SWITCH> <default>` is one switchable code mod. The switch is an environment variable that also
+  works at launch.
 - `site <set> <module> <offset> <original> <replacement> ...` replaces one instruction. `<module>` is `main` or
   `sdk`, `<offset>` is where the instruction sits in that module, `<original>` is the ARM64 word that is there
   now, and the replacement is one or more ARM64 words that run in its place.
-- A line starting with `#: name: text` is the description the manager shows next to the tick box.
+- `#: name: text` is the description. `#group Heading` puts the sets under it beneath that heading. `#tag name:
+  Experimental` adds a mark beside the name.
+- `#dial <name> <start> <lowest> <highest> <step> <label>` makes a dial, and `$name:s1` in a site loads its number
+  into float register `s1` (any `s` register the code isn't using at that point).
 
 The rules the recomp's builder enforces: the original word must match, a replacement may only branch in its last
 word, and it must write the same flags the original did. That last one matters: a replacement for a plain
-`fsub` can't use `cmp`. The Auto PCI sample shows how to pick between two values without touching the flags.
+`fsub` can't use `cmp`. Auto PCI shows how to pick between two values without touching the flags.
 
 The manager reads `game/exefs/main` before a build and leaves out any set whose original words don't match your
 game version, instead of letting the build fail.
+
+## How it is built
+
+For the curious. The runtime library the recomp ships was built with no patch sets, so its switches are never
+filled in and a baked-in patch would stay off for good. The manager adds one C file of its own to the build
+(`mts_switches.c`) that holds the switches, the dials, a counter per mod and the F4 menu, and points the patched
+code at it. A dial is written into the table as an instruction no real patch uses; after the recomp translates
+it, the manager swaps that number for the live one. If that ever fails, the dials are built in at their current
+numbers instead and the build still works.
 
 ## The map so far
 
@@ -113,7 +150,7 @@ Hit record: `+0x1c` late/inside rating, `+0x20` early/outside rating, `+0x28` to
 | `165ac78` | Last multiply of the air density function (temperature and altitude in, density out). |
 | `1688088` | 1.4667 again, for a thrown ball's speed. |
 | `166a6e4` | 1.4667 in the release setup shared by pitches and throws (speed and distance in, flight time out). |
-| `24ada4`, `24adb0` | The low and high ends of the pitch speed multiplier (about 0.95 and 1.05). |
+| `24ada4`, `24adb0` | The low and high ends of a pitch speed multiplier (about 0.95 and 1.05). Not confirmed in a game. |
 
 **Stamina**
 

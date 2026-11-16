@@ -1,13 +1,82 @@
-"""Code Plugins: instruction patches from mods, built into mlb.exe with the recomp's own tools."""
+"""Code Mods: every mod that changes how the game plays, in one list. Each has one switch here; Rebuild Game builds them
+into mlb.exe with the recomp's own tools, and the same list opens in the game on F4."""
 import os
+import shutil
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QHBoxLayout, QListWidget, QListWidgetItem, QMessageBox,
-                               QPlainTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+                               QPlainTextEdit, QSlider, QVBoxLayout, QWidget)
 
 from .. import codemods
-from .common import button, header, label, panel, section_title
+from .common import badge, button, header, label, panel, section_title
+from .widgets import Toggle
 from .workers import Job, start
+
+KEYS = ('F4 opens the list in the game. Up and Down move, Enter switches a mod on or off, Left and Right turn a '
+        'dial. With a controller: the D-pad moves and turns, any face button switches, Options closes. Changes take '
+        'effect at once and are remembered.')
+
+
+class Row(QWidget):
+    """One code mod: its switch, what it does, its dial when it has one, and what the last game showed."""
+
+    def __init__(self, page, name, source, on, fits, dial, note, warn):
+        super().__init__()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(14)
+        self.toggle = Toggle()
+        self.toggle.setChecked(on and fits)
+        self.toggle.setEnabled(fits)
+        self.toggle.toggled.connect(lambda state: page.toggle(name, state))
+        lay.addWidget(self.toggle, 0, Qt.AlignTop)
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        title = label(codemods.nice(name))
+        title.setStyleSheet('font-size: 14px; font-weight: 600;')
+        top.addWidget(title)
+        if codemods.TAGS.get(name):
+            top.addWidget(badge(codemods.TAGS[name]))
+        if source != codemods.BUILT_IN:
+            top.addWidget(badge(source, True))
+        top.addStretch(1)
+        col.addLayout(top)
+        text = codemods.DESCRIPTIONS.get(name, '') if fits else \
+            'Made for a different version of the game, so it is left out of the build.'
+        if text:
+            col.addWidget(label(text, 'Soft', wrap=True))
+        if note:
+            n = label(note, 'Sub', wrap=True)
+            if warn:
+                n.setStyleSheet('color: #E0A83C;')
+            col.addWidget(n)
+        lay.addLayout(col, 1)
+        side = QWidget()                      # every row keeps this column, so the text lines up down the list
+        side.setFixedWidth(210)
+        sl = QHBoxLayout(side)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.setSpacing(10)
+        if dial and fits:
+            dname, value, lo, hi, step, what = dial
+            self.slider = QSlider(Qt.Horizontal)
+            self.slider.setRange(0, max(1, round((hi - lo) / step)))
+            self.slider.setValue(round((value - lo) / step))
+            self.slider.setToolTip(what)
+            self.value = label(f'{value:.2f}')
+            self.value.setFixedWidth(44)
+            self.value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.value.setStyleSheet('font-weight: 600;')
+
+            def moved(k):
+                v = lo + k * step
+                self.value.setText(f'{v:.2f}')
+                page.turn(dname, v)
+            self.slider.valueChanged.connect(moved)
+            sl.addWidget(self.slider, 1)
+            sl.addWidget(self.value)
+        lay.addWidget(side, 0, Qt.AlignVCenter)
 
 
 class PluginsPage(QWidget):
@@ -18,42 +87,41 @@ class PluginsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(28, 24, 28, 24)
         outer.setSpacing(18)
-        self.b_arcade = button('Add Arcade Samples', on_click=self.add_arcade)
-        self.b_new = button('New Code Mod', on_click=self.new_patch)
+        self.b_more = button('Get More', on_click=lambda: main.go('Discover'))
+        self.b_import = button('Import', on_click=self.import_file)
+        self.b_new = button('Make Your Own', on_click=self.new_patch)
         self.b_build = button('Rebuild Game', True, self.rebuild)
-        outer.addWidget(header('Code Plugins', 'Mods that change how the game plays. A code mod is a list of '
-                               'instruction patches; Rebuild Game bakes the ones that are switched on into mlb.exe '
-                               '(about two minutes), and each can still be turned off per launch.',
-                               [self.b_arcade, self.b_new, self.b_build]))
+        outer.addWidget(header('Code Mods', 'Mods that change how the game plays. Switch on what you want and press '
+                               'Rebuild Game once (about two minutes). After that, switch them and turn their dials '
+                               'here or in the game with F4, no rebuild needed.',
+                               [self.b_more, self.b_import, self.b_new, self.b_build]))
         row = QHBoxLayout()
         row.setSpacing(20)
         left = panel()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(18, 18, 18, 18)
         ll.setSpacing(12)
-        ll.addWidget(section_title('Code mods'))
+        self.search = QLineEdit()
+        self.search.setPlaceholderText('Search')
+        self.search.setClearButtonEnabled(True)
+        self.search.setFixedWidth(220)
+        self.search.textChanged.connect(lambda _: self.refresh())
+        ll.addWidget(section_title('Your code mods', [self.search]))
         self.list = QListWidget()
         self.list.setStyleSheet('QListWidget { border: none; padding: 0; background: transparent; }')
         self.list.setSelectionMode(QListWidget.NoSelection)
+        self.list.setFocusPolicy(Qt.NoFocus)
+        self.list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
         ll.addWidget(self.list, 1)
-        self._empty_text = ('No code mods yet. Add Arcade Samples gives you ready-made ones (Auto PCI, moonshots, '
-                            'juiced ball, thin air). New Code Mod puts a starter file in your mod that explains the '
-                            'format.')
-        self.empty = label(self._empty_text, 'Soft', wrap=True)
-        self.hint = label('Tick what you want, press Rebuild Game once, then play. After that you can tick and '
-                          'untick without rebuilding; it takes effect the next time the game starts. In the game, '
-                          'F2 steps through the code mods and F3 switches the one shown on or off.', 'Sub', wrap=True)
-        ll.addWidget(self.hint)
-        ll.addWidget(self.empty)
-        self.filler = QWidget()
-        ll.addWidget(self.filler, 1)
         row.addWidget(left, 3)
         right = panel()
         rl = QVBoxLayout(right)
         rl.setContentsMargins(18, 18, 18, 18)
         rl.setSpacing(12)
         rl.addWidget(section_title('Build'))
-        self.recomp_label = label('', 'Soft', wrap=True)
+        self.state = label('', 'Soft', wrap=True)
+        rl.addWidget(self.state)
+        self.recomp_label = label('', 'Sub', wrap=True)
         rl.addWidget(self.recomp_label)
         pick = QHBoxLayout()
         pick.setSpacing(8)
@@ -62,12 +130,15 @@ class PluginsPage(QWidget):
         pick.addWidget(self.b_pick, 1)
         pick.addWidget(self.b_restore, 1)
         rl.addLayout(pick)
-        self.state = label('', 'Sub', wrap=True)
-        rl.addWidget(self.state)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setPlaceholderText('Build output shows here.')
         rl.addWidget(self.log, 1)
+        rl.addWidget(section_title('Last game'))
+        self.last = label('', 'Soft', wrap=True)
+        rl.addWidget(self.last)
+        rl.addWidget(section_title('In the game'))
+        rl.addWidget(label(KEYS, 'Sub', wrap=True))
         row.addWidget(right, 2)
         outer.addLayout(row, 1)
 
@@ -78,6 +149,21 @@ class PluginsPage(QWidget):
     def switches(self):
         return self.main.settings.setdefault('code_switches', {})
 
+    def dial_values(self):
+        return self.main.settings.setdefault('code_dials', {})
+
+    def table(self):
+        """(sets, table text without what does not fit this game, problems, {set: why it does not fit})"""
+        sets, text, bad = codemods.collect(self.main.lib.list())
+        text, misfit = codemods.fitting(self.main.game.root, text)
+        return sets, text, bad, misfit
+
+    def dials(self, text):
+        """{dial name: (name, value now, lowest, highest, step, label)}"""
+        have = self.dial_values()
+        return {d[0]: (d[0], min(d[3], max(d[2], float(have.get(d[0], d[1])))), d[2], d[3], d[4], d[5])
+                for d in codemods.dials(text)}
+
     def env(self):
         """Environment for a launch: every known set, on or off."""
         sets, _, _ = codemods.collect(self.main.lib.list())
@@ -85,12 +171,9 @@ class PluginsPage(QWidget):
         return {env: '1' if sw.get(name, bool(default)) else '0' for name, env, default, _ in sets}
 
     def active_names(self):
-        """Names of the code mods that are ticked, when the game is built with the current set."""
-        sets, text, bad = codemods.collect(self.main.lib.list())
-        if bad or not sets:
-            return []
-        text, misfit = codemods.fitting(self.main.game.root, text)
-        if codemods.signature(text) != self.main.settings.get('code_built', ''):
+        """Names of the code mods that are on, when the game is built with the current set."""
+        sets, text, bad, misfit = self.table()
+        if bad or not sets or codemods.signature(text) != self.main.settings.get('code_built', ''):
             return []
         sw = self.switches()
         return [codemods.nice(n) for n, _, default, _ in sets if sw.get(n, bool(default)) and n not in misfit]
@@ -98,98 +181,147 @@ class PluginsPage(QWidget):
     def activate(self):
         self.refresh()
 
-    def refresh(self):
-        sets, text, bad = codemods.collect(self.main.lib.list())
-        text, misfit = codemods.fitting(self.main.game.root, text)
-        self.list.clear()
-        sw = self.switches()
-        # F3 in the game changes the file; the ticks follow it
+    def _sync(self, sets, text):
+        """The in-game menu saves what it changed; the switches and dials here follow it."""
+        sw, dv = self.switches(), self.dial_values()
         known = {n for n, _, _, _ in sets}
-        changed = {n: on for n, on in codemods.read_switches(self.main.game.root).items()
-                   if n in known and sw.get(n) != on}
-        if changed:
+        root = self.main.game.root
+        changed = {n: on for n, on in codemods.read_switches(root).items() if n in known and sw.get(n) != on}
+        turned = {n: v for n, v in codemods.read_dials(root).items()
+                  if n in {d[0] for d in codemods.dials(text)} and abs(float(dv.get(n, v + 1)) - v) > 1e-6}
+        if changed or turned:
             sw.update(changed)
+            dv.update(turned)
             self.main.save_settings()
-        for name, env, default, mod in sets:
+
+    def refresh(self):
+        sets, text, bad, misfit = self.table()
+        self._sync(sets, text)
+        sw = self.switches()
+        dials = self.dials(text)
+        turns = codemods.set_dials(text)
+        root = self.main.game.root
+        sig, built = codemods.signature(text), self.main.settings.get('code_built', '')
+        current = bool(sig) and sig == built
+        ran = codemods.last_activity(root) if current else None
+        seen = (codemods.last_launch(root) or {}) if current else {}
+        want = self.search.text().strip().lower()
+        self.list.clear()
+
+        def add(widget, height=None):
             it = QListWidgetItem()
-            w = QWidget()
-            hl = QHBoxLayout(w)
-            hl.setContentsMargins(4, 0, 4, 0)
-            chk = QCheckBox(codemods.nice(name))
-            chk.setChecked(sw.get(name, bool(default)) and name not in misfit)
-            chk.setToolTip(f'Takes effect the next time the game starts. Launch switch: {env}.')
-            chk.toggled.connect(lambda on, n=name: self._toggle(n, on))
-            if name in misfit:
-                chk.setEnabled(False)
-                chk.setToolTip('Made for a different game version:\n' + '\n'.join(misfit[name][:4]))
-            chk.setMinimumWidth(170)
-            hl.addWidget(chk)
-            d = label('Doesn’t fit this game version, so it is left out of the build.' if name in misfit
-                      else codemods.DESCRIPTIONS.get(name, mod), 'Sub', wrap=True)
-            hl.addWidget(d, 1)
-            from PySide6.QtCore import QSize
-            it.setSizeHint(QSize(0, 56))
+            it.setFlags(Qt.NoItemFlags)
+            it.setSizeHint(QSize(100, height or widget.sizeHint().height()))
             self.list.addItem(it)
-            self.list.setItemWidget(it, w)
-        off = [m.name for m in self.main.lib.list() if not m.enabled and codemods.mod_patches(m)]
-        self.empty.setText(f'Your code mods are in mods that are switched off ({", ".join(off[:3])}). Switch them on '
-                           'in Mods and they show up here.' if off and not sets else self._empty_text)
-        self.empty.setVisible(not sets)
-        self.hint.setVisible(bool(sets))
-        have = self._arcade_text()
-        self.b_arcade.setText('Add Arcade Samples' if have is None else 'Update Arcade Samples')
-        self.b_arcade.setEnabled(have != codemods.ARCADE)
-        self.list.setVisible(bool(sets))
-        self.filler.setVisible(not sets)
+            self.list.setItemWidget(it, widget)
+
+        shown = 0
+        for group, members in codemods.grouped(sets):
+            members = [m for m in members if not want or want in codemods.nice(m[0]).lower()
+                       or want in codemods.DESCRIPTIONS.get(m[0], '').lower() or want in group.lower()]
+            if not members:
+                continue
+            head = label(group.upper(), 'Sub')
+            head.setStyleSheet('font-weight: 700; letter-spacing: 1px; padding: 12px 14px 2px 14px;')
+            add(head, 38)
+            for name, _env, default, source in members:
+                on = sw.get(name, bool(default))
+                note, warn = '', False
+                if ran is not None and name in ran:
+                    if ran[name]:
+                        note = f'Its code ran {ran[name]:,} time{"s" if ran[name] != 1 else ""} in your last game.'
+                    elif seen.get(name, (False, ''))[0]:
+                        note, warn = 'It was on in your last game, but the game never got to its code.', True
+                elif current and seen and name not in seen:
+                    note = 'Not in the game yet. Press Rebuild Game.'
+                dial = dials.get(turns.get(name, [None])[0])
+                add(Row(self, name, source, on, name not in misfit, dial, note, warn), 64)
+                shown += 1
+        if not shown:
+            add(label('Nothing matches that search.' if want else 'No code mods yet.', 'Soft'), 60)
         r = self.recomp()
         self.recomp_label.setText(f'Recomp folder: {r}' if r else
                                   'The recomp folder (where MLBTS-Setup.exe is) wasn’t found. Point the manager at it '
                                   'to build code mods.')
-        sig = codemods.signature(text)
-        built = self.main.settings.get('code_built', '')
+        frozen = current and not self.main.settings.get('code_live', True)
+        stale = frozen and any(abs(v[1] - float(self.main.settings.get('code_built_dials', {}).get(k, v[1]))) > 1e-6
+                               for k, v in dials.items())
         if bad:
             self.state.setText('Problems:\n' + '\n'.join(bad[:8]))
-        elif sig == built:
-            self.state.setText(('The game is built with the code mods above.\n' + self._last_launch_text(sets))
-                               if sig else 'No code mods are switched on. The game is the standard build.')
+        elif current:
+            text_ = 'The game is built with these code mods. Switch them here or in the game with F4.'
+            if frozen:
+                text_ += ' This build has its dials fixed: after turning one, press Rebuild Game.'
+            self.state.setText(text_)
+        elif built:
+            self.state.setText('The list has changed since the game was built. Press Rebuild Game to bring it up to date.')
         else:
-            self.state.setText('The game needs a rebuild before these code mods can work. Press Rebuild Game.')
-        self.b_build.setEnabled(bool(r) and not bad and sig != built)
-        self.b_restore.setEnabled(os.path.exists(os.path.join(self.main.game.root, 'mlb.original.exe')))
+            self.state.setText('Press Rebuild Game once to build the code mods into the game. Your current mlb.exe is '
+                               'kept as mlb.original.exe.')
+        self.b_build.setEnabled(bool(r) and not bad and bool(sig) and (sig != built or stale))
+        self.b_restore.setEnabled(os.path.exists(os.path.join(root, 'mlb.original.exe')))
+        self.last.setText(self._last_game_text(current))
+        self._fit()
+        QTimer.singleShot(0, self._fit)       # once more when the list has its real width
 
-    def _toggle(self, name, on):
+    def _fit(self):
+        """Each row as tall as its wrapped text needs at the list's width."""
+        width = self.list.viewport().width()
+        if width < 200:
+            return
+        for i in range(self.list.count()):
+            it = self.list.item(i)
+            w = self.list.itemWidget(it)
+            if isinstance(w, Row):
+                h = max(64, w.heightForWidth(width - 36) + 6 if w.hasHeightForWidth() else w.sizeHint().height())
+                if it.sizeHint().height() != h:
+                    it.setSizeHint(QSize(100, h))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        QTimer.singleShot(0, self._fit)
+
+    def _last_game_text(self, current):
+        root = self.main.game.root
+        seen = codemods.last_launch(root) if current else None
+        if not current or seen is None:
+            return 'Play a game after a rebuild and what the game recorded shows here, so you can see a mod working.'
+        on = [codemods.nice(n) for n, (state, _) in seen.items() if state]
+        bits = ['On when it started: ' + ', '.join(on) + '.' if on else 'Every code mod was off when it started.']
+        g = codemods.last_game(root)
+        if g.get('hits'):
+            bits.append(f'{g["hits"]} ball{"s" if g["hits"] != 1 else ""} hit, the hardest at {g["hardest"]:.1f} mph.')
+        if 'air' in g:
+            bits.append(f'Air density {g["air"]:.3f} (about 0.075 untouched).')
+        if g.get('breaks'):
+            bits.append(f'Biggest pitch break {g["biggest_break"]:.2f} ft.')
+        sw = codemods.last_swing(root)
+        if 'error' in sw:
+            bits.append(f'On the last swing the PCI was {sw["error"]:.2f} off the ball.')
+        return ' '.join(bits)
+
+    # ---- switches and dials
+    def toggle(self, name, on):
         self.switches()[name] = on
         self.main.save_settings()
         self.write_switches()
 
+    def turn(self, dial, value):
+        self.dial_values()[dial] = value
+        self.main.save_settings()
+        self.write_switches()
+        if not self.main.settings.get('code_live', True):
+            self.b_build.setEnabled(bool(self.recomp()))
+
     def write_switches(self):
-        """Puts the ticks in the game folder, where the built game reads them however it is started."""
-        sets, _, _ = codemods.collect(self.main.lib.list())
+        """Puts the switches and dials in the game folder, where the built game reads them however it is started."""
+        sets, text, _ = codemods.collect(self.main.lib.list())
         sw = self.switches()
         try:
-            codemods.write_switches(self.main.game.root, {n: sw.get(n, bool(d)) for n, _, d, _ in sets})
+            codemods.write_switches(self.main.game.root, {n: sw.get(n, bool(d)) for n, _, d, _ in sets},
+                                    {k: v[1] for k, v in self.dials(text).items()})
         except OSError:
             pass
-
-    def _last_launch_text(self, sets):
-        seen = codemods.last_launch(self.main.game.root)
-        if seen is None:
-            return 'The game hasn’t been started since a rebuild, so there is nothing to check yet.'
-        on = [codemods.nice(n) for n, (state, _) in seen.items() if state]
-        missing = [codemods.nice(n) for n, _, _, _ in sets if n not in seen]
-        text = ('Last time the game started it had on: ' + ', '.join(on) + '.') if on else \
-            'Last time the game started, every code mod was off.'
-        if missing:
-            text += ' Not in that build: ' + ', '.join(missing[:4]) + '.'
-        sw = codemods.last_swing(self.main.game.root)
-        if sw:
-            bits = []
-            if 'error' in sw:
-                bits.append(f'PCI was {sw["error"]:.2f} off the ball')
-            if 'perfect' in sw:
-                bits.append(f'perfect PCI {sw["perfect"][0]}, perfect timing {sw["perfect"][1]}')
-            text += '\nLast swing in the game’s log: ' + ', '.join(bits) + '.'
-        return text
 
     # ---- actions
     def pick_recomp(self):
@@ -204,29 +336,37 @@ class PluginsPage(QWidget):
         self.main.save_settings()
         self.refresh()
 
-    def _arcade_text(self):
-        """The arcade patch file in the library, or None when the samples are not added."""
-        mod = next((m for m in self.main.lib.list() if m.name == codemods.ARCADE_NAME), None)
-        if mod is None:
-            return None
-        try:
-            with open(os.path.join(mod.path, 'code', 'arcade.patch'), encoding='utf-8') as f:
-                return f.read()
-        except OSError:
-            return ''
-
-    def add_arcade(self):
+    def import_file(self):
+        """A code mod someone sent you: a .patch file, or a shared mod's .zip."""
+        path, _ = QFileDialog.getOpenFileName(self, 'Import a Code Mod', self.main.last_dir(),
+                                              'Code mods (*.patch *.zip)')
+        if not path:
+            return
         lib = self.main.lib
-        mod = next((m for m in lib.list() if m.name == codemods.ARCADE_NAME), None)
-        if mod is None:
-            mod = lib.create(codemods.ARCADE_NAME, 'Ripalda')
-        folder = os.path.join(mod.path, 'code')
-        os.makedirs(folder, exist_ok=True)
-        with open(os.path.join(folder, 'arcade.patch'), 'w', encoding='utf-8') as f:
-            f.write(codemods.ARCADE)
-        if not mod.enabled:
-            lib.set_enabled(mod, True)
-        self.main.changed('Arcade samples added. Tick the ones you want, then Rebuild Game.')
+        try:
+            if path.lower().endswith('.zip'):
+                mod = lib.import_zip(path)
+            else:
+                with open(path, encoding='utf-8', errors='replace') as f:
+                    _sets, _lines, bad = codemods.parse(f.read(), os.path.basename(path))
+                if bad:
+                    QMessageBox.warning(self, 'Could Not Import', 'That file has lines the manager cannot read:\n\n' +
+                                        '\n'.join(bad[:6]))
+                    return
+                stem = os.path.splitext(os.path.basename(path))[0]
+                name, n = stem.replace('_', ' ').strip().title() or 'Code Mod', 2
+                taken = {m.name for m in lib.list()}
+                while name in taken:
+                    name, n = f'{stem.replace("_", " ").strip().title()} {n}', n + 1
+                mod = lib.create(name, '')
+                os.makedirs(os.path.join(mod.path, 'code'), exist_ok=True)
+                shutil.copy2(path, os.path.join(mod.path, 'code', os.path.basename(path)))
+        except Exception as x:
+            QMessageBox.warning(self, 'Could Not Import', str(x))
+            return
+        got = len(codemods.mod_patches(mod)) if mod else 0
+        self.main.changed(f'{mod.name} added. Its code mods are in the list, switched off.' if got else
+                          f'{mod.name} added to your mods. It has no code mods in it.')
         self.refresh()
 
     def new_patch(self):
@@ -242,28 +382,29 @@ class PluginsPage(QWidget):
             f.write(codemods.TEMPLATE)
         from .modspage import open_folder
         open_folder(folder)
-        self.main.toast(f'Starter file made in {mod.name}\\code. Edit it, then come back and Rebuild Game.')
+        self.main.toast(f'Starter file made in {mod.name}\\code. It explains the format. Edit it, then come back '
+                        'and Rebuild Game.')
         self.refresh()
 
     def rebuild(self):
         if self.main.game.running():
             QMessageBox.information(self, 'Game Is Running', 'Close MLB The Show 26 first, then try again.')
             return
-        sets, text, bad = codemods.collect(self.main.lib.list())
+        sets, text, bad, _ = self.table()
         if bad:
             return
-        text, _ = codemods.fitting(self.main.game.root, text)
-        r = QMessageBox.question(self, 'Rebuild Game', 'This rebuilds mlb.exe with the code mods that are switched '
-                                 'on. It takes about two minutes and your current mlb.exe is kept as '
-                                 'mlb.original.exe.\n\nRebuild now?')
+        r = QMessageBox.question(self, 'Rebuild Game', 'This builds every code mod in the list into mlb.exe, switched '
+                                 'off until you switch it on. It takes about two minutes and your current mlb.exe is '
+                                 'kept as mlb.original.exe.\n\nRebuild now?')
         if r != QMessageBox.Yes:
             return
         recomp, root = self.recomp(), self.main.game.root
+        values = {k: v[1] for k, v in self.dials(text).items()}
         self.log.clear()
         self.b_build.setEnabled(False)
-        job = Job(lambda j: codemods.rebuild(recomp, root, text, log=j.log))
+        job = Job(lambda j: codemods.rebuild(recomp, root, text, log=j.log, dial_values=values))
         job.sig.log.connect(self._line)
-        job.sig.done.connect(lambda _: self._built(codemods.signature(text)))
+        job.sig.done.connect(lambda result: self._built(codemods.signature(text), result, values))
         job.sig.failed.connect(self._failed)
         self._job = job
         start(job)
@@ -271,15 +412,21 @@ class PluginsPage(QWidget):
     def _line(self, text):
         self.log.appendPlainText(text)
 
-    def _built(self, sig):
-        self.main.settings['code_built'] = sig
+    def _built(self, sig, result, values):
+        result = result if isinstance(result, dict) else {}
+        s = self.main.settings
+        s['code_built'] = sig
+        s['code_live'] = bool(result.get('live', True))
+        s['code_menu'] = int(result.get('menu', codemods.MENU_FULL))
+        s['code_built_dials'] = dict(values)
         self.main.save_settings()
         self.write_switches()
         try:      # the note from an older build would only mislead
             os.remove(os.path.join(self.main.game.root, 'logs', codemods.SWITCH_LOG))
         except OSError:
             pass
-        self.main.toast('Game rebuilt with your code mods.')
+        self.main.toast('Game rebuilt. Your code mods are in; press F4 in the game for the list.'
+                        if s['code_menu'] else 'Game rebuilt with your code mods.')
         self.refresh()
 
     def _failed(self, tb):

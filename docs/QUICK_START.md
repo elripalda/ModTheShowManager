@@ -32,13 +32,12 @@ The same steps work everywhere else: uniforms, bats, menus, scorebugs.
 
 Code mods need the recomp's own folder, the one with `MLBTS-Setup.exe` in it.
 
-1. Go to **Code Plugins**. If it says the recomp folder wasn't found, press **Find Recomp Folder**.
-2. Tick **Moonshot** (or **Auto PCI**).
-3. Press **Rebuild Game** and wait about two minutes.
-4. Press **Play**.
+1. Go to **Code Mods**. If it says the recomp folder wasn't found, press **Find Recomp Folder**.
+2. Press **Rebuild Game** and wait about two minutes.
+3. Switch on **Exit Velocity** (or **Auto PCI**) and press **Play**.
 
-After the first rebuild you can tick and untick without rebuilding. It takes effect the next time the game
-starts. Code Plugins shows what the game had on the last time it started, so you can check.
+In the game, **F4** opens the same list, so you can switch mods and turn their dials while you play. After a
+game, Code Mods shows what the game recorded, so you can see a mod working.
 
 ## 5. Go back to stock
 

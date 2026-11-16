@@ -26,7 +26,7 @@ NAV = [('START', [('Home', HomePage), ('Mods', ModsPage), ('Discover', DiscoverP
        ('CREATE', [('Uniforms', UniformsPage), ('Bats', BatsPage), ('Stadiums', StadiumsPage),
                    ('Scoreboards', ScoreboardsPage), ('Menus & Loading Screens', MenusPage), ('3D Models', ModelsPage),
                    ('Sounds', SoundsPage), ('Teams & Rosters', TeamsPage)]),
-       ('TOOLS', [('Game Files', GameFilesPage), ('Code Plugins', PluginsPage), ('Settings', SettingsPage)])]
+       ('TOOLS', [('Game Files', GameFilesPage), ('Code Mods', PluginsPage), ('Settings', SettingsPage)])]
 
 
 class Setup(QWidget):
@@ -530,8 +530,8 @@ class MainWindow(QMainWindow):
                 self.go('Mods')
                 return
         try:
-            self.pages['Code Plugins'].write_switches()
-            self.game.launch(self.pages['Code Plugins'].env())
+            self.pages['Code Mods'].write_switches()
+            self.game.launch(self.pages['Code Mods'].env())
             self.toast('Launching MLB The Show 26...')
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Launch', str(x))

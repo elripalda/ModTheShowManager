@@ -158,7 +158,7 @@ class LauncherCard(QFrame):
             self.t_files.set(f'{len(on)} mod{"s" if len(on) != 1 else ""} in the game', 'Originals are safe in mod-backup.')
         else:
             self.t_files.set('Stock', 'No mods are in the game right now.')
-        plug = self.main.pages.get('Code Plugins')
+        plug = self.main.pages.get('Code Mods')
         names = plug.active_names() if plug else []
         if names:
             self.t_code.set(f'{len(names)} code mod{"s" if len(names) != 1 else ""} on',

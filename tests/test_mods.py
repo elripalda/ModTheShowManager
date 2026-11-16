@@ -83,7 +83,78 @@ def test_drop_sets():
     text = 'set a A 0\nsite a main 10 1 2\nset b B 0\nsite b main 20 3 4\n'
     assert codemods.drop_sets(text, {'a'}) == 'set b B 0\nsite b main 20 3 4\n'
     sets, _, bad = codemods.parse(codemods.ARCADE)
-    assert not bad and {'auto_pci', 'moonshot', 'perfect_perfect'} <= {s[0] for s in sets}
+    assert not bad and {'auto_pci', 'exit_velocity', 'air', 'perfect_perfect'} <= {s[0] for s in sets}
+
+
+def test_built_in_code_mods():
+    """The manager's own code mods are always in the list, without a mod; a mod's code is in whether the mod is on
+    or off; a set two files carry is taken once; the old samples mod is skipped."""
+    class M:
+        def __init__(self, name, files):
+            self.name, self.enabled = name, False
+            self.path = tempfile.mkdtemp()
+            os.makedirs(os.path.join(self.path, 'code'))
+            for f, text in files.items():
+                with open(os.path.join(self.path, 'code', f), 'w') as fh:
+                    fh.write(text)
+    mine = M('Zed', {'z.patch': '#group Mine\n#: zed: Does zed.\n#tag zed: New\nset zed MLB_ZED 0\nsite zed main 10 1 2\n'
+                                'set air MLB_AIR2 0\nsite air main 20 3 4\n'})
+    old = M(codemods.ARCADE_NAME, {'arcade.patch': 'set moonshot MLB_MOD_MOONSHOT 0\nsite moonshot main 167d0b4 1 2\n'})
+    sets, text, bad = codemods.collect([mine, old])
+    names = [s[0] for s in sets]
+    assert not bad and names[0] == 'exit_velocity' and names[-1] == 'zed' and 'moonshot' not in names
+    assert names.count('air') == 1 and dict((s[0], s[3]) for s in sets)['air'] == codemods.BUILT_IN
+    assert 'site air main 20' not in text and dict((s[0], s[3]) for s in sets)['zed'] == 'Zed'
+    groups = codemods.grouped(sets)
+    assert [g for g, _ in groups][0] == 'Hitting' and groups[-1][0] == 'Mine'
+    assert codemods.TAGS['zed'] == 'New' and codemods.DESCRIPTIONS['zed'] == 'Does zed.'
+    assert codemods.signature(text) and codemods.signature(text) == codemods.signature(codemods.collect([mine])[1])
+
+
+def test_dials():
+    table = ('#dial power 1.5 0.5 4 0.25 Power x\n#dial air 2 1 3 0.5 Air\nset boost MLB_BOOST 0\n'
+             'site boost main 10 1e210800 1e210800 $power:s1 1e210800 $air:s2\nset plain MLB_PLAIN 1\n'
+             'site plain main 20 1 2\n')
+    sets, lines, bad = codemods.parse(table)
+    assert not bad and lines[0].startswith('#dial power')
+    assert codemods.parse('set a MLB_A 0\nsite a main 10 1 $nope:s1\n')[2]            # a dial nobody defined
+    assert codemods.dials(table)[0] == ('power', 1.5, 0.5, 4.0, 0.25, 'Power x')
+    assert codemods.set_dials(table) == {'boost': ['power', 'air']} and codemods.dial_uses(table) == 2
+    assert codemods.menu_rows(table) == [(0, 1, 1), (0, 2, 0), (1, 0, 1)]
+    low = codemods.lower(table)
+    assert 'site boost main 10 1e210800 1e210800 1e3e3001 1e210800 1e3e5002' in low and '$' not in low
+    # the generator writes the placeholder as a float's bits; the manager swaps in the live number and a counter
+    chunk = ('extern uint8_t rt_patch_on[];\nvoid f(Cpu *c) {\n    if (rt_patch_on[0]) { c->v[1] = 0xbf880000ull; '
+             'c->v[2] = 0xbf900000ull; } else { c->v[1] = 0xbf880000ull; }\n}\n')
+    wired = codemods.wire_chunk(chunk)
+    assert 'if (mts_patch_on[0]) { mts_ran[0]++; c->v[1] = (uint64_t)mts_dial[1]; c->v[2] = (uint64_t)mts_dial[2]; }' in wired
+    assert 'extern uint32_t mts_dial[];' in wired and codemods.wire_chunk(wired) == wired
+    # when the live dials cannot be connected they are built in as fixed numbers
+    frozen = codemods.freeze(table, {'power': 3})
+    assert '#dial' not in frozen and 'site boost main 10 1e210800 1e210800 1e211001 1e210800 1e201002' in frozen
+    assert codemods.fmov_word(1.25, 1) == (0x1e2e9001, 1.25) and codemods.fmov_word(0.3, 0)[1] == 0.296875
+    src = codemods.switch_source(codemods.table_sets(table), codemods.MENU_FULL, codemods.dials(table),
+                                 codemods.menu_rows(table))
+    assert '#define MTS_DIALS 2' in src and '{"power", "Power x", 1.5f, 0.5f, 4.0f, 0.25f}' in src
+    assert 'input_menu(on)' in src and '#define MTS_SEAMS 1' in src
+    plain = codemods.switch_source(codemods.table_sets(table), codemods.MENU_PLAIN, codemods.dials(table))
+    assert '#define MTS_SEAMS 0' in plain and 'VK_F4' in plain
+    assert 'VK_F4' not in codemods.switch_source(codemods.table_sets(table), codemods.MENU_NONE)
+    root = tempfile.mkdtemp()
+    os.makedirs(os.path.join(root, 'logs'))
+    codemods.write_switches(root, {'boost': True}, {'power': 2.25})
+    assert codemods.read_switches(root) == {'boost': True} and codemods.read_dials(root) == {'power': 2.25}
+    assert codemods.last_activity(root) is None
+    with open(os.path.join(root, 'logs', codemods.SWITCH_LOG), 'w') as f:
+        f.write('Code mods built into this mlb.exe: 2\nboost=1 (mts-code.cfg)\nplain=0 (default)\n'
+                'dial power=2.250\nran boost=41\nran plain=0\n')
+    assert codemods.last_activity(root) == {'boost': 41, 'plain': 0}
+    assert codemods.last_launch(root) == {'boost': (True, 'mts-code.cfg'), 'plain': (False, 'default')}
+    with open(os.path.join(root, 'logs', 'mlb.log'), 'w') as f:
+        f.write('[lm 0] Actual Pitch Movement: 0.712, .0.287, (0.768 ft)\nAutoHit::m_fPowerMPH\t\t= 99.013588f;\n'
+                'AutoHit::m_fAirDensity\t= 0.302412f;\nAutoHit::m_fPowerMPH\t\t= 107.430801f;\n')
+    assert codemods.last_game(root) == {'hits': 2, 'hardest': 107.430801, 'air': 0.302412, 'breaks': 1,
+                                        'biggest_break': 0.768}
 
 
 def test_switch_wiring():
@@ -98,11 +169,14 @@ def test_switch_wiring():
     assert codemods.wire_switches(gen, table) == 1
     with open(os.path.join(gen, 'main', 'main_0001.c')) as f:
         text = f.read()
-    assert 'rt_patch_on' not in text and 'mts_patch_on[1]' in text
+    assert 'rt_patch_on' not in text and 'if (mts_patch_on[1]) { mts_ran[1]++;' in text
     with open(os.path.join(gen, 'main', 'mts_switches.c')) as f:
         src = f.read()
-    assert '{"a", "MLB_A", 0, "A"}' in src and '{"b", "MLB_B", 1, "B"}' in src and '#define MTS_SETS 2' in src
-    assert 'VK_F2' in src and 'VK_F2' not in codemods.switch_source([('a', 'MLB_A', 0)], hotkeys=False)
+    assert '{"a", "MLB_A", 0, "A", ""}' in src and '{"b", "MLB_B", 1, "B", ""}' in src and '#define MTS_SETS 2' in src
+    assert 'VK_F2' in src and 'VK_F2' not in codemods.switch_source([('a', 'MLB_A', 0)], codemods.MENU_NONE)
+    assert codemods.wire_switches(gen, table) == 1                 # a second pass changes nothing
+    with open(os.path.join(gen, 'main', 'main_0001.c')) as f:
+        assert f.read() == text
     assert codemods.wire_switches(gen, '') == 0 and not os.path.exists(os.path.join(gen, 'main', 'mts_switches.c'))
     root = tempfile.mkdtemp()
     os.makedirs(os.path.join(root, 'logs'))
@@ -294,6 +368,8 @@ if __name__ == '__main__':
     test_apply_disable_restore()
     test_restore_exe()
     test_drop_sets()
+    test_built_in_code_mods()
+    test_dials()
     test_switch_wiring()
     test_shared_zip_rules()
     test_layout_recipe_targets()

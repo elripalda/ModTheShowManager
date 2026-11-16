@@ -241,7 +241,7 @@ it, which is what [shared mods](../community/README.md) have to be.
 
 ## Code mods
 
-**Code Plugins** builds instruction patches into `mlb.exe` with the recomp's own tools. A mod carries them in
+**Code Mods** builds instruction patches into `mlb.exe` with the recomp's own tools. A mod carries them in
 `code/*.patch`:
 
 ```
@@ -249,15 +249,16 @@ set  <name> <SWITCH> <default 0/1>
 site <set> <main|sdk> <offset hex> <original word hex> <replacement word hex> ...
 ```
 
-**Add Arcade Samples** gives you working examples: the hit ones change the number the game uses to turn a hit's
-power (mph) into the ball's speed off the bat (`main+167d0b4`), and Thin Air scales the air density the game works
-out from a park's temperature and altitude (`main+165ac78`). The file is commented; read it before writing your own.
+The manager's own code mods are always in the list, and **Make Your Own** writes a commented starter file. Exit
+Velocity multiplies a hit's power right before the game turns it into the ball's speed (`main+167d0b8`), and Air
+scales the air density the game works out from a park's temperature and altitude (`main+165ac78`).
 
 Rebuild Game runs the recomp's generator and build (about two minutes) and keeps your old exe as
-`mlb.original.exe`. Each set can still be switched on and off afterwards without rebuilding. The manager reads the game's own
-code (`game/exefs/main`) first and leaves out any set made for a different game version.
+`mlb.original.exe`. After that every code mod can be switched, and its dial turned, in Code Mods or in the game
+with F4, without rebuilding. The manager reads the game's own code (`game/exefs/main`) first and leaves out any
+set made for a different game version.
 
-[Code mods](CODE_MODS.md) has the samples, how to write your own, and a map of the gameplay code found so far.
+[Code mods](CODE_MODS.md) has the full list, how to write your own, and a map of the gameplay code found so far.
 
 ## Replacing sounds
 

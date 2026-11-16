@@ -16,7 +16,92 @@ import shutil
 import subprocess
 
 HEX = re.compile(r'^[0-9a-fA-F]{1,8}$')
+# a live number the game reads while it runs:  #dial <name> <start> <lowest> <highest> <step> <what it is>
+DIAL = re.compile(r'^#dial\s+([a-z][a-z0-9_]*)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+([\d.]+)\s+(.+?)\s*$')
+DIAL_WORD = re.compile(r'^\$([a-z][a-z0-9_]*):s(\d{1,2})$')      # in a site: load that dial into float register sN
+MAX_DIALS = 15
+
+
+def dials(text):
+    """[(name, start, lowest, highest, step, label)] for the #dial lines of a table, in order."""
+    out, seen = [], set()
+    for raw in text.splitlines():
+        m = DIAL.match(raw.strip())
+        if m and m.group(1) not in seen:
+            seen.add(m.group(1))
+            lo, hi = sorted((float(m.group(3)), float(m.group(4))))
+            out.append((m.group(1), min(hi, max(lo, float(m.group(2)))), lo, hi, float(m.group(5)) or 0.1,
+                        m.group(6)))
+    return out
+
+
+def dial_word(k, reg):
+    """The instruction a dial is written as for the generator: fmov s<reg>, #-(1 + k/16). No real patch loads such
+    a number, so the manager can find it in the translated code and put the live value in its place."""
+    return 0x1E201000 | ((0xF0 | k) << 13) | reg
+
+
+def dial_bits(k):
+    """The bits of -(1 + k/16) as a float: what the generator writes for dial k's placeholder."""
+    return 0xBF800000 + k * 0x80000
+
+
+def lower(text):
+    """A table as the recomp's generator reads it: every $dial:sN word becomes its placeholder instruction."""
+    index = {name: i + 1 for i, (name, *_rest) in enumerate(dials(text))}
+    out = []
+    for raw in text.splitlines():
+        f = raw.split('#', 1)[0].split()
+        if f and f[0] == 'site':
+            words = []
+            for w in f:
+                m = DIAL_WORD.match(w)
+                words.append(f'{dial_word(index[m.group(1)], int(m.group(2))):08x}' if m and m.group(1) in index
+                             else w)
+            raw = ' '.join(words)
+        out.append(raw)
+    return '\n'.join(out) + '\n'
+
+
+def fmov_word(value, reg):
+    """fmov s<reg>, #value as an instruction word, for the number nearest to value that such an instruction can
+    hold (n/16 x a power of two, n from 16 to 31, between 0.125 and 31), and that number."""
+    best = None
+    for sign in (0, 1):
+        for exp in range(8):
+            for frac in range(16):
+                v = (16 + frac) / 16.0 * 2.0 ** (((exp ^ 4) & 7) - 3) * (-1 if sign else 1)
+                if best is None or abs(v - value) < abs(best[1] - value):
+                    best = ((sign << 7) | (exp << 4) | frac, v)
+    return 0x1E201000 | (best[0] << 13) | reg, best[1]
+
+
+def freeze(text, values=None):
+    """The table with every dial written in as a fixed number (values: {dial name: number}, else where each dial
+    starts) and the #dial lines gone: what is built when the live dials cannot be connected."""
+    start = {name: v for name, v, *_rest in dials(text)}
+    start.update({k: v for k, v in (values or {}).items() if k in start})
+    out = []
+    for raw in text.splitlines():
+        if DIAL.match(raw.strip()):
+            continue
+        f = raw.split('#', 1)[0].split()
+        if f and f[0] == 'site':
+            words = []
+            for w in f:
+                m = DIAL_WORD.match(w)
+                words.append(f'{fmov_word(start[m.group(1)], int(m.group(2)))[0]:08x}' if m and m.group(1) in start
+                             else w)
+            raw = ' '.join(words)
+        out.append(raw)
+    return '\n'.join(out) + '\n'
+
+
 DESCRIPTIONS = {}     # set name -> one line shown in the manager (from '#: name: text' lines)
+GROUPS = {}           # set name -> the heading it is listed under (from '#group Heading' lines above it)
+TAGS = {}             # set name -> a short mark beside its name (from '#tag name: Experimental' lines)
+BUILT_IN = 'Built in'
+OTHER = 'More'
 
 
 class PatchError(ValueError):
@@ -43,8 +128,22 @@ def parse(text, where=''):
     """[(name, env, default)], [site line], problems."""
     sets, lines, bad = [], [], []
     names = set()
+    known = {d[0] for d in dials(text)}
+    if len(known) > MAX_DIALS:
+        bad.append(f'{where}: more than {MAX_DIALS} dials')
+    lines += [raw.strip() for raw in text.splitlines() if DIAL.match(raw.strip())]
     DESCRIPTIONS.update({m.group(1): m.group(2).strip() for m in
                          re.finditer(r'^#:\s*(\w+)\s*[:=-]\s*(.+)$', text, re.M)})
+    TAGS.update({m.group(1): m.group(2).strip() for m in re.finditer(r'^#tag\s+(\w+)\s*[:=-]\s*(.+)$', text, re.M)})
+    group = None
+    for raw in text.splitlines():
+        m = re.match(r'#group\s+(.+?)\s*$', raw.strip())
+        if m:
+            group = m.group(1)
+        else:
+            f = raw.split('#', 1)[0].split()
+            if len(f) == 4 and f[0] == 'set' and group:
+                GROUPS[f[1]] = group
     for no, raw in enumerate(text.splitlines(), 1):
         f = raw.split('#', 1)[0].split()
         if not f:
@@ -58,9 +157,13 @@ def parse(text, where=''):
             sets.append((f[1], f[2], int(f[3])))
             lines.append(' '.join(f))
         elif f[0] == 'site' and len(f) >= 6 and f[2] in ('main', 'sdk') and HEX.match(f[3]) and HEX.match(f[4]) \
-                and all(HEX.match(w) or re.fullmatch(r'@page:x\d{1,2}', w) for w in f[5:]):
+                and all(HEX.match(w) or re.fullmatch(r'@page:x\d{1,2}', w) or DIAL_WORD.match(w) for w in f[5:]):
             if f[1] not in names:
                 bad.append(f'{at}: site uses set {f[1]} before it is defined')
+            for w in f[5:]:
+                m = DIAL_WORD.match(w)
+                if m and (m.group(1) not in known or int(m.group(2)) > 31):
+                    bad.append(f'{at}: {w} names a dial this file does not define with #dial')
             lines.append(' '.join(f))
         else:
             bad.append(f'{at}: cannot read "{raw.strip()}"')
@@ -81,22 +184,48 @@ def mod_patches(mod):
 
 
 def collect(mods):
-    """Joined table of the enabled mods: sets [(name, env, default, mod name)], text, problems."""
+    """Joined table of every code mod there is: sets [(name, env, default, where it is from)], text, problems.
+    The manager's own come first and need no mod; then every mod that carries code, on or off in Mods (a code mod
+    has one switch, in Code Mods). A set that two files both carry is taken from the first and left out of the
+    second."""
+    sources = [(BUILT_IN, 'built-in.patch', ARCADE)]
+    for m in sorted(mods, key=lambda m: m.name.lower()):
+        if m.name != ARCADE_NAME:              # the samples mod of older versions: the built-in ones replace it
+            sources += [(m.name, os.path.basename(path), text) for path, text in mod_patches(m)]
     sets, lines, bad, seen = [], [], [], {}
-    for m in mods:
-        if not m.enabled:
-            continue
-        for path, text in mod_patches(m):
-            s, l, b = parse(text, f'{m.name}/{os.path.basename(path)}')
-            bad += b
-            for name, env, default in s:
-                if name in seen:
-                    bad.append(f'{m.name}: set {name} is also in {seen[name]}')
-                seen[name] = m.name
-                sets.append((name, env, default, m.name))
-            lines.append(f'# {m.name}: {os.path.basename(path)}')
-            lines += l
+    for source, file, text in sources:
+        kept = [{k: d[k] for k in seen if k in d} for d in (DESCRIPTIONS, GROUPS, TAGS)]
+        s, l, b = parse(text, f'{source}/{file}')
+        for d, was in zip((DESCRIPTIONS, GROUPS, TAGS), kept):     # what a set says about itself comes from the file
+            for k in seen:                                         # the set was taken from
+                d.pop(k, None)
+            d.update(was)
+        bad += b
+        twice = {name for name, _, _ in s if name in seen}
+        have_dials = {d[0] for d in dials('\n'.join(lines))}
+        if twice or have_dials:
+            l = [x for x in drop_sets('\n'.join(l), twice).splitlines()
+                 if not (DIAL.match(x) and DIAL.match(x).group(1) in have_dials)]
+        for name, env, default in s:
+            if name not in seen:
+                seen[name] = source
+                sets.append((name, env, default, source))
+        lines.append(f'# {source}: {file}')
+        lines += l
     return sets, '\n'.join(lines) + '\n', bad
+
+
+def grouped(sets):
+    """[(heading, [set tuple])] in the order the headings first appear; sets without one come last under OTHER."""
+    order, by = [], {}
+    for t in sets:
+        g = GROUPS.get(t[0], OTHER)
+        if g not in by:
+            by[g] = []
+            if g != OTHER:
+                order.append(g)
+        by[g].append(t)
+    return [(g, by[g]) for g in order + ([OTHER] if OTHER in by else [])]
 
 
 def nice(name):
@@ -130,158 +259,88 @@ def fitting(game_root, text):
     return drop_sets(text, set(bad)), bad
 
 
-BUILD_REV = 3      # goes up when the way the manager builds changes, so an older build is offered a rebuild
+BUILD_REV = 4      # goes up when the way the manager builds changes, so an older build is offered a rebuild
 SWITCH_FILE = 'mts-code.cfg'
 SWITCH_LOG = 'mts-code.log'
 
 
 def signature(text):
     import hashlib
-    body = '\n'.join(l for l in text.splitlines() if not l.startswith('#'))
+    body = '\n'.join(l for l in text.splitlines() if not l.startswith('#') or DIAL.match(l))
     return hashlib.sha1(f'{BUILD_REV}\n{body}'.encode()).hexdigest()[:16] if body.strip() else ''
 
 
-def switch_source(sets, hotkeys=True):
-    """C for the switches of the built-in sets. sets: [(name, env, default)] in table order.
+def _c_text(text, limit=150):
+    """Words as a C string the game's plain-text drawing can show: ASCII only, quotes and backslashes made safe."""
+    swaps = {'\u2019': "'", '\u2018': "'", '\u201c': '"', '\u201d': '"', '\u00d7': 'x', '\u2013': '-', '\u2014': '-',
+             '\u2026': '...'}
+    t = ''.join(swaps.get(ch, ch) for ch in str(text))
+    t = ''.join(ch for ch in t if 32 <= ord(ch) < 127)[:limit]
+    return t.replace('\\', '\\\\').replace('"', '\\"')
+
+
+def set_dials(patch_text):
+    """{set name: [dial names its sites turn, in order]} for the sets that have any."""
+    out = {}
+    for raw in patch_text.splitlines():
+        f = raw.split('#', 1)[0].split()
+        if len(f) > 5 and f[0] == 'site':
+            for w in f[5:]:
+                m = DIAL_WORD.match(w)
+                if m and m.group(1) not in out.setdefault(f[1], []):
+                    out[f[1]].append(m.group(1))
+    return {k: v for k, v in out.items() if v}
+
+
+def menu_rows(patch_text):
+    """The lines of the in-game menu: [(set index, dial number or 0, 1 for the set's own line)]. A set's first dial
+    shares its line; any further dial gets a line of its own under it. A dial two sets share shows under the first."""
+    number = {d[0]: k for k, d in enumerate(dials(patch_text), 1)}
+    turns = set_dials(patch_text)
+    rows, seen = [], set()
+    for i, (name, _env, _default) in enumerate(table_sets(patch_text)):
+        mine = [number[d] for d in turns.get(name, []) if d in number and number[d] not in seen]
+        seen.update(mine)
+        rows.append((i, mine[0] if mine else 0, 1))
+        rows += [(i, k, 0) for k in mine[1:]]
+    return rows
+
+
+MENU_FULL, MENU_PLAIN, MENU_NONE = 2, 1, 0
+
+
+def switch_source(sets, menu=MENU_FULL, dial_list=(), rows=None):
+    """C for the built-in sets: their switches, their dials, their counters and the in-game menu. sets: [(name, env,
+    default)] in table order; dial_list: dials(table); rows: menu_rows(table).
 
     The recomp's shipped runtime library was built without any patch sets, so its own switch array is never filled
     in and a set baked into the game could not be turned on. The manager points the lifted code at this array
     instead. It is filled before the game starts: each set's default, then mts-code.cfg in the game folder
-    (name=0/1, written by the manager), then the set's environment variable. What was decided goes to
-    logs/mts-code.log so it can be checked.
+    (name=0/1 for a switch, dial.name=1.500 for a dial, written by the manager), then the set's environment
+    variable. What was decided goes to logs/mts-code.log, and so does how many times each set's code has run, so a
+    mod that is on but never reached can be told from one that ran and changed nothing you could see.
 
-    hotkeys adds a small watcher thread (Windows): F2 steps through the code mods, F3 switches the one shown on or
-    off while the game runs. The window title shows it for a moment and a tone confirms it (high for on, low for
-    off). A change made this way is saved to mts-code.cfg."""
-    rows = ',\n'.join(f'    {{"{n}", "{e}", {int(d)}, "{nice(n)}"}}' for n, e, d in sets)
-    keys = '''
-#ifdef _WIN32
-#include <windows.h>
-
-static void mts_save(void) {
-    FILE *f = fopen("{SWITCH_FILE}", "w");
-    int i;
-    if (!f)
-        return;
-    fprintf(f, "# Code mod switches, written by Mod the Show Manager. name=1 is on.\\n");
-    for (i = 0; i < MTS_SETS; i++)
-        fprintf(f, "%s=%d\\n", mts_sets[i].name, mts_patch_on[i]);
-    fclose(f);
-}
-
-static BOOL CALLBACK mts_find(HWND h, LPARAM out) {
-    DWORD pid = 0;
-    GetWindowThreadProcessId(h, &pid);
-    if (pid == GetCurrentProcessId() && IsWindowVisible(h) && !GetWindow(h, GW_OWNER)) {
-        *(HWND *)out = h;
-        return FALSE;
-    }
-    return TRUE;
-}
-
-static DWORD WINAPI mts_keys(LPVOID unused) {
-    char title[200], saved[200];
-    int sel = 0, shown = 0, was2 = 0, was3 = 0;
-    HWND win = NULL;
-    (void)unused;
-    saved[0] = 0;
-    for (;;) {
-        int f2, f3;
-        DWORD pid = 0;
-        Sleep(30);
-        GetWindowThreadProcessId(GetForegroundWindow(), &pid);
-        if (pid != GetCurrentProcessId()) {
-            was2 = was3 = 0;
-            continue;
-        }
-        f2 = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
-        f3 = (GetAsyncKeyState(VK_F3) & 0x8000) != 0;
-        if ((f2 && !was2) || (f3 && !was3)) {
-            if (f2 && !was2 && shown)
-                sel = (sel + 1) % MTS_SETS;
-            if (f3 && !was3) {
-                mts_patch_on[sel] = (uint8_t)!mts_patch_on[sel];
-                mts_save();
-            }
-            win = NULL;
-            EnumWindows(mts_find, (LPARAM)&win);
-            if (win) {
-                if (!shown)
-                    GetWindowTextA(win, saved, sizeof saved);
-                snprintf(title, sizeof title, "%s: %s   (F2 next, F3 on/off)", mts_sets[sel].title,
-                         mts_patch_on[sel] ? "ON" : "OFF");
-                SetWindowTextA(win, title);
-            }
-            Beep(f3 && !was3 ? (mts_patch_on[sel] ? 1047 : 392) : 659, 70);
-            shown = 100;                      /* about three seconds */
-        } else if (shown && !--shown && win && saved[0]) {
-            SetWindowTextA(win, saved);
-        }
-        was2 = f2;
-        was3 = f3;
-    }
-    return 0;
-}
-#endif
-''' if hotkeys else ''
-    keys = keys.replace('{SWITCH_FILE}', SWITCH_FILE)
-    start = '''
-#ifdef _WIN32
-    CloseHandle(CreateThread(NULL, 0, mts_keys, NULL, 0, NULL));
-#endif''' if hotkeys else ''
-    return f'''// Written by Mod the Show Manager (codemods.switch_source). Switches for code mod sets.
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#define MTS_SETS {len(sets)}
-uint8_t mts_patch_on[MTS_SETS + 1];
-
-static const struct {{ const char *name; const char *env; int def; const char *title; }} mts_sets[MTS_SETS] = {{
-{rows}
-}};
-{keys}
-__attribute__((constructor)) static void mts_switches_init(void) {{
-    const char *from[MTS_SETS];
-    char line[256];
-    FILE *f;
-    int i;
-    for (i = 0; i < MTS_SETS; i++) {{
-        mts_patch_on[i] = (uint8_t)(mts_sets[i].def != 0);
-        from[i] = "default";
-    }}
-    f = fopen("{SWITCH_FILE}", "r");
-    if (f) {{
-        while (fgets(line, sizeof line, f)) {{
-            char *eq = strchr(line, '=');
-            if (!eq || line[0] == '#')
-                continue;
-            *eq = 0;
-            for (i = 0; i < MTS_SETS; i++)
-                if (!strcmp(line, mts_sets[i].name)) {{
-                    mts_patch_on[i] = (uint8_t)(eq[1] == '1');
-                    from[i] = "{SWITCH_FILE}";
-                }}
-        }}
-        fclose(f);
-    }}
-    for (i = 0; i < MTS_SETS; i++) {{
-        const char *v = getenv(mts_sets[i].env);
-        if (v && v[0]) {{
-            mts_patch_on[i] = (uint8_t)(v[0] == '1');
-            from[i] = "launch switch";
-        }}
-    }}
-    f = fopen("logs/{SWITCH_LOG}", "w");
-    if (f) {{
-        fprintf(f, "Code mods built into this mlb.exe: %d\\n", MTS_SETS);
-        for (i = 0; i < MTS_SETS; i++)
-            fprintf(f, "%s=%d (%s)\\n", mts_sets[i].name, mts_patch_on[i], from[i]);
-        fclose(f);
-    }}{start}
-}}
-'''
+    menu: MENU_FULL adds the in-game menu (F4) joined to the game's own input, MENU_PLAIN the same panel on its own,
+    MENU_NONE neither (see codemenu.py)."""
+    from . import codemenu
+    if menu is True:
+        menu = MENU_FULL
+    menu = int(menu or 0)
+    if rows is None:
+        rows = [(i, 0, 1) for i in range(len(sets))]
+    setrows = ''.join(f'    {{"{n}", "{e}", {int(d)}, "{_c_text(nice(n), 60)}", '
+                      f'"{_c_text(DESCRIPTIONS.get(n, ""), 190)}"}},\n' for n, e, d in sets)
+    dialrows = ''.join(f',\n    {{"{n}", "{_c_text(label, 60)}", {float(start)!r}f, {float(lo)!r}f, {float(hi)!r}f, '
+                       f'{float(step)!r}f}}' for n, start, lo, hi, step, label in dial_list)
+    menurows = ''.join(f'    {{{s_}, {d_}, {o_}}},\n' for s_, d_, o_ in rows)
+    text = codemenu.HEAD + (codemenu.MENU if menu else '') + codemenu.TAIL
+    for key, value in (('{START}', codemenu.START if menu else ''), ('{NSETS}', str(len(sets))),
+                       ('{NDIALS}', str(len(dial_list))), ('{NROWS}', str(len(rows))),
+                       ('{SEAMS}', '1' if menu == MENU_FULL else '0'), ('{SETROWS}', setrows),
+                       ('{DIALROWS}', dialrows), ('{MENUROWS}', menurows), ('{SWITCH_FILE}', SWITCH_FILE),
+                       ('{SWITCH_LOG}', SWITCH_LOG)):
+        text = text.replace(key, value)
+    return text
 
 
 def table_sets(patch_text):
@@ -294,9 +353,35 @@ def table_sets(patch_text):
     return out
 
 
-def wire_switches(gen, patch_text, hotkeys=True):
-    """After the generator ran: point every patched chunk at the manager's switch array and add its source.
-    Returns how many chunks were changed."""
+def wire_chunk(text):
+    """One translated chunk made ready for the manager's runtime: the switch array is the manager's, every patched
+    spot counts each time it runs, and a dial's placeholder number becomes the live one. Safe to run twice."""
+    text = text.replace('rt_patch_on', 'mts_patch_on')
+    if 'mts_patch_on' not in text:
+        return text
+    if 'extern uint32_t mts_dial[]' not in text:
+        text = text.replace('extern uint8_t mts_patch_on[];',
+                            'extern uint8_t mts_patch_on[];\nextern uint32_t mts_dial[];\n'
+                            'extern volatile uint32_t mts_ran[];', 1)
+
+    def live(m):
+        k = (int(m.group(1), 16) - 0xBF800000) // 0x80000
+        return f'= (uint64_t)mts_dial[{k}];' if 1 <= k <= MAX_DIALS else m.group(0)
+
+    out = []
+    for line in text.split('\n'):
+        if 'if (mts_patch_on[' in line:
+            line = re.sub(r'if \(mts_patch_on\[(\d+)\]\) \{(?! mts_ran)', r'if (mts_patch_on[\1]) { mts_ran[\1]++;', line)
+            line = re.sub(r'= 0x(bf[89a-f][08]0000)ull;', live, line, flags=re.I)
+        out.append(line)
+    return '\n'.join(out)
+
+
+def wire_switches(gen, patch_text, menu=MENU_FULL):
+    """After the generator ran: point every patched chunk at the manager's switches, counters and dials, and add
+    their source. Returns how many chunks hold patched code."""
+    if menu is True:
+        menu = MENU_FULL
     sets = table_sets(patch_text)
     main = os.path.join(gen, 'main')
     src = os.path.join(main, 'mts_switches.c')
@@ -304,7 +389,7 @@ def wire_switches(gen, patch_text, hotkeys=True):
         if os.path.exists(src):
             os.remove(src)
         return 0
-    changed = 0
+    changed = wired = 0
     for mod in ('main', 'sdk'):
         folder = os.path.join(gen, mod)
         if not os.path.isdir(folder):
@@ -315,11 +400,14 @@ def wire_switches(gen, patch_text, hotkeys=True):
             path = os.path.join(folder, name)
             with open(path, 'rb') as f:
                 data = f.read()
-            if b'rt_patch_on' in data:
-                with open(path, 'wb') as f:
-                    f.write(data.replace(b'rt_patch_on', b'mts_patch_on'))
+            if b'rt_patch_on' in data or b'mts_patch_on' in data:
+                new = wire_chunk(data.decode('utf-8', 'surrogateescape')).encode('utf-8', 'surrogateescape')
+                if new != data:
+                    with open(path, 'wb') as f:
+                        f.write(new)
                 changed += 1
-    text = switch_source(sets, hotkeys)
+                wired += new.count(b'(uint64_t)mts_dial[')
+    text = switch_source(sets, menu, dials(patch_text), menu_rows(patch_text))
     old = None
     if os.path.exists(src):
         with open(src, encoding='utf-8') as f:
@@ -327,27 +415,66 @@ def wire_switches(gen, patch_text, hotkeys=True):
     if old != text:
         with open(src, 'w', encoding='utf-8', newline='\n') as f:
             f.write(text)
+    wire_switches.dials_wired = wired
     return changed
 
 
-def write_switches(game_root, states):
-    """states: {set name: bool}. The built game reads this file when it starts, however it is launched."""
+def dial_uses(patch_text):
+    """How many times the table's sites read a dial."""
+    return sum(1 for raw in patch_text.splitlines() for w in raw.split('#', 1)[0].split()[5:]
+               if raw.split('#', 1)[0].split()[:1] == ['site'] and DIAL_WORD.match(w))
+
+
+def write_switches(game_root, states, dial_values=None):
+    """states: {set name: bool}; dial_values: {dial name: number}. The built game reads this file when it starts,
+    however it is launched."""
     path = os.path.join(game_root, SWITCH_FILE)
-    body = ('# Code mod switches, written by Mod the Show Manager. name=1 is on.\n' +
-            ''.join(f'{n}={1 if on else 0}\n' for n, on in states.items()))
+    body = ('# Code mod switches, written by Mod the Show Manager. name=1 is on. A dial is dial.name=number.\n' +
+            ''.join(f'{n}={1 if on else 0}\n' for n, on in states.items()) +
+            ''.join(f'dial.{n}={float(v):.3f}\n' for n, v in (dial_values or {}).items()))
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(body)
 
 
-def read_switches(game_root):
-    """{set name: bool} from mts-code.cfg (the game rewrites it when a mod is switched with F3), or {}."""
-    out = {}
+def _switch_lines(game_root):
     try:
         with open(os.path.join(game_root, SWITCH_FILE), encoding='utf-8', errors='replace') as f:
+            return f.read().splitlines()
+    except OSError:
+        return []
+
+
+def read_switches(game_root):
+    """{set name: bool} from mts-code.cfg (the game rewrites it when a mod is switched while it runs), or {}."""
+    out = {}
+    for line in _switch_lines(game_root):
+        m = re.match(r'(\w+)=([01])\s*$', line)
+        if m:
+            out[m.group(1)] = m.group(2) == '1'
+    return out
+
+
+def read_dials(game_root):
+    """{dial name: number} from mts-code.cfg, as the manager or the in-game menu last left them."""
+    out = {}
+    for line in _switch_lines(game_root):
+        m = re.match(r'dial\.(\w+)=(-?\d+(?:\.\d+)?)\s*$', line)
+        if m:
+            out[m.group(1)] = float(m.group(2))
+    return out
+
+
+def last_activity(game_root):
+    """{set name: how many times its code ran} in the game's last session, or None for a build that kept no count
+    (or a game that has not been started since it was built)."""
+    out = None
+    try:
+        with open(os.path.join(game_root, 'logs', SWITCH_LOG), encoding='utf-8', errors='replace') as f:
             for line in f:
-                m = re.match(r'(\w+)=([01])\s*$', line)
+                m = re.match(r'ran (\w+)=(\d+)\s*$', line)
                 if m:
-                    out[m.group(1)] = m.group(2) == '1'
+                    out = out or {}
+                    out[m.group(1)] = int(m.group(2))
     except OSError:
         pass
     return out
@@ -407,9 +534,10 @@ def game_version(recomp, exefs):
     return None
 
 
-def rebuild(recomp, game_root, patch_text, log=print):
+def rebuild(recomp, game_root, patch_text, log=print, dial_values=None):
     """Run the recomp's generator and build with the patch table, then swap mlb.exe (the old one is kept once as
-    mlb.original.exe). Raises PatchError with the tool's last lines when a step fails."""
+    mlb.original.exe). Returns {'exe': path, 'live': whether the dials can be turned while the game runs, 'menu':
+    which in-game menu was built}. Raises PatchError with the tool's last lines when a step fails."""
     if not is_recomp(recomp):
         raise PatchError('That is not the recomp folder (the one with MLBTS-Setup.exe).')
     py = os.path.join(recomp, 'python', 'python.exe')
@@ -417,20 +545,15 @@ def rebuild(recomp, game_root, patch_text, log=print):
     gen, out = os.path.join(work, 'gen'), os.path.join(work, 'build')
     os.makedirs(work, exist_ok=True)
     table = os.path.join(work, 'patches.txt')
-    with open(table, 'w', encoding='utf-8') as f:
-        f.write(patch_text)
     exefs = os.path.join(game_root, 'game', 'exefs')
-    steps = [('Translating the game code', [py, '-I', '-X', 'utf8', os.path.join(recomp, 'recomp', 'gen.py'),
-                                           '--exefs', exefs, '--out', gen, '--modules', 'main,sdk'] +
-              (['--patches', table] if signature(patch_text) else [])),
-             ('Compiling', [py, '-I', '-X', 'utf8'] + build_args(recomp, gen, out, exefs))]
-    version = game_version(recomp, exefs)
-    if version:
-        log(f'Game code: version {version}')
-    for k, (title, cmd) in enumerate(steps):
+    patched = bool(signature(patch_text))
+    quiet = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
+    def run(title, cmd):
+        """(failed, the tool's last lines)"""
         log(title + '...')
         p = subprocess.Popen(cmd, cwd=recomp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                             errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                             errors='replace', creationflags=quiet)
         tail = []
         for line in p.stdout:
             line = line.rstrip()
@@ -438,24 +561,51 @@ def rebuild(recomp, game_root, patch_text, log=print):
                 tail = (tail + [line])[-12:]
                 if re.match(r'emitted \d+/\d+ chunks|\[\d+/\d+\]', line):
                     log(f'{title}: {line.split("]")[0].lstrip("[") if line.startswith("[") else line}')
-        failed = p.wait() != 0
-        if failed and k == 1 and signature(patch_text) and any('mts_switches' in t for t in tail):
-            # the in-game keys are the only Windows-specific code the manager adds: build again without them
-            log('Building without the in-game F2/F3 keys...')
-            wire_switches(gen, patch_text, hotkeys=False)
-            p = subprocess.run(cmd, cwd=recomp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                               errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            tail = [l for l in p.stdout.splitlines() if l.strip()][-12:]
-            failed = p.returncode != 0
+        return p.wait() != 0, tail
+
+    def translate(text):
+        with open(table, 'w', encoding='utf-8') as f:
+            f.write(lower(text))              # dials go to the generator as instructions it can read
+        failed, tail = run('Translating the game code',
+                           [py, '-I', '-X', 'utf8', os.path.join(recomp, 'recomp', 'gen.py'), '--exefs', exefs,
+                            '--out', gen, '--modules', 'main,sdk'] + (['--patches', table] if patched else []))
         if failed:
-            raise PatchError(f'{title} failed:\n' + '\n'.join(tail))
-        if k == 0:
-            n = wire_switches(gen, patch_text)
-            if signature(patch_text):
-                if not n:
-                    raise PatchError('The translated code has no patched spots in it, so the code mods would do '
-                                     'nothing. Nothing was changed.')
-                log(f'Switches wired into {n} piece(s) of the game code')
+            raise PatchError('Translating the game code failed:\n' + '\n'.join(tail))
+        n = wire_switches(gen, text)
+        if patched and not n:
+            raise PatchError('The translated code has no patched spots in it, so the code mods would do nothing. '
+                             'Nothing was changed.')
+        return n
+
+    version = game_version(recomp, exefs)
+    if version:
+        log(f'Game code: version {version}')
+    live = True
+    n = translate(patch_text)
+    want, got = dial_uses(patch_text), getattr(wire_switches, 'dials_wired', 0)
+    if got < want:
+        # the translated code does not show the dials the way the manager looks for them: build them in as fixed
+        # numbers instead, so the mods still work (a dial then changes with the next rebuild, not in the game)
+        log('The dials could not be connected live, so they are built in at their current numbers.')
+        live = False
+        patch_text = freeze(patch_text, dial_values)
+        n = translate(patch_text)
+    if patched:
+        log(f'Switches wired into {n} piece(s) of the game code' + (f', {got} dial(s) connected' if live and want else ''))
+    cmd = [py, '-I', '-X', 'utf8'] + build_args(recomp, gen, out, exefs)
+    failed, tail = run('Compiling', cmd)
+    level = MENU_FULL
+    while failed and level and patched and any('mts_switches' in t for t in tail):
+        # the menu is the only Windows-specific code the manager adds: build again with less of it
+        level -= 1
+        log('Building with the plain in-game menu...' if level else 'Building without the in-game menu...')
+        wire_switches(gen, patch_text, menu=level)
+        p = subprocess.run(cmd, cwd=recomp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           errors='replace', creationflags=quiet)
+        tail = [l for l in p.stdout.splitlines() if l.strip()][-12:]
+        failed = p.returncode != 0
+    if failed:
+        raise PatchError('Compiling failed:\n' + '\n'.join(tail))
     built = os.path.join(out, 'mlb.exe')
     if not os.path.exists(built):
         raise PatchError('The build finished without an mlb.exe.')
@@ -471,7 +621,7 @@ def rebuild(recomp, game_root, patch_text, log=print):
         os.remove(tmp)
         raise PatchError('mlb.exe is in use. Close the game and try again.') from None
     log('Done')
-    return exe
+    return {'exe': exe, 'live': live, 'menu': level if patched else MENU_NONE}
 
 
 def restore_exe(game_root):
@@ -482,69 +632,47 @@ def restore_exe(game_root):
     return True
 
 
-TEMPLATE = '''# A code mod for MLB The Show 26 (PC recomp). Lines starting with # are notes.
+TEMPLATE = '''# A code mod for MLB The Show 26 (PC recomp). Lines starting with # are notes, except the four kinds below.
 #
-# set  <name> <SWITCH> <default>      one switchable group of patches. SWITCH is upper case, e.g. MLB_MOD_MYCHEAT
+# set  <name> <SWITCH> <default>      one switchable code mod. SWITCH is upper case, e.g. MLB_MOD_MYCHEAT
 # site <set> <module> <offset> <original> <replacement> [<replacement> ...]
 #
 # <module> is main or sdk. <offset> is where the instruction sits in that module (hex). <original> is the ARM64
 # instruction word that is there now (hex); the build stops if it does not match, so a patch made for another game
-# version cannot land in the wrong place. Each <replacement> is the ARM64 instruction word to run instead.
+# version cannot land in the wrong place. Each <replacement> is an ARM64 instruction word to run instead.
+#
+# What Code Mods and the in-game menu (F4) show:
+#   #group Hitting                    the heading the sets under this line are listed under
+#   #: my_cheat: What it does, in a sentence.
+#   #tag my_cheat: Experimental       a short mark beside the name
+#
+# A dial is a number you can turn while the game runs:
+#   #dial my_power 1.5 0.5 4 0.25 Power      name, where it starts, lowest, highest, step, what to call it
+# and in a site, $my_power:s1 as a replacement word loads it into float register s1.
 #
 # Example (not a real patch):
-# set  example MLB_MOD_EXAMPLE 1
-# site example main 123456 1e202008 1e204008
+# #group Hitting
+# #: example: Doubles something.
+# #dial example_amount 2 1 4 0.5 Amount
+# set  example MLB_MOD_EXAMPLE 0
+# site example main 123456 1e210800 $example_amount:s1 1e210800
 '''
 
 
 ARCADE_NAME = 'Arcade Code Mods'
-ARCADE = '''# Arcade code mods for MLB The Show 26 (PC recomp), game version 1.0.15.
-# Made with Mod the Show Manager. Every patch only swaps a number the game uses, so a set that misbehaves can be
-# switched off before the next launch.
-#
-# How the hit ones work: when the bat meets the ball the game has the hit's power in mph and a direction. It turns
-# mph into feet per second (x 1.4667) and that becomes the ball's speed off the bat. These sets change that one
-# number, so every ball leaves the bat faster. If several are on, the first one below wins.
+ARCADE = '''# The code mods that come with Mod the Show Manager, for MLB The Show 26 (PC recomp), game version 1.0.15.
+# Each one changes a number or a decision the game makes, so one that misbehaves can be switched off in the game
+# (F4) or before the next launch.
 
-#: orbit_shots: Balls leave the bat 3x faster. Everything is gone.
-set  orbit_shots MLB_MOD_ORBIT 0
-site orbit_shots main 167d0b4 72a7f769 72a81189
+#group Hitting
 
-#: god_power: Balls leave the bat 2x faster.
-set  god_power MLB_MOD_GODPOWER 0
-site god_power main 167d0b4 72a7f769 72a80769
-
-#: moonshot: Balls leave the bat 1.5x faster. Warning track fly balls become upper deck shots.
-set  moonshot MLB_MOD_MOONSHOT 0
-site moonshot main 167d0b4 72a7f769 72a80189
-
-#: juiced_ball: Balls leave the bat 1.25x faster. A lively ball without getting silly.
-set  juiced_ball MLB_MOD_JUICED 0
-site juiced_ball main 167d0b4 72a7f769 72a7fd49
-
-#: gap_power: Balls leave the bat 10% faster. More shots to the gap and off the wall, and the odd extra home run.
-set  gap_power MLB_MOD_GAPPOWER 0
-site gap_power main 167d0b4 72a7f769 72a7f9c9
-
-#: dead_ball: Balls leave the bat 20% slower. 1910s baseball.
-set  dead_ball MLB_MOD_DEADBALL 0
-site dead_ball main 167d0b4 72a7f769 72a7f2c9
-
-# The game works out air density from the park's temperature and altitude; thinner air means less drag, so fly
-# balls carry (it is why Coors Field plays the way it does). This quarters the result everywhere. Pitches may break
-# less too, since the same air moves them.
-#: thin_air: Every park plays like it is four times higher than Coors Field. Fly balls carry forever.
-set  thin_air MLB_MOD_THINAIR 0
-site thin_air main 165ac78 1e210800 1e210800 1e2a1001 1e210800
-
-#: heavy_air: Twice the air. Fly balls die at the warning track and the game turns into singles and doubles.
-set  heavy_air MLB_MOD_HEAVYAIR 0
-site heavy_air main 165ac78 1e210800 1e210800 1e201001 1e210800
-
-# Experimental: a thrown ball's speed (mph to feet per second) x 1.25. Aim may be off.
-#: rocket_arms: Experimental. Thrown balls travel 1.25x faster.
-set  rocket_arms MLB_MOD_ROCKETARMS 0
-site rocket_arms main 1688088 72a7f768 72a7fd48
+# The power of a hit is kept in mph on the hit itself; the game turns it into the ball's speed, and the exit
+# velocity on screen is read from the same place. This multiplies it right before that, so the ball flies harder
+# and the reading goes up with it. The game's own log confirms it (AutoHit::m_fPowerMPH).
+#: exit_velocity: Every ball comes off the bat this many times harder, and the exit velocity on screen shows it. 1.5 turns warning-track flies into upper deck shots; 3 and up is silly.
+#dial exit_velocity 1.5 0.5 5 0.25 Exit velocity x
+set  exit_velocity MLB_MOD_EXITVELO 0
+site exit_velocity main 167d0b8 bd404a60 bd404a60 $exit_velocity:s1 1e210800 bd004a60
 
 # The swing's aim error is (where the PCI is) minus (where the pitch crosses the plate). These move the PCI onto the
 # ball right before that subtraction, so the contact is always centred. Timing is still up to you.
@@ -553,7 +681,7 @@ set  auto_pci MLB_MOD_AUTOPCI 0
 site auto_pci main 35671c 1e203860 f9402288 79417908 51002508 4b0803e9 2a080128 131f7d08 1e260069 1e26000a 4a09014a 0a08014a 4a0a0129 1e270123 bd000a63 1e203860
 site auto_pci main 356724 1e213841 f9402288 79417908 51002508 4b0803e9 2a080128 131f7d08 1e260049 1e26002a 4a09014a 0a08014a 4a0a0129 1e270122 bd000e62 1e213841
 
-#: auto_pci_everyone: Same, but for every hitter, CPU included. Use it if the one above does nothing.
+#: auto_pci_everyone: The same for every hitter, CPU included. Use it if Auto PCI does nothing for you.
 set  auto_pci_everyone MLB_MOD_AUTOPCI_EVERYONE 0
 site auto_pci_everyone main 35671c 1e203860 1e204003 bd000a63 1e203860
 site auto_pci_everyone main 356724 1e213841 1e204022 bd000e62 1e213841
@@ -561,13 +689,15 @@ site auto_pci_everyone main 356724 1e213841 1e204022 bd000e62 1e213841
 # The PCI you see is kept by the batting interface: a spot in the strike zone (x, y in zone units at +0x10, in feet at
 # +0x18) worked out from the stick every frame. Right after that, these put it where the pitch is going instead
 # (pitch +0x148 / +0x14c, the same numbers the swing compares against), so the PCI on screen sits on the ball.
-#: auto_pci_visual: New. The PCI on screen moves onto the pitch by itself, so you can see it. Turn it off if anything looks wrong.
+#: auto_pci_visual: The PCI on screen moves onto the pitch by itself, so you can watch it work. Goes with Auto PCI.
+#tag auto_pci_visual: Experimental
 set  auto_pci_visual MLB_MOD_AUTOPCI_VISUAL 0
 site auto_pci_visual main 1530b4 1e204102 f94002e9 f940112a 3944914a 5100054a 531f7d4a 8b0a0d29 f9400d29 b981592a 8b0a0d29 f9400d29 f9400929 f9409929 f9400529 f9400529 f9406129 bd414930 bd414d31 1e2f1017 1e3f1018 1e377a10 1e386a10 1e377a31 1e386a31 f94002ca bd400952 1e2d1013 1f134a12 bd400d54 bd402555 1e2c1016 1e360ab5 1f155234 2d024670 2d035272 1e204102
 site auto_pci_visual main 153da4 f94002c8 f94002e9 f940112a 3944914a 5100054a 531f7d4a 8b0a0d29 f9400d29 b981592a 8b0a0d29 f9400d29 f9400929 f9409929 f9400529 f9400529 f9406129 bd414930 bd414d31 1e2f1017 1e3f1018 1e377a10 1e386a10 1e377a31 1e386a31 f94002ca bd400952 1e2d1013 1f134a12 bd400d54 bd402555 1e2c1016 1e360ab5 1f155234 2d024670 2d035272 f94002c8
 
 # The game marks a swing "perfect PCI" and "perfect timing" with two flags. This sets both for human hitters.
-#: perfect_perfect: Experimental. Every ball you put in play counts as Perfect-Perfect contact.
+#: perfect_perfect: Every ball you put in play counts as Perfect-Perfect contact.
+#tag perfect_perfect: Experimental
 set  perfect_perfect MLB_MOD_PERFECT 0
 site perfect_perfect main 167a8cc 79009a68 79417b49 51002529 4b0903ea 2a090149 531f7d29 2a090108 79009a68
 site perfect_perfect main 167a8d8 12000002 12000002 79417b49 51002529 4b0903ea 2a090149 531f7d29 2a090042
@@ -576,55 +706,70 @@ site perfect_perfect main 167a8d8 12000002 12000002 79417b49 51002529 4b0903ea 2
 set  unbreakable_bats MLB_MOD_NOBREAK 0
 site unbreakable_bats main 35acdc 1e2dcc2b 1e2041ab
 
+#group Ball and Air
+
+# The game works out air density from the park's temperature and altitude; thinner air means less drag, so fly
+# balls carry (it is why Coors Field plays the way it does). This multiplies the result everywhere. The game's own
+# log confirms it (AutoHit::m_fAirDensity, about 0.075 untouched). It does not move pitches.
+#: air: How much air the ball flies through. 0.25 makes every park play four times higher than Coors Field and fly balls carry forever; 2 and up makes them die at the warning track.
+#dial air 0.25 0.25 8 0.25 Air x
+set  air MLB_MOD_AIR 0
+site air main 165ac78 1e210800 1e210800 $air:s1 1e210800
+
+# A thrown ball's speed (mph to feet per second) x 1.25. Aim may be off.
+#: rocket_arms: Thrown balls travel 1.25x faster.
+#tag rocket_arms: Experimental
+set  rocket_arms MLB_MOD_ROCKETARMS 0
+site rocket_arms main 1688088 72a7f768 72a7fd48
+
+#group Pitching
+
 # A pitch's speed is its base speed times a factor from 0.95 to 1.05 taken from the pitcher (pitch +0x110). These
 # scale that factor.
-#: heat: Experimental. Every pitch comes in about 15% faster.
+#: heat: Every pitch comes in about 15% faster.
+#tag heat: Experimental
 set  heat MLB_MOD_HEAT 0
 site heat main 24ada4 72a7ee68 529ae148 72a7f168
 site heat main 24adb0 72a7f0c8 5291eb88 72a7f348
 
-#: soft_toss: Experimental. Every pitch comes in about 15% slower.
+#: soft_toss: Every pitch comes in about 15% slower.
+#tag soft_toss: Experimental
 set  soft_toss MLB_MOD_SOFTTOSS 0
 site soft_toss main 24ada4 72a7ee68 52970a48 72a7e9c8
 site soft_toss main 24adb0 72a7f0c8 528f5c28 72a7ec88
 
 # Fatigue per pitch starts from 2.1; this makes it 0.525.
-#: iron_arms: Experimental. Pitchers tire four times slower.
+#: iron_arms: Pitchers tire four times slower.
+#tag iron_arms: Experimental
 set  iron_arms MLB_MOD_IRONARMS 0
 site iron_arms main 3c56fc 72a800c8 72a7e0c8
 site iron_arms main 3c5710 72a800c8 72a7e0c8
-
-# The power of a hit is kept in mph on the hit itself, and the exit velocity on screen is read from there. These
-# raise that number right before the ball's speed is worked out from it, so the ball flies faster and the reading
-# goes up with it. The sets above change the ball's speed only and leave the reading alone.
-#: ev_125: Exit velocity x1.25, and the number on screen shows it.
-set  ev_125 MLB_MOD_EV125 0
-site ev_125 main 167d0b8 bd404a60 bd404a60 1e2e9001 1e210800 bd004a60
-
-#: ev_150: Exit velocity x1.5, and the number on screen shows it. 110 off the bat reads 165.
-set  ev_150 MLB_MOD_EV150 0
-site ev_150 main 167d0b8 bd404a60 bd404a60 1e2f1001 1e210800 bd004a60
-
-#: ev_200: Exit velocity x2, and the number on screen shows it.
-set  ev_200 MLB_MOD_EV200 0
-site ev_200 main 167d0b8 bd404a60 bd404a60 1e201001 1e210800 bd004a60
-
-#: ev_300: Exit velocity x3, and the number on screen shows it. Over 300 mph on a good swing.
-set  ev_300 MLB_MOD_EV300 0
-site ev_300 main 167d0b8 bd404a60 bd404a60 1e211001 1e210800 bd004a60
-
-# Pitch speed, the same two numbers Heat changes, pushed further. Goes with the Fireball ball skin.
-#: fireball: Experimental. Every pitch comes in about 30% faster: a 100 mph fastball becomes 130.
-set  fireball MLB_MOD_FIREBALL 0
-site fireball main 24ada4 72a7ee68 52828f68 72a7f3c8
-site fireball main 24adb0 72a7f0c8 52970a48 72a7f5c8
-
-# Four times the air. A spinning ball is pushed around by the air it moves through, so pitches should break far
-# more, and anything hit in the air dies early, the way a wiffle ball does. Pair it with an exit velocity set.
-#: wiffle_ball: Experimental. Four times the air: pitches should dance and fly balls drop like a wiffle ball.
-set  wiffle_ball MLB_MOD_WIFFLE 0
-site wiffle_ball main 165ac78 1e210800 1e210800 1e221001 1e210800
 '''
+
+
+def last_game(game_root):
+    """What the game's own log (logs/mlb.log) recorded in its last session, for checking a code mod did something:
+    {'hits': how many balls were put in play, 'hardest': mph, 'air': air density, 'breaks': how many pitches,
+    'biggest_break': feet}, with whatever was found."""
+    path = os.path.join(game_root, 'logs', 'mlb.log')
+    try:
+        size = os.path.getsize(path)
+        with open(path, 'rb') as f:
+            f.seek(max(0, size - 8_000_000))
+            tail = f.read().decode('utf-8', 'replace')
+    except OSError:
+        return {}
+    out = {}
+    mph = [float(x) for x in re.findall(r'AutoHit::m_fPowerMPH\s*= (-?[\d.]+)f', tail)]
+    if mph:
+        out['hits'], out['hardest'] = len(mph), max(mph)
+    m = re.findall(r'AutoHit::m_fAirDensity\s*= (-?[\d.]+)f', tail)
+    if m:
+        out['air'] = float(m[-1])
+    m = [float(x) for x in re.findall(r'Actual Pitch Movement: .*\((-?[\d.]+) ft\)', tail)]
+    if m:
+        out['breaks'], out['biggest_break'] = len(m), max(m)
+    return out
 
 
 def last_swing(game_root):
