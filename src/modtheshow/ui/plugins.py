@@ -109,7 +109,7 @@ class PluginsPage(QWidget):
             hl.setContentsMargins(4, 0, 4, 0)
             chk = QCheckBox(codemods.nice(name))
             chk.setChecked(sw.get(name, bool(default)) and name not in misfit)
-            chk.setToolTip(f'Switch {env}. Takes effect the next time you launch from the manager.')
+            chk.setToolTip(f'Takes effect the next time the game starts. Launch switch: {env}.')
             chk.toggled.connect(lambda on, n=name: self._toggle(n, on))
             if name in misfit:
                 chk.setEnabled(False)

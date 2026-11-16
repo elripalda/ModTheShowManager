@@ -139,7 +139,7 @@ power (mph) into the ball's speed off the bat (`main+167d0b4`), and Thin Air sca
 out from a park's temperature and altitude (`main+165ac78`). The file is commented; read it before writing your own.
 
 Rebuild Game runs the recomp's generator and build (about two minutes) and keeps your old exe as
-`mlb.original.exe`. Each set stays switchable when you launch from the manager. The manager reads the game's own
+`mlb.original.exe`. Each set can still be switched on and off afterwards without rebuilding. The manager reads the game's own
 code (`game/exefs/main`) first and leaves out any set made for a different game version.
 
 [Code mods](CODE_MODS.md) has the samples, how to write your own, and a map of the gameplay code found so far.
