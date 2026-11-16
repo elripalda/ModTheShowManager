@@ -19,8 +19,10 @@ data it is fixed words. A switch draws the look numbered by its query's value. E
 parent, in 1920 x 1080 screen pixels.
 
 A tint group gives the boxes and images inside it a team's colour (white takes it exactly, grey takes it darker;
-text and logos keep their own). "team_colors": {"HOU": "#eb6e1f"} at the top of a design overrides a club's colour
-wherever the design uses it. "enter": {"from": [dx, dy], "fade": true, "frames": 24, "delay": 0} on a piece moves
+text and logos keep their own). The colour follows the uniform the team is wearing: it is the game's cap colour for
+that uniform. "team_color": "club" at the top of a design asks for the club's fixed colour instead, and a piece can
+say "source": "club" or "uniform" for itself. "team_colors": {"HOU": "#eb6e1f", "HOU CC": "#1d2a5e"} overrides a
+club's colour wherever the design uses it: the plain key in every uniform, the CC key only in City Connect. "enter": {"from": [dx, dy], "fade": true, "frames": 24, "delay": 0} on a piece moves
 and fades it in when the design first appears.
 """
 import struct
@@ -31,6 +33,29 @@ from .uilayout import NONE, P_ALPHA, P_X, P_Y, name_hash
 NAMED = (0xA7732924, 0xF2232E7B, 0xFA7C7D26)      # the three animation names every asset lists, even with none
 WASH = 0x8948743A                                 # Theme 1's team-colour fill: handed a team, it paints its colour
 TEAM = {'away': 'AWAY_TEAM_ID', 'home': 'HOME_TEAM_ID'}
+SOURCES = ('uniform', 'club')                     # where a team colour comes from: the uniform worn, or the club
+CITY_CONNECT = 'TEAM_UI IS_CITY_CONNECT_ACTIVE [ {} ]'      # 1 while that team wears its City Connect uniform
+
+
+def team_query(side, shade=0, source='uniform'):
+    """The game's question for a team's colour. uniform: the cap colour of the uniform worn (its second colour
+    with shade). club: the club's own first or second colour, whatever it wears."""
+    if source == 'club':
+        return f'[ UI ACTUAL_TEAM_CLR [ {TEAM[side]} , {1 if shade else 0} ] ]'
+    return f'[ UI CAP_TEAM_CLR [ {TEAM[side]}{" , 1" if shade else ""} ] ]'
+
+
+def team_keys(colors):
+    """{club: {'any': colour, 'cc': colour}} from a design's team_colors, whose keys are "HOU" or "HOU CC"."""
+    out = {}
+    for key, color in (colors or {}).items():
+        club, _, kind = str(key).upper().replace('_', ' ').replace(':', ' ').partition(' ')
+        if teamart.index(club) < 0:
+            raise ValueError(f'{club} is not one of the thirty clubs')
+        if kind.strip() not in ('', 'CC'):
+            raise ValueError(f'"{key}": a team colour is for a club ("HOU") or its City Connect uniform ("HOU CC")')
+        out.setdefault(club, {})['cc' if kind.strip() else 'any'] = color
+    return out
 ALIGN = {'left': 0, 'centre': 1, 'center': 1, 'right': 2}
 
 
@@ -65,6 +90,11 @@ def rule_query(rule):
     return f'QCOMP [ {data} , {op} , {value} ]'
 SWITCHES = ['IG IS_BOTTOM', 'SCORER OUTS', 'SCOREBAR 1ST_BASE_TAB', 'SCOREBAR 2ND_BASE_TAB', 'SCOREBAR 3RD_BASE_TAB',
             'IG BALLS', 'IG STRIKES']
+# what a rule can ask about: the play, the score, and the uniforms on the field
+ASK = SWITCHES + ['SCORER AWAY_SCORE', 'SCORER HOME_SCORE', 'SCORER INNING',
+                  'TEAM_UI IS_CITY_CONNECT_ACTIVE [ AWAY_TEAM_ID ]', 'TEAM_UI IS_CITY_CONNECT_ACTIVE [ HOME_TEAM_ID ]',
+                  'CAP_CLR_BRIGHTNESS_TAB [ AWAY_TEAM_ID ]', 'CAP_CLR_BRIGHTNESS_TAB [ HOME_TEAM_ID ]',
+                  'AWAY_TEAM TEAM_PROF TEAM_INX', 'HOME_TEAM TEAM_PROF TEAM_INX']
 
 
 def kind_of(piece):
@@ -127,6 +157,7 @@ class Builder:
         self.carriers = []            # textures of the theme pack nothing draws: a picture of ours takes one over
         self.art = {}                 # {carrier texture: path of the picture}
         self.team_colors = {}         # {club: '#rrggbb'}: colours of our own in place of the game's
+        self.team_source = 'uniform'  # the colour a team piece asks the game for: the uniform worn, or the club
         self.motions = []             # (node position in the tree, [x, y], alpha, the piece's "enter")
 
     # ---- nodes
@@ -218,20 +249,26 @@ class Builder:
 
     def _by_team(self, at, side, default, override):
         """The pieces for a team's colour, with our own colour swapped in for the clubs that have one: a chain of
-        two-look switches asking "is this club number N?"."""
-        inner = default
-        for club, color in self.team_colors.items():
-            n = teamart.index(club)
-            if n < 0:
-                raise ValueError(f'{club} is not one of the thirty clubs')
-            inner = [{'switch': f'QCOMP [ {side.upper()}_TEAM TEAM_PROF TEAM_INX , == , {n} ]',
-                      'at': [0, 0, at[2], at[3]], 'looks': [inner, override(color)]}]
+        two-look switches asking "is this club number N?", and "is it in City Connect?" for a colour kept for
+        that uniform."""
+        inner, box = default, [0, 0, at[2], at[3]]
+        cc = CITY_CONNECT.format(TEAM[side])
+        for club, c in team_keys(self.team_colors).items():
+            club_is = f'QCOMP [ {side.upper()}_TEAM TEAM_PROF TEAM_INX , == , {teamart.index(club)} ]'
+            if 'any' not in c:                                 # City Connect only: one switch asks both things
+                inner = [{'switch': f'IF_Q_ELSE_INT [ {club_is} , {cc} , 0 ]', 'at': box,
+                          'looks': [inner, override(c['cc'])]}]
+                continue
+            look = override(c['any'])
+            if 'cc' in c:
+                look = [{'switch': cc, 'at': box, 'looks': [look, override(c['cc'])]}]
+            inner = [{'switch': club_is, 'at': box, 'looks': [inner, look]}]
         return inner
 
-    def tinted(self, at, side, pieces, shade=0, clip=False):
+    def tinted(self, at, side, pieces, shade=0, clip=False, source=None):
         p = len(self.tree)
         self.group(at, pieces, clip)
-        self.fix.append((p + 0x40, f'[ UI CAP_TEAM_CLR [ {TEAM[side]}{" , 1" if shade else ""} ] ]'))
+        self.fix.append((p + 0x40, team_query(side, shade, source or self.top.team_source)))
 
     def piece(self, s):
         at = s.get('at') or s.get('box')
@@ -261,14 +298,15 @@ class Builder:
             if self.team_colors and not s.get('_plain'):
                 own = lambda c: [{'group': kids, 'at': [0, 0, w, h], 'color': c}]
                 default = [{'tint': side, 'group': kids, 'at': [0, 0, w, h], 'shade': s.get('shade', 0),
-                            '_plain': True}]
+                            'source': s.get('source'), '_plain': True}]
                 self.group(at, self._by_team(at, side, default, own), bool(s.get('clip')))
             else:
-                self.tinted(at, side, kids, s.get('shade', 0), bool(s.get('clip')))
+                self.tinted(at, side, kids, s.get('shade', 0), bool(s.get('clip')), s.get('source'))
         elif 'team' in s and not s.get('wash'):
             side, w, h = s['team'], at[2], at[3]
             fill = lambda c: [{'box': [0, 0, w, h], 'color': c, 'opacity': s.get('opacity', 100)}]
-            default = [{'tint': side, 'group': fill('#ffffff'), 'at': [0, 0, w, h], '_plain': True}]
+            default = [{'tint': side, 'group': fill('#ffffff'), 'at': [0, 0, w, h], 'shade': s.get('shade', 0),
+                        'source': s.get('source'), '_plain': True}]
             self.group(at, self._by_team(at, side, default, fill))
         elif 'box' in s:
             self.box(at, col, s.get('texture'))
@@ -343,7 +381,7 @@ def fit_art(img, cw, ch):
     return img.convert('RGBA').resize((cw * m, ch * m), Image.LANCZOS)
 
 
-def _compile(name, w, h, pieces, top=None, carriers=(), team_colors=None):
+def _compile(name, w, h, pieces, top=None, carriers=(), team_colors=None, team_source='uniform'):
     """(chunk, builder) for one asset made of pieces. top: the builder of the design it is a part of, whose words,
     pictures and team colours it shares."""
     b = Builder(name)
@@ -352,6 +390,7 @@ def _compile(name, w, h, pieces, top=None, carriers=(), team_colors=None):
         b.carriers, b.team_colors = top.carriers, top.team_colors
     else:
         b.carriers, b.team_colors = list(carriers), dict(team_colors or {})
+        b.team_source = team_source
     b.tree += b._head(0x0F, (0, 0, w, h))                       # root, with the pieces in one group under it
     b.tree[0x1E:0x22] = bytes(4)
     b.group((0, 0, w, h), pieces)
@@ -408,7 +447,10 @@ def build(design, carriers=()):
     name = str(design['name'])
     w, h = design['size']
     colors = {str(k).upper(): v for k, v in (design.get('team_colors') or {}).items()}
-    chunk, b = _compile(name, w, h, design.get('pieces') or [], None, carriers, colors)
+    source = str(design.get('team_color', 'uniform')).lower()
+    if source not in SOURCES:
+        raise ValueError(f'"team_color" is one of: {", ".join(SOURCES)}')
+    chunk, b = _compile(name, w, h, design.get('pieces') or [], None, carriers, colors, source)
     where = [(piece, 0x90 + pos) for piece, pos in b.where]
     return chunk, name_hash(name), b.static, b.live, where, b.art, list(b.kids)
 

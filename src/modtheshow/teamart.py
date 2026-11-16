@@ -40,3 +40,21 @@ def index(abbr):
     """A club's number in the game, or -1."""
     a = str(abbr).upper().replace('_CC', '')
     return ORDER.index(a) if a in ORDER else -1
+
+
+def main_color(img):
+    """The colour a logo is mostly drawn in, as (r, g, b): the most common of its solid, not-white, not-black
+    pixels. None when it has none. Used for a City Connect look, whose colours are not in the table above."""
+    if img is None:
+        return None
+    small = img.convert('RGBA').resize((48, 48))
+    seen = {}
+    for r, g, b, a in small.getdata():
+        if a < 200 or max(r, g, b) < 40 or min(r, g, b) > 215:
+            continue
+        key = (r >> 4, g >> 4, b >> 4)
+        seen[key] = seen.get(key, 0) + 1
+    if not seen:
+        return None
+    r, g, b = max(seen, key=seen.get)
+    return r * 16 + 8, g * 16 + 8, b * 16 + 8

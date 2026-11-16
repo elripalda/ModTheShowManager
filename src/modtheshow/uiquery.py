@@ -110,6 +110,8 @@ class Situation:
         self.speed, self.pitch = 0, 'FB'
         self.away_color, self.home_color = (19, 74, 142), (20, 20, 20)       # the wash behind each team's row
         self.away_logo = self.home_logo = None                              # PIL images, when you have them
+        self.away_cc = self.home_cc = False                                 # wearing City Connect
+        self.away_club = self.home_club = None             # the club's fixed colour, when it differs from the uniform's
         self.extra = {}                    # query text -> value, for anything else
         for k, v in kw.items():
             setattr(self, k, v)
@@ -121,6 +123,10 @@ class Situation:
 
     def team_color(self, team):
         return self.home_color if _num(team) == 1 else self.away_color
+
+    def club_color(self, team):
+        side = 'home' if _num(team) == 1 else 'away'
+        return getattr(self, side + '_club') or getattr(self, side + '_color')
 
     def team_logo(self, team):
         return self.home_logo if _num(team) == 1 else self.away_logo
@@ -171,8 +177,15 @@ class Situation:
         if key in ('AWAY_TEAM TEAM_PROF TEAM_INX', 'HOME_TEAM TEAM_PROF TEAM_INX'):
             from . import teamart
             return teamart.index(self.away if key.startswith('AWAY') else self.home)
-        if key == 'UI CAP_TEAM_CLR':                           # a team's colour (its second colour with a 1 after it)
+        if key == 'TEAM_UI IS_CITY_CONNECT_ACTIVE':
+            return int(self.home_cc if _num(a0) == 1 else self.away_cc)
+        if key == 'CAP_CLR_BRIGHTNESS_TAB':                    # 1 for a light cap colour, where dark words read
             r, g, b = self.team_color(a0)
+            return int(0.299 * r + 0.587 * g + 0.114 * b > 150)
+        if key == 'HAS_CAP_LOGO':
+            return 1
+        if key in ('UI CAP_TEAM_CLR', 'UI ACTUAL_TEAM_CLR'):   # a team's colour (its second colour with a 1 after it)
+            r, g, b = self.team_color(a0) if key == 'UI CAP_TEAM_CLR' else self.club_color(a0)
             if len(args) > 1 and _num(args[1]):
                 r, g, b = (int(v * 0.55) for v in (r, g, b))
             return f'#{r:02x}{g:02x}{b:02x}'

@@ -9,8 +9,8 @@ import time
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout,
-                               QFrame, QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu,
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
+                               QGridLayout, QHBoxLayout, QFrame, QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu,
                                QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -25,6 +25,103 @@ BACKDROP = (31, 77, 46, 255)
 MOTIONS = [('No motion', None), ('Fade in', {'frames': 20}), ('From the left', {'from': [-60, 0], 'frames': 20}),
            ('From the right', {'from': [60, 0], 'frames': 20}), ('From above', {'from': [0, -40], 'frames': 20}),
            ('From below', {'from': [0, 40], 'frames': 20})]
+
+
+class TeamColours(QDialog):
+    """Where a design's team colours come from, and the clubs that get a colour of your own: one for every uniform,
+    one for City Connect."""
+    SOURCES = (('The uniform each team is wearing', 'uniform'), ('The club, whatever it wears', 'club'))
+
+    def __init__(self, parent, design):
+        super().__init__(parent)
+        self.setWindowTitle('Team Colours')
+        self.colors = {k: v for k, v in uibuild.team_keys(design.get('team_colors')).items()}
+        v = QVBoxLayout(self)
+        v.setContentsMargins(*[theme.d(18)] * 4)
+        v.setSpacing(theme.d(12))
+        v.addWidget(label('TEAM COLOUR COMES FROM', 'StripLabel'))
+        self.source = QComboBox()
+        for text, key in self.SOURCES:
+            self.source.addItem(text, key)
+        self.source.setCurrentIndex(max(0, self.source.findData(design.get('team_color', 'uniform'))))
+        v.addWidget(self.source)
+        v.addWidget(label('The game colours a team by the cap of the uniform it has on, so alternates, throwbacks '
+                          'and City Connect each bring their own. Give a club a colour of yours below and the '
+                          'design uses it instead: in every uniform, only in City Connect, or one for each.',
+                          'Sub', wrap=True))
+        v.addWidget(label('YOUR COLOURS', 'StripLabel'))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(theme.d(8))
+        grid.setVerticalSpacing(theme.d(6))
+        self.cells = {}
+        clubs = sorted(teamart.ORDER)
+        for i, club in enumerate(clubs):                       # three even blocks of ten
+            r, c = i % 10 + 1, (i // 10) * 4
+            grid.addWidget(label(club, 'Sub'), r, c)
+            for j, kind in enumerate(('any', 'cc')):
+                b = QPushButton()
+                b.setFixedSize(theme.d(92), theme.d(28))
+                b.clicked.connect(lambda _=False, club=club, kind=kind: self._pick(club, kind))
+                self.cells[club, kind] = b
+                grid.addWidget(b, r, c + 1 + j)
+        for block in range(3):
+            grid.addWidget(label('Every uniform', 'Sub'), 0, block * 4 + 1)
+            grid.addWidget(label('City Connect', 'Sub'), 0, block * 4 + 2)
+            if block < 2:
+                grid.setColumnMinimumWidth(block * 4 + 3, theme.d(18))
+        v.addLayout(grid)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(button('Cancel', on_click=self.reject))
+        row.addWidget(button('Use These', True, self.accept))
+        v.addLayout(row)
+        self._paint()
+
+    def _paint(self):
+        for (club, kind), b in self.cells.items():
+            c = self.colors.get(club, {}).get(kind)
+            b.setText('' if c else 'Game’s')
+            b.setToolTip(f'{club}: {c}. Click to change it or go back to the game’s colour.' if c else
+                         f'{club}: the game’s colour. Click to give it one of yours.')
+            b.setStyleSheet(f'QPushButton {{ background: {c}; border: 1px solid {theme.LINE}; border-radius: 8px; '
+                            'padding: 0; }' if c else
+                            f'QPushButton {{ background: transparent; border: 1px dashed {theme.LINE}; '
+                                      f'border-radius: 8px; color: {theme.MUTED}; font-size: 11px; padding: 0; }}')
+
+    def _pick(self, club, kind):
+        now = self.colors.get(club, {}).get(kind)
+        if now:
+            menu = QMenu(self)
+            change = menu.addAction('Pick another colour…')
+            clear = menu.addAction('Back to the game’s colour')
+            act = menu.exec(self.cells[club, kind].mapToGlobal(self.cells[club, kind].rect().bottomLeft()))
+            if act is clear:
+                self.colors[club].pop(kind, None)
+                self._paint()
+            if act is not change:
+                return
+        start = now or '#%02x%02x%02x' % teamart.color(club)
+        c = QColorDialog.getColor(QColor(start), self, f'{club}: {"City Connect" if kind == "cc" else "every uniform"}')
+        if c.isValid():
+            self.colors.setdefault(club, {})[kind] = c.name()
+            self._paint()
+
+    def result_into(self, design):
+        out = {}
+        for club in teamart.ORDER:
+            c = self.colors.get(club) or {}
+            if c.get('any'):
+                out[club] = c['any']
+            if c.get('cc'):
+                out[club + ' CC'] = c['cc']
+        if out:
+            design['team_colors'] = out
+        else:
+            design.pop('team_colors', None)
+        if self.source.currentData() == 'uniform':
+            design.pop('team_color', None)
+        else:
+            design['team_color'] = self.source.currentData()
 
 
 class Layers(QTreeWidget):
@@ -291,9 +388,16 @@ class LayoutEditor(QWidget):
             e.textEdited.connect(lambda v, a=attr: self._sit_set(a, v.upper()))
             return e
         grow.addWidget(label('Game', 'Sub'))
+        def uniform(side):
+            c = QCheckBox('CC')
+            c.setToolTip(f'The {side} team is wearing its City Connect uniform: its logo and colour change with it')
+            c.toggled.connect(lambda on, a=side + '_cc': self._sit_set(a, on))
+            return c
         grow.addWidget(word(self.sit.away, 'Away team', 'away'))
+        grow.addWidget(uniform('away'))
         grow.addWidget(small(0, 0, 99, 'Away score', 'away_score'))
         grow.addWidget(word(self.sit.home, 'Home team', 'home'))
+        grow.addWidget(uniform('home'))
         grow.addWidget(small(0, 0, 99, 'Home score', 'home_score'))
         self.g_half = QComboBox()
         self.g_half.addItems(['Top', 'Bottom'])
@@ -529,7 +633,7 @@ class LayoutEditor(QWidget):
         # a rule: the piece is drawn only while it holds
         self.d_rule = QComboBox()
         self.d_rule.setEditable(True)
-        self.d_rule.addItems([''] + uibuild.SWITCHES + ['SCORER AWAY_SCORE', 'SCORER HOME_SCORE', 'SCORER INNING'])
+        self.d_rule.addItems([''] + uibuild.ASK)
         self.d_rule.lineEdit().setPlaceholderText('Always shown. Pick data to show it only when…')
         self.d_rule.setToolTip('A rule: this piece is drawn only while the game data you pick matches')
         self.d_rule.activated.connect(self._design_edit)
@@ -550,7 +654,7 @@ class LayoutEditor(QWidget):
         self.d_join.activated.connect(self._design_edit)
         self.d_rule2 = QComboBox()
         self.d_rule2.setEditable(True)
-        self.d_rule2.addItems([''] + uibuild.SWITCHES + ['SCORER AWAY_SCORE', 'SCORER HOME_SCORE', 'SCORER INNING'])
+        self.d_rule2.addItems([''] + uibuild.ASK)
         self.d_rule2.lineEdit().setPlaceholderText('The second thing to ask')
         self.d_rule2.activated.connect(self._design_edit)
         self.d_rule2.lineEdit().editingFinished.connect(self._design_edit)
@@ -1200,29 +1304,17 @@ class LayoutEditor(QWidget):
         self._design_build_on(new)
 
     def _design_teams(self):
-        """Colours of your own for particular clubs, in place of the game's."""
+        """Where team colours come from, and colours of your own for particular clubs and uniforms."""
         if self.design is None:
             return
-        now = ', '.join(f'{k}={v}' for k, v in (self.design.get('team_colors') or {}).items())
-        text, ok = QInputDialog.getText(self, 'Team Colours', 'Clubs that get a colour of your own in this design, '
-                                        'as CLUB=#colour separated by commas.\nFor example: HOU=#eb6e1f, SD=#ffc425',
-                                        text=now)
-        if not ok:
+        try:
+            dlg = TeamColours(self, self.design)
+        except ValueError as x:
+            QMessageBox.warning(self, 'Team Colours', str(x))
             return
-        out = {}
-        for part in text.split(','):
-            if '=' not in part:
-                continue
-            club, color = (x.strip() for x in part.split('=', 1))
-            if teamart.index(club) < 0 or not re.fullmatch(r'#?[0-9a-fA-F]{6}', color):
-                QMessageBox.warning(self, 'Team Colours', f'"{part.strip()}" is not a club and a colour like HOU=#eb6e1f.')
-                return
-            out[club.upper()] = '#' + color.lstrip('#').lower()
-        if out:
-            self.design['team_colors'] = out
-        else:
-            self.design.pop('team_colors', None)
-        self._design_build()
+        if dlg.exec() == QDialog.Accepted:
+            dlg.result_into(self.design)
+            self._design_build()
 
     def _design_add(self, kind):
         if self.design is None:
@@ -1482,24 +1574,29 @@ class LayoutEditor(QWidget):
     # ------------------------------------------------------------------ the game
     def _sit_set(self, attr, value):
         setattr(self.sit, attr, value)
-        if attr in ('away', 'home'):
+        if attr in ('away', 'home', 'away_cc', 'home_cc'):
             self._team_art()
         self._redraw()
 
     def _team_art(self):
-        """Each team's logo (the game's own) and row colour, for the two teams typed in the Game row."""
+        """Each team's logo (the game's own) and colour, for the two teams in the Game row and the uniform each has
+        on. In City Connect the colour is read off the game's City Connect logo."""
         for side in ('away', 'home'):
             abbr = getattr(self.sit, side)
             dark = (19, 74, 142) if side == 'away' else (20, 20, 20)
-            setattr(self.sit, side + '_color', teamart.color(abbr, dark))
-            setattr(self.sit, side + '_logo', self._logo(abbr))
+            club = teamart.color(abbr, dark)
+            cc = getattr(self.sit, side + '_cc', False)
+            logo = self._logo(abbr, cc) if cc else None
+            setattr(self.sit, side + '_club', club)
+            setattr(self.sit, side + '_color', (teamart.main_color(logo) if logo is not None else None) or club)
+            setattr(self.sit, side + '_logo', logo if logo is not None else self._logo(abbr))
 
-    def _logo(self, abbr):
-        key = str(abbr).upper()
+    def _logo(self, abbr, city_connect=False):
+        key = str(abbr).upper() + ('_CC' if city_connect else '')
         if key not in self._logos:
             img = None
             try:
-                pack, name = teamart.logo_name(abbr)
+                pack, name = teamart.logo_name(abbr, city_connect=city_connect)
                 if pack in self.main.game.file_set():
                     tex = self.main.tex(pack)
                     e = next((e for e in tex.entries if e['name'].lower() == name), None)

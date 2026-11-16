@@ -421,6 +421,54 @@ def test_design_colour_and_motion():
     assert colours('SD', 'LAD', made.pose(0, 12))[0] == (0, 0, 200)
 
 
+def test_design_uniform_colours():
+    """A team's colour follows the uniform it wears or the club, and a club can have a colour of ours kept for
+    City Connect."""
+    from modtheshow import uibuild, uilang, uiquery
+    design = {'name': 'MTS_T7', 'size': [200, 40], 'team_colors': {'HOU': '#ff8000', 'HOU CC': '#102030',
+                                                                    'SD_CC': '#aabbcc'},
+              'pieces': [{'team': 'away', 'at': [0, 0, 100, 40]},
+                         {'team': 'home', 'at': [100, 0, 100, 40], 'source': 'club'}]}
+    row = asset('Row', group(0, 0, 100, 40, [bytes(node(0x18, 0, 0, 30, 40))]))
+    use = bytes(node(0x1E, 0, 0, 200, 40, ref=H('Row'), size=0x58, extra=struct.pack('<HH', 0x58, 0)))
+    main = asset('PBInterface\\ScoreBar', group(0, 0, 1920, 1080, [group(0, 0, 200, 40, [use])]))
+    L = uilayout.Layout(directory([main, row]))
+    made = uibuild.install(L, design)
+    bar = L.by_hash[H('PBInterface\\ScoreBar')]
+    L.retarget(bar.container().children[0], made)
+    L = uilayout.Layout(L.bytes())
+    made, bar = L.by_hash[H('MTS_T7')], L.by_hash[H('PBInterface\\ScoreBar')]
+    assert made.problems == 0
+    qs = {uiquery.text(L._query_at(made, struct.unpack_from('<Q', L.d, n.off + 0x40)[0]))
+          for n in made.nodes() if n.kind == 0x0F and struct.unpack_from('<Q', L.d, n.off + 0x40)[0]}
+    assert qs == {'[ UI CAP_TEAM_CLR [ AWAY_TEAM_ID ] ]', '[ UI ACTUAL_TEAM_CLR [ HOME_TEAM_ID , 0 ] ]'}
+    asks = {uiquery.text(L.selector(n)) for n in made.nodes() if n.kind == 0x1C}
+    assert '[ TEAM_UI IS_CITY_CONNECT_ACTIVE [ AWAY_TEAM_ID ] ]' in asks
+    assert '[ IF_Q_ELSE_INT [ QCOMP [ AWAY_TEAM TEAM_PROF TEAM_INX , == , 28 ] , TEAM_UI IS_CITY_CONNECT_ACTIVE ' \
+           '[ AWAY_TEAM_ID ] , 0 ] ]' in asks
+
+    def colours(away, home, **kw):
+        s = uiquery.Situation(away=away, home=home, away_color=(0, 0, 200), home_color=(0, 200, 0),
+                              home_club=(90, 0, 0), **kw)
+        img, _ = uirender.render(L, bar, lambda n: None, {}, situation=s, lang=uilang.Lang(struct.pack(
+            '<8I', 0x20, 0, 0x20, 0, 0, 0, 0x20, 2)), background=(9, 9, 9, 255))
+        return img.getpixel((30, 20))[:3], img.getpixel((170, 20))[:3]
+    assert colours('LAD', 'TOR') == ((0, 0, 200), (90, 0, 0))            # the uniform's colour, and the club's own
+    assert colours('HOU', 'TOR')[0] == (255, 128, 0)                     # ours for the Astros in any uniform
+    assert colours('HOU', 'TOR', away_cc=True)[0] == (16, 32, 48)        # and another in City Connect
+    assert colours('SD', 'TOR')[0] == (0, 0, 200)                        # the Padres keep the game's colour...
+    assert colours('SD', 'TOR', away_cc=True)[0] == (170, 187, 204)      # ...until they wear City Connect
+    assert colours('LAD', 'HOU', home_cc=True)[1] == (16, 32, 48)
+    try:
+        uibuild.build({'name': 'x', 'size': [10, 10], 'team_colors': {'HOU ALT': '#000000'}, 'pieces': [
+            {'team': 'away', 'at': [0, 0, 10, 10]}]})
+        assert False
+    except ValueError:
+        pass
+    assert uibuild.rule_query({'data': uibuild.CITY_CONNECT.format('HOME_TEAM_ID'), 'is': '==', 'value': 1}) == \
+        'QCOMP [ TEAM_UI IS_CITY_CONNECT_ACTIVE [ HOME_TEAM_ID ] , == , 1 ]'
+
+
 def test_design_rule():
     """A piece with a rule is drawn only while the rule holds."""
     from modtheshow import uibuild, uilang, uiquery
@@ -513,6 +561,7 @@ if __name__ == '__main__':
     test_clone_and_mirror()
     test_build_a_design()
     test_design_colour_and_motion()
+    test_design_uniform_colours()
     test_design_rule()
     test_design_own_pictures()
     test_team_art()
