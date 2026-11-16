@@ -256,7 +256,11 @@ def scenes(asset):
     """The big pieces stacked in an overlay's frame. The game shows one at a time (the scorebug in play, the team
     logos between innings); the first is the one in play."""
     c = asset.container()
-    return [k for k in c.children if k.kind in (0x0F, 0x1C) and k.w > 0 and k.h > 0] if c else []
+    if c is None:
+        return []
+    big = [k for k in c.children if k.kind in (0x0F, 0x1C) and k.w > 0 and k.h > 0]
+    # a small group parked off to the side (a clock, a profile bar) is not a scene: it is drawn with every one
+    return [k for k in big if k.w >= 0.5 * c.w and k.h >= 0.3 * c.h] or big
 
 
 def popups(layout, asset, scene):

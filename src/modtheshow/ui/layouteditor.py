@@ -6,6 +6,7 @@ import os
 import json
 import re
 import time
+import zipfile
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
@@ -1417,14 +1418,35 @@ class LayoutEditor(QWidget):
     def _design_save(self):
         if self.design is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, 'Save the design', os.path.join(
-            self.main.last_dir(), self.design.get('name', 'design') + '.json'), 'Designs (*.json)')
+        path, kind = QFileDialog.getSaveFileName(self, 'Save the design', os.path.join(
+            self.main.last_dir(), self.design.get('name', 'design') + uibuild.SHARED),
+            f'Design to share, pictures and fonts inside (*{uibuild.SHARED});;Design only (*.json)')
         if not path:
             return
         self.main.remember_dir(path)
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump({k: v for k, v in self.design.items() if not k.startswith('_')}, f, indent=1)
+        try:
+            if path.lower().endswith('.json'):
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump({k: v for k, v in self.design.items() if not k.startswith('_')}, f, indent=1)
+            else:
+                if not path.lower().endswith(uibuild.SHARED):
+                    path += uibuild.SHARED
+                uibuild.pack(self.design, path)
+        except (OSError, ValueError) as x:
+            QMessageBox.warning(self, 'Could Not Save the Design', str(x))
+            return
         self.note.setText(f'Design saved to {os.path.basename(path)}. Open it again from Styles › Open a Design File.')
+
+    def _design_open(self, path):
+        """A design from a file: a .json, or one shared file with its pictures inside."""
+        if path.lower().endswith(uibuild.SHARED):
+            name = re.sub(r'[^A-Za-z0-9_-]+', '_', os.path.splitext(os.path.basename(path))[0]) or 'design'
+            from .. import game as gamefile
+            return uibuild.unpack(path, os.path.join(os.path.dirname(gamefile.settings_path()), 'designs', name))
+        with open(path, encoding='utf-8') as f:
+            design = json.load(f)
+        design['_folder'] = os.path.dirname(path)
+        return design
 
     # ------------------------------------------------------------------ styles
     def _lang_bytes(self):
@@ -1482,14 +1504,12 @@ class LayoutEditor(QWidget):
         try:
             lay = uilayout.Layout.open(self.main.game.original(self.rel))
             if what[0] == 'design':
-                path, _ = QFileDialog.getOpenFileName(self, 'Open a design', self.main.last_dir(), 'Designs (*.json)')
+                path, _ = QFileDialog.getOpenFileName(self, 'Open a design', self.main.last_dir(),
+                                                      f'Designs (*{uibuild.SHARED} *.json)')
                 if not path:
                     return
                 self.main.remember_dir(path)
-                with open(path, encoding='utf-8') as f:
-                    design = json.load(f)
-                design['_folder'] = os.path.dirname(path)
-                self._design_start(design)
+                self._design_start(self._design_open(path))
                 self.note.setText('Design opened. Add pieces, pick one to change it, then Save to My Mod.')
                 return
             elif what[0] == 'new':
@@ -2193,14 +2213,14 @@ class LayoutEditor(QWidget):
         if not (self.board and self.layout and design):
             return
         if design == 'file':
-            path, _ = QFileDialog.getOpenFileName(self, 'Open a design', self.main.last_dir(), 'Designs (*.json)')
+            path, _ = QFileDialog.getOpenFileName(self, 'Open a design', self.main.last_dir(),
+                                                  f'Designs (*{uibuild.SHARED} *.json)')
             if not path:
                 return
             self.main.remember_dir(path)
             try:
-                with open(path, encoding='utf-8') as f:
-                    design = json.load(f)
-            except (OSError, ValueError) as x:
+                design = self._design_open(path)
+            except (OSError, ValueError, KeyError, zipfile.BadZipFile) as x:
                 QMessageBox.warning(self, 'Could Not Open the Design', str(x))
                 return
         palette = uibuild.colours(design)

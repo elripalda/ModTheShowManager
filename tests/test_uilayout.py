@@ -525,6 +525,25 @@ ScriptUIElem jt4 {
     assert boards.fonts_used(L) and boards.set_font(L, 7) == 1 and boards.fonts_used(L) == {7: 1}
 
 
+def test_design_one_file():
+    """A design travels as one file with its pictures inside."""
+    import tempfile
+    from PIL import Image
+    from modtheshow import uibuild
+    d = tempfile.mkdtemp()
+    Image.new('RGBA', (8, 8), (255, 0, 0, 255)).save(os.path.join(d, 'dot.png'))
+    design = {'name': 'MTS_T9', 'size': [100, 40], '_folder': d, 'fonts': {'25': 'Bebas Neue'}, 'pieces': [
+        {'image': 'dot.png', 'at': [0, 0, 8, 8]},
+        {'group': [{'image': os.path.join(d, 'dot.png'), 'at': [0, 0, 8, 8]}], 'at': [10, 0, 8, 8]}]}
+    path = os.path.join(d, 'mine' + uibuild.SHARED)
+    assert uibuild.pack(design, path) == 1                       # the same picture twice goes in once
+    assert design['pieces'][0]['image'] == 'dot.png'             # the design in hand is left as it was
+    back = uibuild.unpack(path, os.path.join(d, 'opened'))
+    assert back['pieces'][0]['image'] == 'art/dot.png' == back['pieces'][1]['group'][0]['image']
+    assert back['fonts'] == {'25': 'Bebas Neue'} and back['name'] == 'MTS_T9'
+    assert Image.open(os.path.join(back['_folder'], 'art', 'dot.png')).size == (8, 8)
+
+
 def test_design_rule():
     """A piece with a rule is drawn only while the rule holds."""
     from modtheshow import uibuild, uilang, uiquery
@@ -619,6 +638,7 @@ if __name__ == '__main__':
     test_design_colour_and_motion()
     test_design_uniform_colours()
     test_boards()
+    test_design_one_file()
     test_design_rule()
     test_design_own_pictures()
     test_team_art()

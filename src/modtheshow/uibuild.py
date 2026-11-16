@@ -25,9 +25,12 @@ say "source": "club" or "uniform" for itself. "team_colors": {"HOU": "#eb6e1f", 
 club's colour wherever the design uses it: the plain key in every uniform, the CC key only in City Connect. "enter": {"from": [dx, dy], "fade": true, "frames": 24, "delay": 0} on a piece moves
 and fades it in when the design first appears.
 """
+import json
+import os
 import struct
+import zipfile
 
-from . import teamart, uiquery
+from . import fontlib, teamart, uiquery
 from .uilayout import NONE, P_ALPHA, P_X, P_Y, name_hash
 
 NAMED = (0xA7732924, 0xF2232E7B, 0xFA7C7D26)      # the three animation names every asset lists, even with none
@@ -501,3 +504,54 @@ def install(layout, design, carriers=()):
     layout.words[0].update(static)
     layout.words[1].update(live)
     return asset
+
+
+SHARED = '.mtsbug'            # a design with its pictures and fonts in one file
+
+
+def pack(design, path):
+    """Write a design and everything it brings (its pictures, a font file of its own) as one file to share."""
+    import copy
+    folder = design.get('_folder', '')
+    d = copy.deepcopy({k: v for k, v in design.items() if not k.startswith('_')})
+    took = {}
+
+    def take(src, sub, z):
+        full = src if os.path.isabs(src) else os.path.join(folder, src)
+        if full not in took:
+            base, n = os.path.basename(full), 1
+            stem, ext = os.path.splitext(base)
+            while f'{sub}/{base}' in took.values():
+                n += 1
+                base = f'{stem}-{n}{ext}'
+            took[full] = f'{sub}/{base}'
+            z.write(full, took[full])
+        return took[full]
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+        for p, *_ in walk(d.get('pieces') or []):
+            if str(p.get('image', '')).lower().endswith('.png'):
+                p['image'] = take(p['image'], 'art', z)
+        library = dict(fontlib.LIBRARY)
+        for slot, src in list((d.get('fonts') or {}).items()):
+            if src not in library:                          # a font file of the designer's own
+                d['fonts'][slot] = take(src, 'fonts', z)
+        z.writestr('design.json', json.dumps(d, indent=1))
+    return len(took)
+
+
+def unpack(path, folder):
+    """Open a shared design: its pictures and fonts are put in folder and the design comes back pointing there."""
+    os.makedirs(folder, exist_ok=True)
+    with zipfile.ZipFile(path) as z:
+        design = json.loads(z.read('design.json').decode('utf-8'))
+        for name in z.namelist():
+            sub, _, base = name.partition('/')
+            if sub in ('art', 'fonts') and base and '/' not in base and '\\' not in base and \
+                    base.lower().endswith(('.png', '.ttf', '.otf')):
+                os.makedirs(os.path.join(folder, sub), exist_ok=True)
+                with open(os.path.join(folder, sub, base), 'wb') as f:
+                    f.write(z.read(name))
+    if not isinstance(design, dict) or 'pieces' not in design:
+        raise ValueError('this file holds no design')
+    design['_folder'] = folder
+    return design

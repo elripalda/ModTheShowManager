@@ -165,7 +165,9 @@ class Situation:
             'SCOREBAR HAS_NOTABLE': 0, 'SCOREBAR HITTER_TYPE': 0, 'SCOREBAR SLIDEUP_TAB': 0,
             'SCORER PITCH_CLOCK': 15, 'HAS_3D_LOGO': 0,
             'SCORER OUTS': self.outs, 'SCORER BALLS': self.balls, 'SCORER STRIKES': self.strikes,
-            'SCORER INNING': self.inning, 'AWAY_TEAM_ID': 0, 'HOME_TEAM_ID': 1,
+            'SCORER INNING': self.inning, 'AWAY_TEAM_ID': 0, 'HOME_TEAM_ID': 1, 'SCORER INNING_CNT': self.inning,
+            'DD_MODE_TAB': 0, 'DD_SUBMODE_TAB': 0, 'ETEAM_ID': _num(a0), 'HAS_PRIMARY_LOGO': 1,
+            'SCOREBAR ACTIVE_TEAM': 1 if self.bottom else 0,
             'CURRENT_BATTER SEASON_STATS AVG': self.batter_avg,
         }
         if key in simple:
@@ -184,7 +186,7 @@ class Situation:
             return int(0.299 * r + 0.587 * g + 0.114 * b > 150)
         if key == 'HAS_CAP_LOGO':
             return 1
-        if key in ('UI CAP_TEAM_CLR', 'UI ACTUAL_TEAM_CLR'):   # a team's colour (its second colour with a 1 after it)
+        if key in ('UI CAP_TEAM_CLR', 'UI ACTUAL_TEAM_CLR', 'UI TEAM_CLR'):   # a team's colour (its second with a 1)
             r, g, b = self.team_color(a0) if key == 'UI CAP_TEAM_CLR' else self.club_color(a0)
             if len(args) > 1 and _num(args[1]):
                 r, g, b = (int(v * 0.55) for v in (r, g, b))
