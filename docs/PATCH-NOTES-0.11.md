@@ -6,6 +6,10 @@
   your own.
 - **League packs:** a mod can carry roster files and overlay moves as plain text, so a whole league can be
   shared without any game files in it.
+- **Jersey builder:** recolour a jersey, cap, helmet or pants, add pinstripes and your own logo, and see it on
+  the player before you save.
+- **Higher resolution textures:** bring a PNG back at 2x, 4x or 8x and it goes in at that size.
+- **Auto PCI Visual:** a new code mod that moves the PCI on screen onto the pitch.
 - **Stadiums:** click anything in the 3D view to see its texture and replace it on the spot.
 - **Rosters:** random names and random players, and a team can be saved into your mod as a shareable roster file.
 - General improvements and fixes across the app.

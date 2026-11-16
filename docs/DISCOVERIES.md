@@ -77,7 +77,9 @@ The game still carries its debug text, which is how the interesting code gets fo
 - **Air density** is worked out from each park's temperature and altitude. That's the Coors Field effect, and
   the Thin Air mod.
 - **The PCI** is compared with where the pitch crosses the plate right before contact. Auto PCI moves it onto
-  the ball at that moment.
+  the ball at that moment. The one you see is a separate thing: a spot the batting interface works out from the
+  stick every frame, in zone units (0 is the middle, 1 the edge: 0.75 ft across, half the zone's height up) and in
+  feet. Auto PCI Visual writes the pitch's spot there.
 - **Perfect-Perfect** is two flags set in the hit code.
 - **Bat breaks** and **pitcher fatigue** each come down to one number.
 - The game tells a human hitter from a CPU one with a single value, which is how a mod can affect only you.

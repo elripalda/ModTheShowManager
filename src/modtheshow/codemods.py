@@ -513,6 +513,14 @@ set  auto_pci_everyone MLB_MOD_AUTOPCI_EVERYONE 0
 site auto_pci_everyone main 35671c 1e203860 1e204003 bd000a63 1e203860
 site auto_pci_everyone main 356724 1e213841 1e204022 bd000e62 1e213841
 
+# The PCI you see is kept by the batting interface: a spot in the strike zone (x, y in zone units at +0x10, in feet at
+# +0x18) worked out from the stick every frame. Right after that, these put it where the pitch is going instead
+# (pitch +0x148 / +0x14c, the same numbers the swing compares against), so the PCI on screen sits on the ball.
+#: auto_pci_visual: New. The PCI on screen moves onto the pitch by itself, so you can see it. Turn it off if anything looks wrong.
+set  auto_pci_visual MLB_MOD_AUTOPCI_VISUAL 0
+site auto_pci_visual main 1530b4 1e204102 f94002e9 f940112a 3944914a 5100054a 531f7d4a 8b0a0d29 f9400d29 b981592a 8b0a0d29 f9400d29 f9400929 f9409929 f9400529 f9400529 f9406129 bd414930 bd414d31 1e2f1017 1e3f1018 1e377a10 1e386a10 1e377a31 1e386a31 f94002ca bd400952 1e2d1013 1f134a12 bd400d54 bd402555 1e2c1016 1e360ab5 1f155234 2d024670 2d035272 1e204102
+site auto_pci_visual main 153da4 f94002c8 f94002e9 f940112a 3944914a 5100054a 531f7d4a 8b0a0d29 f9400d29 b981592a 8b0a0d29 f9400d29 f9400929 f9409929 f9400529 f9400529 f9406129 bd414930 bd414d31 1e2f1017 1e3f1018 1e377a10 1e386a10 1e377a31 1e386a31 f94002ca bd400952 1e2d1013 1f134a12 bd400d54 bd402555 1e2c1016 1e360ab5 1f155234 2d024670 2d035272 f94002c8
+
 # The game marks a swing "perfect PCI" and "perfect timing" with two flags. This sets both for human hitters.
 #: perfect_perfect: Experimental. Every ball you put in play counts as Perfect-Perfect contact.
 set  perfect_perfect MLB_MOD_PERFECT 0

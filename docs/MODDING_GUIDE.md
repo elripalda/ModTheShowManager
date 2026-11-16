@@ -61,6 +61,9 @@ preview are rebuilt for you. A few things to know:
 
 - **Uniforms use alpha as a mask**, not transparency. The real colour is in RGB; alpha marks lettering and trim.
   Export gives you the colour PNG plus a `_mask.png`. Bring back an opaque PNG and the game's mask is kept.
+- **Higher resolution.** Bring back a PNG that is exactly 2x, 4x or 8x the original (a 2048x1024 jersey as
+  4096x2048, up to 8192 on a side) and it goes in at that size, laid out the way the game's own large textures
+  are. Any other size is fitted to the original.
 - **Bats use alpha as paint zones.** On `bat-color` style textures, alpha 17 is the handle, 51 the barrel and
   0 the logo area. The game paints each player's bat colours into the zones, so a recolour only shows where
   alpha is 0. Clear the alpha if you want your colour everywhere.
@@ -98,6 +101,15 @@ its samples are listed by name; tutorial lines show what is being said.
 **Scoreboards › Layout** shows a theme's overlays (the scorebug, the bottom ticker, transitions) on a 1080p
 screen. Drag the box or type X and Y, then save. The layout file (`NSW/UI/GAME/THEMEn.NSW`) goes into your mod
 with only those numbers changed. Scale is there too, but not every theme honours it yet.
+
+## Jersey builder
+
+**Uniforms › Builder** changes a uniform without an image editor. Pick a part (jersey, sleeves, undershirt, pants,
+socks, cap, helmet), click one of its colours to swap it everywhere on that part, add pinstripes, and put a PNG
+logo on it with the three sliders. **On the Player** shows every part you've touched on the mannequin before you
+save. **Save to My Mod** writes them as ordinary PNGs in your mod, so they can still be edited by hand.
+
+It works by colour: the most common colour is the fabric, and trim keeps its soft edges when it changes.
 
 ## Uniform schedule
 
@@ -200,6 +212,10 @@ Header 0x20 bytes: magic `TX12NSW\0`, then sizes. After it, one 0x140-byte entry
 | 0x120 | average colour |
 | 0x130 | flags; 0x134 payload offset |
 | 0x13C | pixel format (u16) |
+
+How the levels are split into chunks: each of the first two levels gets a chunk of its own when it is 64 KiB or
+more, and everything smaller shares the last one. A record with a slot above 0 that starts at level 0 is the small
+loading preview. Every texture in the game follows this, which is what lets a texture be made larger.
 
 Pixel formats: `0x16` BC7, `0x07`/`0x06` BC3, `0x0D` BC1, `0x13` BC4, `0x02` RGBA8, `0x05` BC1 (UI normals),
 `0x59` ASTC 6×6. Chunks are LZ4 block compressed and Tegra X1 block-linear swizzled (GOB 64 bytes × 8 rows,

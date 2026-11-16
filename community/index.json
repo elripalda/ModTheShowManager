@@ -26,11 +26,11 @@
       "id": "arcade-code-mods",
       "name": "Arcade Code Mods",
       "author": "Ripalda",
-      "version": "1.0",
+      "version": "1.1",
       "kinds": [
         "Code mod"
       ],
-      "description": "Auto PCI, Perfect-Perfect, moonshots, juiced ball, thin air and more. Tick them in Code Plugins.",
+      "description": "Auto PCI (now with the PCI moving on screen), Perfect-Perfect, moonshots, juiced ball, thin air and more. Tick them in Code Plugins.",
       "url": "https://raw.githubusercontent.com/elripalda/ModTheShowManager/main/community/mods/arcade-code-mods.zip"
     }
   ]

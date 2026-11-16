@@ -20,6 +20,7 @@ start the game. After that, ticking and unticking takes effect the next time the
 | --- | --- |
 | Auto PCI | Your PCI snaps onto the ball on every swing. You still have to time it. |
 | Auto PCI Everyone | The same for every hitter, CPU included. |
+| Auto PCI Visual | The PCI on screen moves onto the pitch by itself, so you can see it. New. |
 | Perfect Perfect | Every ball you put in play counts as perfect PCI and perfect timing. Experimental. |
 | Orbit Shots, God Power, Moonshot, Juiced Ball | Balls leave the bat 3x, 2x, 1.5x and 1.25x faster. |
 | Dead Ball | Balls leave the bat 20% slower. |

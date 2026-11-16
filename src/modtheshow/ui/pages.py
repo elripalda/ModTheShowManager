@@ -251,7 +251,7 @@ class CollectionPage(QWidget):
 
 class UniformsPage(CollectionPage):
     TITLE = 'Uniforms'
-    SUB = 'Pick a team and a uniform, then swap any part with your own PNG. Export a part first to get the exact template.'
+    SUB = 'Pick a team and a uniform, then swap any part with your own PNG, or open Builder for colours, pinstripes and a logo.'
     SEARCH = 'Find a team'
     MODE_HIDES_INSPECTOR = (2, 3, 4)
 
