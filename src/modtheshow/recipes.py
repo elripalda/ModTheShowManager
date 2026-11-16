@@ -117,6 +117,9 @@ def apply_layouts(game, mods, problems):
                         lay.move(node, float(e.get('x', node.x)), float(e.get('y', node.y)))
                     if 'scale' in e:
                         lay.scale(node, float(e['scale']))
+                    if e.get('pieces'):
+                        if not lay.restyle(asset, e['pieces']):
+                            raise ValueError(f'none of the pieces named for {e["asset"]} are in {rel}')
                     done[rel] = lay
                 except Exception as x:
                     problems.append(f'{m.name}: {os.path.basename(path)}: {x}')

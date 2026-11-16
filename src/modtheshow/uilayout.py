@@ -146,6 +146,53 @@ class Layout:
         struct.pack_into('<I', self.d, node.off + 0x38, name_hash(name))
         node.ref = name_hash(name)
 
+    def pieces(self, asset, table):
+        """{texture name: [nodes that draw it]} for one asset, in the order they first appear."""
+        out = {}
+        for n in asset.nodes():
+            name = table.get(n.ref)
+            if name:
+                out.setdefault(name, []).append(n)
+        return out
+
+    def recolor(self, node, rgb=None, alpha=None):
+        """Set a node's tint (r, g, b) and/or its opacity (0-255)."""
+        c = node.color
+        if rgb is not None:
+            c = (c & 0xFF000000) | (int(rgb[0]) & 255) << 16 | (int(rgb[1]) & 255) << 8 | (int(rgb[2]) & 255)
+        if alpha is not None:
+            c = (c & 0x00FFFFFF) | (max(0, min(255, int(alpha))) << 24)
+        struct.pack_into('<I', self.d, node.off + 8, c)
+        node.color = c
+
+    def resize(self, node, w, h):
+        struct.pack_into('<ff', self.d, node.off + 0x18, float(w), float(h))
+        node.w, node.h = float(w), float(h)
+
+    def restyle(self, asset, edits):
+        """Carry out piece edits on an asset. Each edit names a texture and may give color '#rrggbb', opacity 0-100,
+        dx / dy (pixels to shift every use of it), size (1.0 = as is) and use (another texture of the pack to draw
+        instead). Returns how many nodes changed."""
+        changed = 0
+        for e in edits:
+            h = name_hash(str(e['texture']))
+            for n in asset.nodes():
+                if n.ref != h:
+                    continue
+                if e.get('color'):
+                    v = int(str(e['color']).lstrip('#'), 16)
+                    self.recolor(n, rgb=((v >> 16) & 255, (v >> 8) & 255, v & 255))
+                if e.get('opacity') is not None:
+                    self.recolor(n, alpha=round(float(e['opacity']) * 2.55))
+                if e.get('dx') or e.get('dy'):
+                    self.move(n, n.x + float(e.get('dx', 0)), n.y + float(e.get('dy', 0)))
+                if e.get('size'):
+                    self.resize(n, n.w * float(e['size']), n.h * float(e['size']))
+                if e.get('use'):
+                    self.retexture(n, str(e['use']))
+                changed += 1
+        return changed
+
     def move(self, node, x, y):
         struct.pack_into('<ff', self.d, node.off + 0x0C, float(x), float(y))
         node.x, node.y = float(x), float(y)

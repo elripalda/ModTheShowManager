@@ -179,6 +179,29 @@ def test_name_hash():
     assert uilayout.name_hash('') == 0x80000000
 
 
+def test_layout_restyle():
+    import struct
+    from modtheshow import uilayout
+    # one asset with two nodes: a frame, and a piece that draws the texture "logo"
+    def node(size, typ, color, x, y, w, h, ref):
+        b = bytearray(0x58)
+        struct.pack_into('<IHHI5f', b, 0, size, typ, 0, color, x, y, 0, w, h)
+        struct.pack_into('<HHHH', b, 0x2A, 0x80, 0x80, 0x010F, 0x0184)
+        struct.pack_into('<I', b, 0x38, ref)
+        return bytes(b)
+    body = node(0xB0, 0x8003, 0xFFFFFFFF, 100, 200, 300, 80, 0x80000000) + \
+        node(0x58, 0x8101, 0xFFFFFFFF, 10, 5, 40, 20, uilayout.name_hash('logo'))
+    data = b'IFF0ASSH' + bytes(8) + b'VOIDASS0' + struct.pack('<II', 0x81234567, len(body)) + body
+    lay = uilayout.Layout(data)
+    a = lay.assets[0]
+    table = uilayout.Layout.texture_table(['logo', 'other'])
+    assert list(lay.pieces(a, table)) == ['logo']
+    assert lay.restyle(a, [{'texture': 'LOGO', 'color': '#ff8000', 'opacity': 50, 'dx': 3, 'size': 2, 'use': 'other'}]) == 1
+    n = uilayout.Layout(lay.bytes()).assets[0].nodes()[1]
+    assert (n.color, n.x, n.y, n.w, n.h) == (0x7FFF8000, 13, 5, 80, 40) and table[n.ref] == 'other'
+    assert lay.restyle(a, [{'texture': 'missing', 'opacity': 0}]) == 0
+
+
 if __name__ == '__main__':
     test_apply_disable_restore()
     test_restore_exe()
@@ -189,4 +212,5 @@ if __name__ == '__main__':
     test_roster_keys()
     test_uniform_builder()
     test_name_hash()
+    test_layout_restyle()
     print('ok')

@@ -4,8 +4,8 @@ import os
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout, QListView, QListWidget,
-                               QListWidgetItem, QMessageBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout, QListView,
+                               QListWidget, QListWidgetItem, QMessageBox, QVBoxLayout, QWidget)
 
 from .. import uilayout
 from . import theme
@@ -140,7 +140,7 @@ class Canvas(QWidget):
 
 class LayoutEditor(QWidget):
     """Edit where a theme's scorebug sits. One .NSW layout per scorebug theme."""
-    HINT = 'Drag the red box or type a position. The strip shows the pieces this overlay is made of. Save writes the layout into your mod.'
+    HINT = 'Drag the red box to place it. Pick a piece below to tint, fade, move, resize or repaint it. Save writes the layout into your mod.'
 
     def __init__(self, main):
         super().__init__()
@@ -196,13 +196,35 @@ class LayoutEditor(QWidget):
         self.strip.setToolTip('The textures this overlay is made of. Pick one to replace it.')
         self.strip.currentItemChanged.connect(self._strip_picked)
         lay.addWidget(self.strip)
+        # the chosen piece: tint, opacity, a nudge and a size, applied to every place the overlay draws it
+        tools = QHBoxLayout()
+        tools.setSpacing(8)
+        self.b_tint = button('Colour', on_click=self._tint)
+        self.p_op = self._spin(0, 100, 0)
+        self.p_op.setPrefix('Opacity  ')
+        self.p_op.setSuffix(' %')
+        self.p_dx = self._spin(-960, 960, 0)
+        self.p_dx.setPrefix('Move X  ')
+        self.p_dy = self._spin(-540, 540, 0)
+        self.p_dy.setPrefix('Move Y  ')
+        self.p_size = self._spin(25, 400, 0)
+        self.p_size.setPrefix('Size  ')
+        self.p_size.setSuffix(' %')
+        self.b_piece = button('Replace PNG', on_click=self._replace_piece)
+        self._tools = (self.b_tint, self.p_op, self.p_dx, self.p_dy, self.p_size, self.b_piece)
+        for w in self._tools:
+            w.setEnabled(False)
+            tools.addWidget(w, 1)
+        for sp in (self.p_op, self.p_dx, self.p_dy, self.p_size):
+            sp.valueChanged.connect(self._piece_edit)
+        self.tools_row = QWidget()
+        self.tools_row.setLayout(tools)
+        tools.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.tools_row)
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
         self.note = label(self.HINT, 'Sub', wrap=True)
         bottom.addWidget(self.note, 1)
-        self.b_piece = button('Replace This Piece', on_click=self._replace_piece)
-        self.b_piece.setEnabled(False)
-        bottom.addWidget(self.b_piece)
         self.b_reset = button('Back to Default', on_click=self.reset)
         self.b_save = button('Save to My Mod', True, self.save)
         bottom.addWidget(self.b_reset)
@@ -232,6 +254,7 @@ class LayoutEditor(QWidget):
             self.note.setText('This pack has no layout file.')
             self.strip.clear()
             self.strip.hide()
+            self.tools_row.hide()
             self.which.blockSignals(False)
             self.canvas.update()
             return
@@ -276,9 +299,13 @@ class LayoutEditor(QWidget):
         for w in (self.which, self.preset, self.sx, self.sy, self.sscale, self.b_reset, self.b_save):
             w.setEnabled(on)
 
-    def _asset_changed(self, *_):
+    def _asset_changed(self, *_, keep=False):
         if not self.layout or not self.which.currentText():
             return
+        if not keep:
+            self._chosen_tex = None
+            for w in self._tools:
+                w.setEnabled(False)
         self.asset = self.layout.find(self.which.currentText())
         self.node = self.asset.container() if self.asset else None
         if self.node is None:
@@ -305,18 +332,20 @@ class LayoutEditor(QWidget):
                 p = p.parent
             if inside and m.w > 1 and m.h > 1:
                 mx, my, _, _ = m.abs_rect()
-                if mx - cx < -4 or my - cy < -4 or mx - cx + m.w > n.w + 4 or my - cy + m.h > n.h + 4:
-                    continue
                 name = self._table.get(m.ref)
+                if not name and (mx - cx < -4 or my - cy < -4 or mx - cx + m.w > n.w + 4 or my - cy + m.h > n.h + 4):
+                    continue
                 if name and not m.color >> 24:
                     continue                      # fully transparent: a state that isn't showing
                 pieces.append((mx - cx, my - cy, m.w, m.h, m.color, self._pix(name, m.color) if name else None, name))
         pieces = pieces[:400]
-        self._fill_strip()
+        if not keep:
+            self._fill_strip()
+            self.canvas.chosen = -1
         self._piece_tex = [p[6] for p in pieces]
         self.canvas.pieces = [p[:6] for p in pieces]
-        self.canvas.chosen = -1
-        self._picked(-1)
+        if not keep:
+            self.note.setText(self.HINT)
         self.canvas.rect_ = (n.x, n.y, n.w, n.h)
         self.canvas.scale = self.sscale.value()
         self.canvas.label = self.asset.name
@@ -376,20 +405,74 @@ class LayoutEditor(QWidget):
             self.strip.addItem(it)
         self.strip.blockSignals(False)
         self.strip.setVisible(bool(seen))
+        self.tools_row.setVisible(bool(seen))
+
+    def _piece_nodes(self, name):
+        """[(node, the same node in the untouched layout)] for every place the overlay draws this texture."""
+        if not (self.asset and name):
+            return []
+        h = uilayout.name_hash(name)
+        orig = next((a for a in self._orig.assets if a.hash == self.asset.hash), None)
+        mine, theirs = self.asset.nodes(), orig.nodes() if orig else []
+        if len(mine) != len(theirs):
+            theirs = mine
+        return [(n, o) for n, o in zip(mine, theirs) if o.ref == h or n.ref == h]
 
     def _strip_picked(self, item, _old=None):
         name = item.data(Qt.UserRole) if item else None
         self._chosen_tex = name
+        pairs = self._piece_nodes(name)
+        for w in self._tools:
+            w.setEnabled(bool(pairs))
         self.b_piece.setEnabled(bool(name))
-        if name:
-            self.note.setText(f'“{name}” is one of this overlay’s pieces. Replace it here, or find it under Textures.')
+        if not pairs:
+            if name:
+                self.note.setText(f'“{name}” is a second layer of a piece. It can be repainted with Replace PNG.')
+            return
+        n, o = pairs[0]
+        for sp, v in ((self.p_op, round((n.color >> 24) / 2.55)), (self.p_dx, n.x - o.x), (self.p_dy, n.y - o.y),
+                      (self.p_size, round(100 * n.w / o.w) if o.w else 100)):
+            sp.blockSignals(True)
+            sp.setValue(v)
+            sp.blockSignals(False)
+        uses = 'once' if len(pairs) == 1 else f'{len(pairs)} times'
+        self.note.setText(f'“{name}” is drawn {uses} in this overlay. Changes here apply to every one.')
+
+    def _piece_edit(self, *_):
+        for n, o in self._piece_nodes(getattr(self, '_chosen_tex', None)):
+            self.layout.recolor(n, alpha=round(self.p_op.value() * 2.55))
+            self.layout.move(n, o.x + self.p_dx.value(), o.y + self.p_dy.value())
+            k = self.p_size.value() / 100
+            self.layout.resize(n, o.w * k, o.h * k)
+        self._refresh_canvas()
+
+    def _tint(self):
+        pairs = self._piece_nodes(getattr(self, '_chosen_tex', None))
+        if not pairs:
+            return
+        c0 = pairs[0][0].color
+        c = QColorDialog.getColor(QColor((c0 >> 16) & 255, (c0 >> 8) & 255, c0 & 255), self, 'Tint')
+        if c.isValid():
+            for n, _ in pairs:
+                self.layout.recolor(n, rgb=(c.red(), c.green(), c.blue()))
+            self._refresh_canvas()
+
+    def _refresh_canvas(self):
+        row = self.strip.currentRow()
+        self._asset_changed(keep=True)
+        if row >= 0:
+            self.strip.blockSignals(True)
+            self.strip.setCurrentRow(row)
+            self.strip.blockSignals(False)
 
     def _picked(self, i):
+        """A piece clicked on the screen: choose it in the strip."""
         name = self._piece_tex[i] if 0 <= i < len(self._piece_tex) else None
-        self._chosen_tex = name
-        self.b_piece.setEnabled(bool(name))
         if name:
-            self.note.setText(f'This piece is the texture “{name}”. Replace it here, or find it under Textures.')
+            for k in range(self.strip.count()):
+                if self.strip.item(k).data(Qt.UserRole) == name:
+                    self.strip.setCurrentRow(k)
+                    break
         elif self.layout and not self.strip.currentItem():
             self.note.setText(self.HINT)
 
@@ -457,6 +540,20 @@ class LayoutEditor(QWidget):
     def reset(self):
         self.sscale.setValue(1.0)
         self._preset(0)
+        if self.layout and self.asset:               # and every piece back to how the game has it
+            orig = next((a for a in self._orig.assets if a.hash == self.asset.hash), None)
+            mine, theirs = self.asset.nodes(), orig.nodes() if orig else []
+            if len(mine) == len(theirs):
+                cont = self.node
+                for n, o in zip(mine, theirs):
+                    if n is cont:
+                        continue
+                    if (n.color, n.x, n.y, n.w, n.h, n.ref) != (o.color, o.x, o.y, o.w, o.h, o.ref):
+                        self.layout.recolor(n, rgb=((o.color >> 16) & 255, (o.color >> 8) & 255, o.color & 255),
+                                            alpha=o.color >> 24)
+                        self.layout.move(n, o.x, o.y)
+                        self.layout.resize(n, o.w, o.h)
+            self._asset_changed()
 
     def save(self):
         if not self.layout:
