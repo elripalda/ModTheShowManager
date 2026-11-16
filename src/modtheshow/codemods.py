@@ -36,8 +36,9 @@ def dials(text):
 
 
 def dial_word(k, reg):
-    """The instruction a dial is written as for the generator: fmov s<reg>, #-(1 + k/16). No real patch loads such
-    a number, so the manager can find it in the translated code and put the live value in its place."""
+    """The instruction a dial is written as for the generator: fmov s<reg>, #-(1 + k/16), and written twice in a
+    row. A real patch can load such a number, but never the same one into the same register twice running, so the
+    pair is what the manager looks for in the translated code to put the live value in its place."""
     return 0x1E201000 | ((0xF0 | k) << 13) | reg
 
 
@@ -47,7 +48,7 @@ def dial_bits(k):
 
 
 def lower(text):
-    """A table as the recomp's generator reads it: every $dial:sN word becomes its placeholder instruction."""
+    """A table as the recomp's generator reads it: every $dial:sN word becomes its placeholder instruction, twice."""
     index = {name: i + 1 for i, (name, *_rest) in enumerate(dials(text))}
     out = []
     for raw in text.splitlines():
@@ -56,8 +57,8 @@ def lower(text):
             words = []
             for w in f:
                 m = DIAL_WORD.match(w)
-                words.append(f'{dial_word(index[m.group(1)], int(m.group(2))):08x}' if m and m.group(1) in index
-                             else w)
+                words += [f'{dial_word(index[m.group(1)], int(m.group(2))):08x}'] * 2 if m and m.group(1) in index \
+                    else [w]
             raw = ' '.join(words)
         out.append(raw)
     return '\n'.join(out) + '\n'
@@ -206,11 +207,13 @@ def collect(mods):
         if twice or have_dials:
             l = [x for x in drop_sets('\n'.join(l), twice).splitlines()
                  if not (DIAL.match(x) and DIAL.match(x).group(1) in have_dials)]
+        lines.append(f'# {source}: {file}')
         for name, env, default in s:
             if name not in seen:
                 seen[name] = source
                 sets.append((name, env, default, source))
-        lines.append(f'# {source}: {file}')
+                if DESCRIPTIONS.get(name):
+                    lines.append(f'#: {name}: {DESCRIPTIONS[name]}')
         lines += l
     return sets, '\n'.join(lines) + '\n', bad
 
@@ -259,7 +262,7 @@ def fitting(game_root, text):
     return drop_sets(text, set(bad)), bad
 
 
-BUILD_REV = 4      # goes up when the way the manager builds changes, so an older build is offered a rebuild
+BUILD_REV = 5      # goes up when the way the manager builds changes, so an older build is offered a rebuild
 SWITCH_FILE = 'mts-code.cfg'
 SWITCH_LOG = 'mts-code.log'
 
@@ -365,14 +368,14 @@ def wire_chunk(text):
                             'extern volatile uint32_t mts_ran[];', 1)
 
     def live(m):
-        k = (int(m.group(1), 16) - 0xBF800000) // 0x80000
-        return f'= (uint64_t)mts_dial[{k}];' if 1 <= k <= MAX_DIALS else m.group(0)
+        k = (int(m.group(2), 16) - 0xBF800000) // 0x80000
+        return f'{m.group(1)} = (uint64_t)mts_dial[{k}];' if 1 <= k <= MAX_DIALS else m.group(0)
 
     out = []
     for line in text.split('\n'):
         if 'if (mts_patch_on[' in line:
             line = re.sub(r'if \(mts_patch_on\[(\d+)\]\) \{(?! mts_ran)', r'if (mts_patch_on[\1]) { mts_ran[\1]++;', line)
-            line = re.sub(r'= 0x(bf[89a-f][08]0000)ull;', live, line, flags=re.I)
+            line = re.sub(r'((?:c->)?v\[?\d+\]?) = 0x(bf[89a-f][08]0000)ull; \1 = 0x\2ull;', live, line, flags=re.I)
         out.append(line)
     return '\n'.join(out)
 
@@ -383,6 +386,8 @@ def wire_switches(gen, patch_text, menu=MENU_FULL):
     if menu is True:
         menu = MENU_FULL
     sets = table_sets(patch_text)
+    DESCRIPTIONS.update({m.group(1): m.group(2).strip() for m in
+                         re.finditer(r'^#:\s*(\w+)\s*[:=-]\s*(.+)$', patch_text, re.M)})
     main = os.path.join(gen, 'main')
     src = os.path.join(main, 'mts_switches.c')
     if not sets:

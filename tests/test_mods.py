@@ -123,12 +123,15 @@ def test_dials():
     assert codemods.set_dials(table) == {'boost': ['power', 'air']} and codemods.dial_uses(table) == 2
     assert codemods.menu_rows(table) == [(0, 1, 1), (0, 2, 0), (1, 0, 1)]
     low = codemods.lower(table)
-    assert 'site boost main 10 1e210800 1e210800 1e3e3001 1e210800 1e3e5002' in low and '$' not in low
+    assert 'site boost main 10 1e210800 1e210800 1e3e3001 1e3e3001 1e210800 1e3e5002 1e3e5002' in low and '$' not in low
     # the generator writes the placeholder as a float's bits; the manager swaps in the live number and a counter
+    # (a number a real patch loads once, like the -1.5 here, is left alone)
     chunk = ('extern uint8_t rt_patch_on[];\nvoid f(Cpu *c) {\n    if (rt_patch_on[0]) { c->v[1] = 0xbf880000ull; '
-             'c->v[2] = 0xbf900000ull; } else { c->v[1] = 0xbf880000ull; }\n}\n')
+             'c->v[1] = 0xbf880000ull; c->v[2] = 0xbf900000ull; c->v[2] = 0xbf900000ull; c->v[24] = 0xbfc00000ull; } '
+             'else { c->v[1] = 0xbf880000ull; }\n}\n')
     wired = codemods.wire_chunk(chunk)
-    assert 'if (mts_patch_on[0]) { mts_ran[0]++; c->v[1] = (uint64_t)mts_dial[1]; c->v[2] = (uint64_t)mts_dial[2]; }' in wired
+    assert ('if (mts_patch_on[0]) { mts_ran[0]++; c->v[1] = (uint64_t)mts_dial[1]; c->v[2] = (uint64_t)mts_dial[2]; '
+            'c->v[24] = 0xbfc00000ull; }') in wired
     assert 'extern uint32_t mts_dial[];' in wired and codemods.wire_chunk(wired) == wired
     # when the live dials cannot be connected they are built in as fixed numbers
     frozen = codemods.freeze(table, {'power': 3})
@@ -137,7 +140,7 @@ def test_dials():
     src = codemods.switch_source(codemods.table_sets(table), codemods.MENU_FULL, codemods.dials(table),
                                  codemods.menu_rows(table))
     assert '#define MTS_DIALS 2' in src and '{"power", "Power x", 1.5f, 0.5f, 4.0f, 0.25f}' in src
-    assert 'input_menu(on)' in src and '#define MTS_SEAMS 1' in src
+    assert 'input_block(on)' in src and '#define MTS_SEAMS 1' in src
     plain = codemods.switch_source(codemods.table_sets(table), codemods.MENU_PLAIN, codemods.dials(table))
     assert '#define MTS_SEAMS 0' in plain and 'VK_F4' in plain
     assert 'VK_F4' not in codemods.switch_source(codemods.table_sets(table), codemods.MENU_NONE)

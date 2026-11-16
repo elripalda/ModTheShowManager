@@ -13,8 +13,8 @@ from .widgets import Toggle
 from .workers import Job, start
 
 KEYS = ('F4 opens the list in the game. Up and Down move, Enter switches a mod on or off, Left and Right turn a '
-        'dial. With a controller: the D-pad moves and turns, any face button switches, Options closes. Changes take '
-        'effect at once and are remembered.')
+        'dial. Changes take effect at once and are remembered. The game ignores the controller while the list is '
+        'open, so close it with F4 before the next pitch.')
 
 
 class Row(QWidget):

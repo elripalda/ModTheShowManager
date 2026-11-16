@@ -25,12 +25,12 @@ comes off the bat; Air's is how much air it flies through.
 
 **F4** opens the same list over the game.
 
-| Key | Controller | What it does |
-| --- | --- | --- |
-| F4 | Options closes | Open and close the list |
-| Up, Down | D-pad | Move |
-| Enter | Any face button | Switch the mod on or off |
-| Left, Right | D-pad | Turn its dial (on a mod without one: off and on) |
+| Key | What it does |
+| --- | --- |
+| F4 | Open and close the list |
+| Up, Down | Move |
+| Enter | Switch the mod on or off |
+| Left, Right | Turn its dial (on a mod without one: off and on) |
 
 Changes take effect at once and are remembered. While the list is open the game ignores the controller, the same
 as with its own F1 menu. **F2** and **F3** still work with the list closed: F2 steps through the mods, F3 switches
@@ -175,6 +175,33 @@ Hit types, in the game's order: 0 MISSED_EARLY, 1 MISSED_INSIDE, 2 MISSED_BELOW,
 Not found yet: runner speed (the top speed readout is at `2e85b0`, the code that uses it isn't traced), fielder
 reactions, the strike zone, the pitch speed shown on screen, Road to the Show tokens (the names are there:
 `AVAILABLE_TOKENS`, `tokens_remaining`, `num_tokens_earned`; the sum behind them isn't traced).
+
+## From an idea to a code mod
+
+How Power Bunts was made, as a pattern to follow. You need a disassembler that reads ARM64 (Ghidra is free) with
+`game/exefs/main` loaded in it.
+
+1. **Find the words.** The game keeps its debug text, so search the strings for what you're after. "BUNT" turns
+   up in a list of hit types (`MISSED_EARLY`, `TIP_BACKSTOP`, ... `BUNT`), and BUNT is number 18 in it.
+2. **Find the code that uses them.** Look for the code that writes 18 into a hit. One small function does
+   (`16767d0`): it takes a direction and a power, caps the power at 130 mph and stores it.
+3. **Pick the instruction.** The store is at `1676838`: `str s1, [x19, #0x48]`, word `bd004a61`. Multiplying
+   `s1` just before it makes every bunt harder.
+4. **Check what you may use.** The patch needs a spare register for the multiplier. `s2` was only holding a zero
+   at that point and is written again before it is next read, so it is free.
+5. **Write it.**
+
+   ```
+   #dial power_bunts 4 1 8 0.5 Bunt power x
+   set  power_bunts MLB_MOD_POWERBUNTS 0
+   site power_bunts main 1676838 bd004a61 $power_bunts:s2 1e220821 bd004a61
+   ```
+
+   `$power_bunts:s2` loads the dial into `s2`, `1e220821` is `fmul s1, s1, s2`, and the original store comes last.
+6. **Prove it.** Rebuild, bunt, and read `logs\mlb.log`: `Hit Type: BUNT` followed by
+   `AutoHit::m_fPowerMPH`. Code Mods shows the same thing under Last game, and counts how often your code ran.
+
+A patch that only swaps a number needs no dial: give the new instruction word in place of the old one.
 
 ## Finding more
 

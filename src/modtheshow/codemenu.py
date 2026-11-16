@@ -2,8 +2,8 @@
 in-game menu. codemods.switch_source fills the {PLACEHOLDERS} in.
 
 Three strengths, tried in this order by codemods.rebuild until one builds:
-  2  the menu, joined to the game's own input: the game ignores the pad and keys while the panel is open (as it does for
-     its own F1 menu), and the pad moves through the panel
+  2  the menu, joined to the game: the game ignores the pad and keys while the panel is open, and the panel stands
+     down while the game's own F1 menu is up
   1  the menu on its own: keyboard only, the game is not told
   0  no menu and no keys: the switches are read when the game starts and that is all
 """
@@ -84,11 +84,10 @@ MENU = r"""
    F2 and F3 also work with the panel closed, the way they always did: a line shows what they did.
    Every change takes effect at once and is saved for the next start. */
 #if MTS_SEAMS
-/* the recomp runtime's own seams (runtime/gfx/input.h, input_win.h, ui/menu.h) */
+/* the recomp runtime's own seams (runtime/gfx/input.h, input_win.h, ui/menu.h), all three in its library */
 extern HWND gfx_window_handle(void);
 extern int menu_is_open(void);                 /* the game's F1 menu */
-extern void input_menu(int open);              /* 1: the game gets no input, as while its own menu is open */
-extern int input_pad_read(uint64_t *buttons, int32_t *lx, int32_t *ly);
+extern void input_block(int on);               /* 1: the game gets no input; 0: again, once everything is let go */
 #endif
 
 #define MTS_SHOWN 12
@@ -263,7 +262,7 @@ static void mts_hide(void) {
 static void mts_block(int on) {                       /* the game ignores its pad and keys while the panel is open */
 #if MTS_SEAMS
     if (on != mts_blocked)
-        input_menu(on);
+        input_block(on);
 #endif
     mts_blocked = on;
 }
@@ -300,8 +299,7 @@ static DWORD WINAPI mts_keys(LPVOID unused) {
     for (;;) {
         MSG msg;
         DWORD pid = 0;
-        int hit[K_COUNT], any = 0, pad_close = 0;
-        uint64_t pad = 0;
+        int hit[K_COUNT], any = 0;
         while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessageA(&msg);
@@ -338,24 +336,8 @@ static DWORD WINAPI mts_keys(LPVOID unused) {
             continue;
         }
 #endif
-#if MTS_SEAMS
-        if (mts_open) {                               /* the pad moves through the open panel too */
-            int32_t lx = 0, ly = 0;
-            pad = 0;
-            if (input_pad_read(&pad, &lx, &ly)) {
-                pad |= (uint64_t)(ly > 20000) << 13 | (uint64_t)(ly < -20000) << 15 |
-                       (uint64_t)(lx < -20000) << 12 | (uint64_t)(lx > 20000) << 14;
-                pad_close = (pad >> 10 & 3) != 0;     /* Plus or Minus (Options, Share) */
-            } else {
-                pad = 0;
-            }
-        }
-#endif
         for (i = 0; i < K_COUNT; i++) {
             int down = (GetAsyncKeyState(vk[i]) & 0x8000) != 0;
-            if (mts_open)
-                down |= (i == K_UP && (pad >> 13 & 1)) || (i == K_DOWN && (pad >> 15 & 1)) || (i == K_LEFT && (pad >> 12 & 1)) ||
-                        (i == K_RIGHT && (pad >> 14 & 1)) || (i == K_ENTER && (pad & 15));
             held[i] = down ? held[i] + 1 : 0;
             hit[i] = (down && !was[i]) || (i >= K_UP && i <= K_RIGHT && held[i] > 14 && !(held[i] % 3));   /* held: repeats */
             was[i] = down;
@@ -363,10 +345,6 @@ static DWORD WINAPI mts_keys(LPVOID unused) {
         }
         if (mts_open && mts_panel && !IsWindowVisible(mts_panel))
             mts_show();                               /* back from another program */
-        if (pad_close && mts_open) {
-            hit[K_MENU] = 1;
-            any = 1;
-        }
         if (!any) {
             if (!mts_open && mts_toast && !--mts_toast)
                 mts_hide();
