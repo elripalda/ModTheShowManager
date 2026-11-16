@@ -709,12 +709,58 @@ def _night_strip():
     return {'name': 'MTS_NightStrip', 'size': [W, H + 28], 'x': (1920 - W) // 2, 'y': 44, 'pieces': p}
 
 
+def _matchup_deck():
+    """Two rows: the game on top, and under it who is pitching to whom, with the pitch count, the last pitch's
+    speed and the batter's line. Each club's half of the top row takes its colour."""
+    W, H, R = 820, 50, 30
+    dim, gold = '#c9d1dc', '#ffd24a'
+    half = 270
+    p = [{'name': 'Top row', 'box': [0, 0, W, H], 'color': '#0d1117', 'opacity': 92},
+         {'name': 'Away colour', 'team': 'away', 'at': [0, 0, half, H], 'opacity': 88},
+         {'name': 'Home colour', 'team': 'home', 'at': [W - half, 0, half, H], 'opacity': 88},
+         {'name': 'Away shade', 'box': [half - 78, 0, 78, H], 'color': '#000000', 'opacity': 34},
+         {'name': 'Home shade', 'box': [W - half, 0, 78, H], 'color': '#000000', 'opacity': 34},
+         {'name': 'Away logo', 'logo': 'away', 'kind': 2, 'at': [8, 4, 42, 42]},
+         {'name': 'Away club', 'text': '^d0^', 'data': ['AWAY_TEAM TEAM_PROF SHORT_NAME'], 'at': [58, 6, 110, 38],
+          'size': 28, 'align': 'left'},
+         {'name': 'Away score', 'text': '^d0^', 'data': ['SCORER AWAY_SCORE'], 'at': [half - 78, 2, 78, 46],
+          'size': 34, 'font': 37},
+         {'name': 'Home score', 'text': '^d0^', 'data': ['SCORER HOME_SCORE'], 'at': [W - half, 2, 78, 46],
+          'size': 34, 'font': 37},
+         {'name': 'Home club', 'text': '^d0^', 'data': ['HOME_TEAM TEAM_PROF SHORT_NAME'],
+          'at': [W - 168, 6, 110, 38], 'size': 28, 'align': 'right'},
+         {'name': 'Home logo', 'logo': 'home', 'kind': 2, 'at': [W - 50, 4, 42, 42]},
+         *half_inning(half + 14, 3, drop=32, size=12, on=gold),
+         {'name': 'Inning', 'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [half + 6, 12, 28, 26],
+          'size': 20},
+         *diamond(half + 46, 7, 20, on=gold),
+         *count(half + 108, 2, size=26),
+         *out_dots(half + 124, 36, 9, gap=6, on=gold),
+         {'name': 'Outs word', 'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [half + 190, 12, 84, 26], 'size': 18,
+          'color': dim},
+         {'name': 'Bottom row', 'box': [0, H, W, R], 'color': '#06080b', 'opacity': 94},
+         {'name': 'Rule', 'box': [0, H, W, 2], 'color': gold},
+         {'name': 'P', 'text': 'P', 'at': [10, H + 4, 20, 24], 'size': 16, 'color': gold, 'align': 'left'},
+         {'name': 'Pitcher', 'text': '^d0^', 'data': ['PLAYER_UI LAST_NAME [ CURRENT_PITCHER ]'],
+          'at': [32, H + 4, 190, 24], 'size': 18, 'align': 'left'},
+         {'name': 'Pitch count', 'text': 'P ^d0^', 'data': ['PITCH_BAT_STATS PITCH_COUNT'],
+          'at': [224, H + 4, 70, 24], 'size': 16, 'color': dim, 'align': 'left'},
+         {'name': 'Speed', 'text': '^d0^ MPH', 'data': ['SCOREBAR SPEED'], 'at': [W // 2 - 60, H + 4, 120, 24],
+          'size': 17, 'color': gold},
+         {'name': 'Batter line', 'text': '^d0^', 'data': ['CURRENT_BATTER SEASON_STATS AVG'],
+          'at': [W - 312, H + 4, 70, 24], 'size': 16, 'color': dim, 'align': 'right'},
+         {'name': 'Batter', 'text': '^d0^', 'data': ['NAME [ LAST_NAME ] CURRENT_BATTER PROFILE'],
+          'at': [W - 238, H + 4, 190, 24], 'size': 18, 'align': 'right'},
+         {'name': 'AB', 'text': 'AB', 'at': [W - 34, H + 4, 26, 24], 'size': 16, 'color': gold, 'align': 'right'}]
+    return {'name': 'MTS_Matchup', 'size': [W, H + R], 'x': (1920 - W) // 2, 'y': 1080 - 66 - H - R, 'pieces': p}
+
+
 LINE_SCORE = _line_score()
 TEAM_TILES = _team_tiles()
 GLASS_TILES = _glass_tiles()
 DESIGNS = {'classic': ('Classic Line', CLASSIC), 'linescore': ('Line Score', LINE_SCORE),
            'tiles': ('Team Tiles', TEAM_TILES), 'glasstiles': ('Glass Tiles', GLASS_TILES),
-           'strip': ('Night Strip', _night_strip())}
+           'strip': ('Night Strip', _night_strip()), 'matchup': ('Matchup Deck', _matchup_deck())}
 
 
 def _design_sample(game, lib, name, description, slug, design):

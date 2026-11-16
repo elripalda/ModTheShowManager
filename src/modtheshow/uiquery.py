@@ -106,7 +106,7 @@ class Situation:
         self.balls, self.strikes, self.outs = 0, 0, 0
         self.first = self.second = self.third = False
         self.batter, self.batter_first, self.batter_avg, self.batter_spot = 'SPRINGER', 'GEORGE', '.309', 1
-        self.pitcher, self.pitcher_first, self.pitch_count = 'GALLEN', 'ZAC', 0
+        self.pitcher, self.pitcher_first, self.pitch_count = 'GALLEN', 'ZAC', 42
         self.speed, self.pitch = 0, 'FB'
         self.away_color, self.home_color = (19, 74, 142), (20, 20, 20)       # the wash behind each team's row
         self.away_logo = self.home_logo = None                              # PIL images, when you have them
@@ -145,15 +145,18 @@ class Situation:
             'SCOREBAR OUT_TAB': self.outs, 'IG OUTS': self.outs, 'IG BALLS': self.balls, 'IG STRIKES': self.strikes,
             'SCOREBAR 1ST_BASE_TAB': int(self.first), 'SCOREBAR 2ND_BASE_TAB': int(self.second),
             'SCOREBAR 3RD_BASE_TAB': int(self.third), 'IG IS_BOTTOM': int(self.bottom), 'IG INNING': self.inning,
-            'SCOREBAR SPEED': self.speed, 'SCOREBAR SPEED_TAB': int(bool(self.speed)),
+            'SCOREBAR SPEED': self.speed or 96, 'SCOREBAR SPEED_TAB': int(bool(self.speed)),
             'SCOREBAR CALLOUT_TYPE': self.pitch, 'PITCH_BAT_STATS PITCH_COUNT': self.pitch_count,
             'SCOREBAR BATTER_LINEUP_INDEX': self.batter_spot, 'SCOREBAR BATTER_STATS': self.batter_avg,
             'SCOREBAR BATTER_BAR_INFO': self.batter_avg, 'IS_COLLEGE_GAME': 0, 'POSTSEASON_TAB': 0,
-            'PLAYER_UI LAST_NAME': self.pitcher if a0 == 'CURRENT_PITCHER' else self.batter,
+            'PLAYER_UI LAST_NAME': (self.pitcher if a0 == 'CURRENT_PITCHER' else 'GUERRERO JR.' if a0 == 'ON_DECK'
+                                    else self.batter),
             'PLAYER_UI FIRST_NAME': self.pitcher_first if a0 == 'CURRENT_PITCHER' else self.batter_first,
             'PLAYER_UI FULL_NAME': (f'{self.pitcher_first} {self.pitcher}' if a0 == 'CURRENT_PITCHER'
                                     else f'{self.batter_first} {self.batter}'),
             'CURRENT_PITCHER': 'CURRENT_PITCHER', 'CURRENT_BATTER': 'CURRENT_BATTER', 'ON_DECK': 'ON_DECK',
+            'FIRST_NAME': 'FIRST_NAME', 'LAST_NAME': 'LAST_NAME', 'FULL_NAME': 'FULL_NAME',
+            'FIRST_INITIAL_LAST_NAME': 'FIRST_INITIAL_LAST_NAME',
             'WIN_EXPECTANCY': 50, 'IS_VALID_TEAM': 1, 'IS_MLB_TEAM_TAB': 1,
             'SCORER AWAY_SCORE': self.away_score, 'SCORER HOME_SCORE': self.home_score,
             'AWAY_TEAM TEAM_PROF SHORT_NAME': self.away, 'HOME_TEAM TEAM_PROF SHORT_NAME': self.home,
@@ -168,7 +171,13 @@ class Situation:
             'SCORER INNING': self.inning, 'AWAY_TEAM_ID': 0, 'HOME_TEAM_ID': 1, 'SCORER INNING_CNT': self.inning,
             'DD_MODE_TAB': 0, 'DD_SUBMODE_TAB': 0, 'ETEAM_ID': _num(a0), 'HAS_PRIMARY_LOGO': 1,
             'SCOREBAR ACTIVE_TEAM': 1 if self.bottom else 0,
-            'CURRENT_BATTER SEASON_STATS AVG': self.batter_avg,
+            'CURRENT_BATTER SEASON_STATS AVG': self.batter_avg, 'CURRENT_BATTER SEASON_STATS HR': 24,
+            'CURRENT_BATTER SEASON_STATS RBI': 71, 'CURRENT_BATTER GAME_STATS HITS': 1,
+            'CURRENT_BATTER GAME_STATS AT_BATS': 3, 'CURRENT_BATTER GAME_STATS RBI': 1,
+            'JERSEY_STR CURRENT_BATTER PROFILE': '4', 'PITCH_BAT_STATS PITCH_COUNT_BALLS': self.pitch_count // 3,
+            'PITCH_BAT_STATS PITCH_COUNT_STRIKES': self.pitch_count - self.pitch_count // 3,
+            'CURRENT_BATTER PROFILE': 'CURRENT_BATTER', 'CURRENT_PITCHER PROFILE': 'CURRENT_PITCHER',
+            'POSITION_STR': 'SP' if a0 == 'CURRENT_PITCHER' else 'CF',
         }
         if key in simple:
             return simple[key]
@@ -211,6 +220,8 @@ class Situation:
             full = a0 == 'FULL_NAME'
             if full:
                 return f'{getattr(self, who + "_first")} {getattr(self, who)}'
+            if a0 == 'FIRST_INITIAL_LAST_NAME':
+                return f'{getattr(self, who + "_first")[:1]}. {getattr(self, who)}'
             return getattr(self, who + ('_first' if first else ''))
         return None
 

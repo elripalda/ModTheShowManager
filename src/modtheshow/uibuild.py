@@ -69,6 +69,65 @@ DATA = ['AWAY_TEAM TEAM_PROF SHORT_NAME', 'HOME_TEAM TEAM_PROF SHORT_NAME', 'SCO
         'CURRENT_BATTER SEASON_STATS RBI', 'PITCH_BAT_STATS PITCH_COUNT', 'SCOREBAR SPEED', 'SCORER PITCH_CLOCK',
         'BoxScore HITS [ 0 ]', 'BoxScore HITS [ 1 ]', 'BoxScore ERRORS [ 0 ]', 'BoxScore ERRORS [ 1 ]',
         'BoxScore INNING_VAL [ 0 , 0 ]', 'BoxScore INNING_VAL [ 1 , 0 ]']
+# the same data by plain names, for a picker: (group, [(what it is, the game query)])
+CATALOG = [
+    ('The game', [('Away club', 'AWAY_TEAM TEAM_PROF SHORT_NAME'), ('Home club', 'HOME_TEAM TEAM_PROF SHORT_NAME'),
+                  ('Away score', 'SCORER AWAY_SCORE'), ('Home score', 'SCORER HOME_SCORE'),
+                  ('Inning number', 'SCOREBAR INNING_STR [ 0 ]'), ('Inning as 1st, 2nd…', 'SCOREBAR INNING_STR [ 1 ]'),
+                  ('Balls', 'IG BALLS'), ('Strikes', 'IG STRIKES'), ('Outs', 'SCORER OUTS'),
+                  ('Pitch clock', 'SCORER PITCH_CLOCK')]),
+    ('Pitcher', [('Pitcher last name', 'PLAYER_UI LAST_NAME [ CURRENT_PITCHER ]'),
+                 ('Pitcher first name', 'PLAYER_UI FIRST_NAME [ CURRENT_PITCHER ]'),
+                 ('Pitcher full name', 'PLAYER_UI FULL_NAME [ CURRENT_PITCHER ]'),
+                 ('Pitcher as Z. Gallen', 'NAME [ FIRST_INITIAL_LAST_NAME ] CURRENT_PITCHER PROFILE'),
+                 ('Pitch speed (mph)', 'SCOREBAR SPEED'), ('Pitch count', 'PITCH_BAT_STATS PITCH_COUNT'),
+                 ('Balls thrown', 'PITCH_BAT_STATS PITCH_COUNT_BALLS'),
+                 ('Strikes thrown', 'PITCH_BAT_STATS PITCH_COUNT_STRIKES')]),
+    ('Batter', [('Batter last name', 'NAME [ LAST_NAME ] CURRENT_BATTER PROFILE'),
+                ('Batter first name', 'NAME [ FIRST_NAME ] CURRENT_BATTER PROFILE'),
+                ('Batter full name', 'NAME [ FULL_NAME ] CURRENT_BATTER PROFILE'),
+                ('Batter as G. Springer', 'NAME [ FIRST_INITIAL_LAST_NAME ] CURRENT_BATTER PROFILE'),
+                ('Batter number', 'JERSEY_STR CURRENT_BATTER PROFILE'),
+                ('Batter position', 'POSITION_STR [ CURRENT_BATTER PROFILE ]'),
+                ('Batting average', 'CURRENT_BATTER SEASON_STATS AVG'), ('Home runs', 'CURRENT_BATTER SEASON_STATS HR'),
+                ('Runs batted in', 'CURRENT_BATTER SEASON_STATS RBI'), ('Hits today', 'CURRENT_BATTER GAME_STATS HITS'),
+                ('At-bats today', 'CURRENT_BATTER GAME_STATS AT_BATS'),
+                ('On deck, last name', 'PLAYER_UI LAST_NAME [ ON_DECK ]')]),
+    ('Line score', [('Away hits', 'BoxScore HITS [ 0 ]'), ('Home hits', 'BoxScore HITS [ 1 ]'),
+                    ('Away errors', 'BoxScore ERRORS [ 0 ]'), ('Home errors', 'BoxScore ERRORS [ 1 ]'),
+                    ('Away runs, 1st inning', 'BoxScore INNING_VAL [ 0 , 0 ]'),
+                    ('Home runs, 1st inning', 'BoxScore INNING_VAL [ 1 , 0 ]')]),
+]
+NAMES = {q: name for _g, rows in CATALOG for name, q in rows}
+NAMES.update({'IG IS_BOTTOM': 'Bottom of the inning', 'SCOREBAR 1ST_BASE_TAB': 'Runner on first',
+              'SCOREBAR 2ND_BASE_TAB': 'Runner on second', 'SCOREBAR 3RD_BASE_TAB': 'Runner on third',
+              'SCORER INNING': 'Inning', 'TEAM_UI IS_CITY_CONNECT_ACTIVE [ AWAY_TEAM_ID ]': 'Away in City Connect',
+              'TEAM_UI IS_CITY_CONNECT_ACTIVE [ HOME_TEAM_ID ]': 'Home in City Connect',
+              'CAP_CLR_BRIGHTNESS_TAB [ AWAY_TEAM_ID ]': 'Away colour is light',
+              'CAP_CLR_BRIGHTNESS_TAB [ HOME_TEAM_ID ]': 'Home colour is light',
+              'AWAY_TEAM TEAM_PROF TEAM_INX': 'Away club number', 'HOME_TEAM TEAM_PROF TEAM_INX': 'Home club number'})
+
+
+def data_name(query):
+    """A plain name for a game query, or the query itself."""
+    q = bare(query)
+    return NAMES.get(q, q)
+
+
+def bare(query):
+    """A query without the brackets around the whole of it: '[ SCORER OUTS ]' and 'SCORER OUTS' are the same."""
+    q = str(query).strip()
+    if q.startswith('[') and q.endswith(']'):
+        depth = 0
+        for i, ch in enumerate(q):
+            depth += ch == '['
+            depth -= ch == ']'
+            if depth == 0 and i < len(q) - 1:
+                return q                      # the first bracket closes early: it is an argument, not a wrapper
+        return q[1:-1].strip()
+    return q
+
+
 RULES = ['==', '!=', '>', '>=', '<', '<=']  # what a "when" rule can ask of a number
 
 

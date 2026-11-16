@@ -6,6 +6,8 @@ two mods that touch different teams or overlays both apply.
     <mod>/rosters/*.json     roster files (see rosterjson.py), applied in name order
     <mod>/layouts/*.json     overlay moves: [{"file": "NSW/UI/GAME/THEME1.NSW", "asset": "Scorebar",
                                               "x": 40, "y": 838, "scale": 1.0}]
+                             a board or screen repainted in a palette: [{"file": "NSW/STADIUMS/ARZ/SCOREBOARD/ARZ.NSW",
+                                              "match": ["#ffffff", "#ffd24a", "#0a0c10"], "keep": true}]
 
 They are carried out when mods are applied, on top of the game's files as the enabled mods' own files left them.
 """
@@ -190,6 +192,11 @@ def apply_layouts(game, mods, problems):
                     if not os.path.exists(p):
                         raise ValueError(f'{rel} is not a game file')
                     lay = done.get(rel) or uilayout.Layout.open(p)
+                    if e.get('match'):                  # a board or broadcast screen moved onto a palette
+                        from . import boards
+                        boards.match(lay, [str(c) for c in e['match']], keep_main=bool(e.get('keep', True)))
+                        done[rel] = lay
+                        continue
                     if e.get('runs'):                   # a saved style: the game's own layout plus what it changed
                         orig = _original(game, rel, p)
                         if e.get('of') and e['of'] != _sha1(orig):

@@ -604,6 +604,33 @@ def test_city_connect_look():
     assert real['unitype'] == 2
 
 
+def test_data_catalogue():
+    """Every query offered by name is written in words the game knows, and compiles into a design."""
+    from modtheshow import samples, uibuild, uiquery
+    uiquery._load()
+    known = set(uiquery.NAMES.values())
+    offered = [q for _g, rows in uibuild.CATALOG for _n, q in rows] + uibuild.ASK
+    for q in offered:
+        for w in q.split():
+            assert w in '[],' or w.lstrip('-').isdigit() or w in known, (q, w)
+    assert uibuild.bare('[ SCORER OUTS ]') == 'SCORER OUTS'
+    assert uibuild.bare('SCOREBAR INNING_STR [ 0 ]') == 'SCOREBAR INNING_STR [ 0 ]'
+    assert uibuild.bare('[ A [ 1 ] ] [ B ]') == '[ A [ 1 ] ] [ B ]'
+    assert uibuild.data_name('[ SCOREBAR SPEED ]') == 'Pitch speed (mph)'
+    assert uibuild.data_name('PLAYER_UI LAST_NAME [ CURRENT_PITCHER ]') == 'Pitcher last name'
+    design = {'name': 'MTS_T10', 'size': [400, 40], 'pieces': [
+        {'text': ' '.join(f'^d{i}^' for i in range(4)), 'at': [0, 0, 400, 40],
+         'data': ['PLAYER_UI LAST_NAME [ CURRENT_PITCHER ]', 'SCOREBAR SPEED',
+                  'NAME [ FIRST_INITIAL_LAST_NAME ] CURRENT_BATTER PROFILE', 'POSITION_STR [ CURRENT_BATTER PROFILE ]']}]}
+    chunk, _h, _static, live, *_ = uibuild.build(design)
+    assert len(live) == 1 and len(next(iter(live.values()))[1]) == 4
+    s = uiquery.Situation()
+    ctx = uiquery.Context(s)
+    said = [ctx.value(uiquery.parse(uiquery.tokens(f'[ {q} ]'))) for q in design['pieces'][0]['data']]
+    assert said == ['GALLEN', 96, 'G. SPRINGER', 'CF'], said
+    assert 'matchup' in samples.DESIGNS and uibuild.build(samples.DESIGNS['matchup'][1], samples.CARRIERS)
+
+
 def test_design_rule():
     """A piece with a rule is drawn only while the rule holds."""
     from modtheshow import uibuild, uilang, uiquery
@@ -701,6 +728,7 @@ if __name__ == '__main__':
     test_design_one_file()
     test_design_on_any_theme()
     test_city_connect_look()
+    test_data_catalogue()
     test_design_rule()
     test_design_own_pictures()
     test_team_art()

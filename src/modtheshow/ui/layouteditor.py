@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDou
 from .. import boards, fontlib, recipes, samples, teamart, uibuild, uilang, uilayout, uiquery, uirender
 from . import theme
 from .common import button, label
+from .graphview import TEAMS, DesignGraph
 from .widgets import pil_to_qimage
 
 PRESETS = [('Game default', None), ('Bottom right', (1390, 838)), ('Bottom left', (40, 838)),
@@ -337,6 +338,7 @@ class LayoutEditor(QWidget):
         self.node = None
         self.states = {}           # {node offset: state shown}
         self.board = False         # a stadium board is open, not a TV overlay
+        self.matchable = False     # a board or a broadcast screen: its colours can follow a scorebug
         self.screen = (1920, 1080)
         self._shown = {}           # {screen name: where the park shows it}, from the park's SCOREBOARD.SCR
         self._hits = []
@@ -613,6 +615,26 @@ class LayoutEditor(QWidget):
         self.d_words.setPlaceholderText('Words, with ^d0^ where a live value goes')
         self.d_words.editingFinished.connect(self._design_edit)
         prow.addWidget(self.d_words, 2)
+        self.d_pick = QComboBox()                      # the same data by plain names
+        self.d_pick.addItem('Add live data…', None)
+        for group, rows in uibuild.CATALOG:
+            for name, q in rows:
+                self.d_pick.addItem(f'{group}: {name}', q)
+        self.d_pick.setToolTip('Pick what this text shows: the pitcher, the batter, the pitch speed, the score… '
+                               'On another kind of piece it adds a text showing it.')
+        self.d_pick.activated.connect(self._design_add_data)
+        self.b_package = button('Make a Package…', on_click=self._design_package)
+        self.b_package.setToolTip('One mod with everything in this look: the scorebug, every ballpark’s boards and '
+                                  'the lineup, due-up and other broadcast screens in its colours. Share that one mod.')
+        self.graph = DesignGraph()
+        self.graph.picked.connect(self._graph_picked)
+        self.graph.wired.connect(self._graph_wired)
+        self.graph.hide()
+        self.b_graph = QCheckBox('Graph view')
+        self.b_graph.setToolTip('See the design as a graph: game data, rules and pieces, wired together. Drag data '
+                                'onto a piece to wire it. The Layers list keeps working beside it.')
+        self.b_graph.setEnabled(False)
+        self.b_graph.toggled.connect(self._graph_toggled)
         self.d_data = QComboBox()
         self.d_data.setEditable(True)
         self.d_data.setToolTip('The game data shown: one query for each ^d0^ ^d1^, separated by ;')
@@ -780,6 +802,7 @@ class LayoutEditor(QWidget):
         left = QVBoxLayout()
         left.setSpacing(8)
         left.addWidget(self.canvas, 1)
+        left.addWidget(self.graph, 1)
         self.game_row.layout().addStretch(1)
         left.addWidget(self.game_row)
         play = QHBoxLayout()
@@ -792,15 +815,18 @@ class LayoutEditor(QWidget):
         play.addWidget(self.b_play, 1)
         play.addWidget(self.fx, 0)
         play.addWidget(self.zoom, 0)
+        play.addWidget(self.b_graph, 0)
         left.addLayout(play)
         mid.addLayout(left, 1)
         # the settings, grouped
         self.place_box = section('Place on screen', [[self.preset, self.sscale], [self.sx, self.sy]])
         add_box, add_text, add_logo, add_team, add_image, teams, copy_, delete, save = d_buttons
         self.design_row = section('Layers', [[self.d_piece], [self.b_up, self.b_down], [copy_, delete],
-                                             [add_box, add_text], [add_logo, add_team], [add_image, teams], [save]])
+                                             [add_box, add_text], [add_logo, add_team], [add_image, teams],
+                                             [save, self.b_package]])
         self.design_props = section('Chosen piece', [self.d_at[0:2], self.d_at[2:4], [self.d_color, self.d_op],
-                                                     [self.d_words], [self.d_data], [self.d_size, self.d_align],
+                                                     [self.d_words], [self.d_pick], [self.d_data],
+                                                     [self.d_size, self.d_align],
                                                      [self.d_font], [self.d_font_import]])
         self.align_box = section('Line it up', [self.d_align_btns[0:3], self.d_align_btns[3:6]])
         self.colour_box = section('Colours of the design', [self.d_swatches[0:4], self.d_swatches[4:8]])
@@ -808,7 +834,7 @@ class LayoutEditor(QWidget):
                                                     [self.d_rule2], [self.d_rule2_op, self.d_rule2_val],
                                                     [self.d_move]])
         self.board_box = section('Match a scorebug', [[self.bd_match], [self.bd_keep, self.bd_font], [self.bd_all]])
-        self.board_colours = section('Colours of the board', [self.bd_swatches[0:4], self.bd_swatches[4:8]])
+        self.board_colours = section('Its colours', [self.bd_swatches[0:4], self.bd_swatches[4:8]])
         self.tools_row = section('Chosen piece', [[self.b_tint, self.p_op], [self.p_dx, self.p_dy],
                                                   [self.p_size, self.b_hide], [self.b_piece]])
         self.text_row = section('Its text', [[self.t_font], [self.t_size, self.t_align],
@@ -836,6 +862,10 @@ class LayoutEditor(QWidget):
                   self.align_box, self.colour_box, self.rule_box, self.tools_row, self.text_row, self.tex_box, self.switch_box):
             col.addWidget(w)
         col.addStretch(1)
+        for cb in side.findChildren(QComboBox):          # a long entry must not push the column past its width
+            cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(8)
+            cb.setMinimumWidth(0)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -860,6 +890,7 @@ class LayoutEditor(QWidget):
         rel = pack_rel[:-4] + '.NSW'
         self.rel = rel
         self.board = boards.is_board(rel)
+        self.matchable = self.board or '/PRES/' in rel.upper()       # painted colours a scorebug can lend its own to
         self._shown = {}
         self.canvas.safe = not self.board
         self.canvas.backdrop = (0, 0, 0) if self.board else BACKDROP[:3]
@@ -924,12 +955,14 @@ class LayoutEditor(QWidget):
         self._fill_styles()
         self._team_art()
         self.place_box.setVisible(not self.board)
-        self.board_box.setVisible(self.board)
-        self.board_colours.setVisible(self.board)
+        self.board_box.setVisible(self.matchable)
+        self.board_colours.setVisible(self.matchable)
+        self.bd_all.setVisible(self.board)
+        self.bd_keep.setText('Keep the park’s colour' if self.board else 'Keep its main colour')
         self._board_design = None
         self.bd_font.setEnabled(False)
         self.bd_all.setEnabled(False)
-        if self.board:
+        if self.matchable:
             self._fill_board()
         self._asset_changed()
 
@@ -1088,6 +1121,8 @@ class LayoutEditor(QWidget):
                 w.show()
         self.design = None
         self.canvas.grab = None
+        self.b_graph.setChecked(False)
+        self.b_graph.setEnabled(False)
         for w in (self.design_row, self.design_props, self.align_box, self.colour_box, self.rule_box):
             w.hide()
 
@@ -1119,6 +1154,7 @@ class LayoutEditor(QWidget):
                             if c else f'QPushButton {{ background: transparent; border: 1px dashed {theme.LINE}; '
                                       'border-radius: 8px; }')
         self.canvas.grab = self._design_grab
+        self.b_graph.setEnabled(True)
         self.d_piece.setCurrentIndex(max(0, min(keep, len(pieces) - 1)) if pieces else -1)
         self.design_row.show()
         for w in (self.design_props, self.align_box, self.colour_box, self.rule_box):
@@ -1126,6 +1162,70 @@ class LayoutEditor(QWidget):
         for w in (self.tools_row, self.text_row, self.tex_box, self.switch_box):
             w.hide()
         self._design_pick()
+
+    # ------------------------------------------------------------------ the design as a graph
+    def _graph_toggled(self, on):
+        on = bool(on and self.design is not None)
+        self.canvas.setVisible(not on)
+        self.graph.setVisible(on)
+        if on:
+            self.graph.show_design(self.design, self.d_piece.currentIndex())
+
+    def _graph_sync(self):
+        if self.graph.isVisible() and self.design is not None:
+            self.graph.show_design(self.design, self.d_piece.currentIndex())
+
+    def _graph_picked(self, i):
+        self.d_piece.setCurrentIndex(i)
+        self._design_pick()
+
+    def _graph_wired(self, query, i):
+        """Data dragged onto a piece: a text shows it, a team piece or logo takes that team, anything else is
+        drawn only while it is 1 (added to the rule it has, if it has one)."""
+        pieces = getattr(self, '_pieces', [])
+        if not (self.design and 0 <= i < len(pieces)):
+            return
+        p = pieces[i][0]
+        kind = uibuild.kind_of(p)
+        side = next((k for k, v in TEAMS.items() if v == query), None)
+        if side:
+            key = 'tint' if 'tint' in p else kind if kind in ('team', 'logo') else None
+            if key is None:
+                self.note.setText('A team goes onto a team colour, a tint group or a logo.')
+                return
+            p[key] = side
+        elif kind == 'text' and query in {q for _g, rows in uibuild.CATALOG for _n, q in rows}:
+            self._add_data(p, query)
+        else:
+            new = {'data': query, 'is': '==', 'value': 1}
+            old = p.get('when')
+            p['when'] = new if not old else {'all': (old['all'] + [new])[:2]} if 'all' in old else \
+                old if 'any' in old else {'all': [old, new]}
+        if query in self.graph.extra:
+            self.graph.extra.remove(query)
+        self._design_build(i)
+
+    @staticmethod
+    def _add_data(piece, query):
+        data = list(piece.get('data') or [])
+        data.append(query)
+        words = str(piece.get('text', ''))
+        mark = f'^d{len(data) - 1}^'
+        piece['text'] = mark if (len(data) == 1 and words in ('', 'TEXT')) else (words + ' ' + mark).strip()
+        piece['data'] = data
+
+    def _design_add_data(self, i):
+        """The plain-named data list: the chosen text shows it too; on any other piece a new text is made for it."""
+        query = self.d_pick.itemData(i)
+        self.d_pick.setCurrentIndex(0)
+        if not query or self.design is None:
+            return
+        p = self._design_piece()
+        if p is None or uibuild.kind_of(p) != 'text':
+            self._design_add('text')
+            p = self._design_piece()
+        self._add_data(p, query)
+        self._design_build()
 
     def _design_piece(self):
         pieces = getattr(self, '_pieces', []) if self.design else []
@@ -1148,6 +1248,7 @@ class LayoutEditor(QWidget):
         return self.layout.node_at(made, rel) if rel is not None else None
 
     def _design_pick(self, *_):
+        self._graph_sync()
         p = self._design_piece()
         if p is None:
             return
@@ -1450,6 +1551,72 @@ class LayoutEditor(QWidget):
             QMessageBox.warning(self, 'Could Not Save the Design', str(x))
             return
         self.note.setText(f'Design saved to {os.path.basename(path)}. Open it again from Styles › Open a Design File.')
+
+    def _design_package(self):
+        """Everything in this look as one mod: the scorebug on this theme, every ballpark's boards and the
+        broadcast screens repainted in its colours, and the design file itself for whoever wants to change it."""
+        from .. import catalog
+        if self.design is None or not self.layout:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle('Make a Package')
+        v = QVBoxLayout(dlg)
+        v.setContentsMargins(*[theme.d(18)] * 4)
+        v.setSpacing(theme.d(10))
+        v.addWidget(label('A package is one mod that carries a whole look. Switch it on and the game wears it '
+                          'everywhere; export it from Mods to share it.', 'Sub', wrap=True))
+        name_edit = QLineEdit(str(self.design.get('name', 'My Look')).replace('MTS_', ''))
+        name_edit.setPlaceholderText('A name for the package')
+        v.addWidget(name_edit)
+        ticks = []
+        for text in ('The scorebug, on the theme open now', 'Every ballpark’s boards, in its colours',
+                     'Lineup, due-up, matchup and the other broadcast screens, in its colours'):
+            c = QCheckBox(text)
+            c.setChecked(True)
+            ticks.append(c)
+            v.addWidget(c)
+        keep = QCheckBox('Boards and screens keep their own main colour')
+        keep.setChecked(True)
+        v.addWidget(keep)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(button('Cancel', on_click=dlg.reject))
+        row.addWidget(button('Make It', True, dlg.accept))
+        v.addLayout(row)
+        name = re.sub(r'\s+', ' ', name_edit.text()).strip() if dlg.exec() == QDialog.Accepted else ''
+        if not name:
+            return
+        try:
+            title = f'Package: {name}'
+            mod = next((m for m in self.main.lib.list() if m.name == title), None) or self.main.lib.create(
+                title, self.main.settings.get('author', ''), 'A full broadcast look: scorebug, stadium boards and '
+                'broadcast screens in one palette. Made in the Scoreboard sandbox.')
+            entries, palette = [], uibuild.colours(self.design)
+            slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-') or 'package'
+            if ticks[0].isChecked():
+                entries.append(recipes.style_recipe(self.rel, self.layout, self.main.game.original(self.rel)))
+                self._write_art(mod)
+                self._write_fonts(mod)
+            fs = self.main.game.file_set()
+            packs = [p for _g, rows in catalog.board_groups(self.main.game) for _n, p in rows] if ticks[1].isChecked() \
+                else []
+            if ticks[2].isChecked():
+                packs += catalog.packs_in(self.main.game, 'NSW/UI/GAME/PRES')
+            for pack in packs:
+                if pack[:-4] + '.NSW' in fs:
+                    entries.append({'file': pack[:-4] + '.NSW', 'match': palette, 'keep': keep.isChecked()})
+            folder = os.path.join(mod.path, 'layouts')
+            os.makedirs(folder, exist_ok=True)
+            with open(os.path.join(folder, slug + '.json'), 'w', encoding='utf-8') as f:
+                json.dump(entries, f)
+            os.makedirs(os.path.join(mod.path, 'designs'), exist_ok=True)
+            uibuild.pack(self.design, os.path.join(mod.path, 'designs', slug + uibuild.SHARED))
+        except Exception as x:
+            QMessageBox.warning(self, 'Could Not Make the Package', str(x))
+            return
+        self._fill_styles()
+        self.main.changed(f'{title} made: {len(entries)} screens in one mod. Switch it on in Mods and apply; export '
+                          'it from there to share it.')
 
     def _design_open(self, path):
         """A design from a file: a .json, or one shared file with its pictures inside."""
@@ -2226,7 +2393,7 @@ class LayoutEditor(QWidget):
     def _board_match(self, i):
         design = self.bd_match.itemData(i)
         self.bd_match.setCurrentIndex(0)
-        if not (self.board and self.layout and design):
+        if not (self.matchable and self.layout and design):
             return
         if design == 'file':
             path, _ = QFileDialog.getOpenFileName(self, 'Open a design', self.main.last_dir(),
@@ -2253,12 +2420,12 @@ class LayoutEditor(QWidget):
         self.bd_font.setEnabled(any(uibuild.kind_of(p) == 'text' for p, *_ in uibuild.walk(design.get('pieces') or [])))
         self._fill_board()
         self._redraw()
-        self.note.setText(f'{len(plan)} colours of this park’s boards now follow {design.get("name", "the design")}. '
+        self.note.setText(f'{len(plan)} colours of these screens now follow {design.get("name", "the design")}. '
                           'Change any of them from the swatches, then Save to My Mod.')
 
     def _board_font(self):
         """The board's most used font becomes the font the matched scorebug uses most."""
-        if not (self.board and self.layout and self._board_design):
+        if not (self.matchable and self.layout and self._board_design):
             return
         used = {}
         for p, *_ in uibuild.walk(self._board_design.get('pieces') or []):
@@ -2313,7 +2480,7 @@ class LayoutEditor(QWidget):
 
     def _board_recolour(self, i):
         palette = getattr(self, '_board_palette', [])
-        if not (self.board and self.layout and 0 <= i < len(palette)):
+        if not (self.matchable and self.layout and 0 <= i < len(palette)):
             return
         c = QColorDialog.getColor(QColor(palette[i]), self, 'Change this colour in all of the park’s boards')
         if c.isValid() and c.name() != palette[i]:
@@ -2324,7 +2491,7 @@ class LayoutEditor(QWidget):
     def reset(self):
         """The overlay, and the overlays it shows, back to the game's own."""
         self._design_stop()
-        if self.board and self.layout:                    # a board is repainted as a whole file: so is going back
+        if self.matchable and self.layout:                # these are repainted as a whole file: so is going back
             try:
                 self._use(uilayout.Layout.open(self.main.game.original(self.rel)))
                 self._fill_board()
