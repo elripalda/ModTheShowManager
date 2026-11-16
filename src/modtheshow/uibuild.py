@@ -26,6 +26,46 @@ TEAM = {'away': 'AWAY_TEAM_ID', 'home': 'HOME_TEAM_ID'}
 ALIGN = {'left': 0, 'centre': 1, 'center': 1, 'right': 2}
 
 
+# data a scorebug piece is likely to show; the first block is what the stock scorebug itself reads during play
+DATA = ['AWAY_TEAM TEAM_PROF SHORT_NAME', 'HOME_TEAM TEAM_PROF SHORT_NAME', 'SCORER AWAY_SCORE', 'SCORER HOME_SCORE',
+        'SCOREBAR INNING_STR [ 0 ]', 'SCOREBAR INNING_STR [ 1 ]', 'IG BALLS', 'IG STRIKES', 'SCORER OUTS',
+        'SCOREBAR BATTER_BAR_NAME [ 0 ]', 'CURRENT_BATTER SEASON_STATS AVG', 'CURRENT_BATTER SEASON_STATS HR',
+        'CURRENT_BATTER SEASON_STATS RBI', 'PITCH_BAT_STATS PITCH_COUNT', 'SCOREBAR SPEED', 'SCORER PITCH_CLOCK',
+        'BoxScore HITS [ 0 ]', 'BoxScore HITS [ 1 ]', 'BoxScore ERRORS [ 0 ]', 'BoxScore ERRORS [ 1 ]',
+        'BoxScore INNING_VAL [ 0 , 0 ]', 'BoxScore INNING_VAL [ 1 , 0 ]']
+SWITCHES = ['IG IS_BOTTOM', 'SCORER OUTS', 'SCOREBAR 1ST_BASE_TAB', 'SCOREBAR 2ND_BASE_TAB', 'SCOREBAR 3RD_BASE_TAB',
+            'IG BALLS', 'IG STRIKES']
+
+
+def kind_of(piece):
+    return next((k for k in ('box', 'image', 'text', 'logo', 'team', 'switch', 'group', 'asset') if k in piece), '?')
+
+
+def describe(piece):
+    """A few words naming a piece, for a list."""
+    k = kind_of(piece)
+    if k == 'text':
+        return f'Text  {piece["text"]}'
+    if k in ('logo', 'team'):
+        return ('Logo  ' if k == 'logo' else 'Team colour  ') + str(piece[k])
+    if k == 'switch':
+        return f'Switch  {piece["switch"]}'
+    return {'box': 'Box', 'image': 'Image', 'group': 'Group', 'asset': 'Asset'}.get(k, k) + \
+        (f'  {piece.get("color", "")}' if k == 'box' else '')
+
+
+def rect(piece):
+    return list(piece.get('at') or piece.get('box') or [0, 0, 10, 10])
+
+
+def set_rect(piece, at):
+    at = [round(float(v), 1) for v in at]
+    if 'box' in piece and 'at' not in piece:
+        piece['box'] = at
+    else:
+        piece['at'] = at
+
+
 def _rgba(color, opacity=None, alpha=None):
     v = int(str(color or '#ffffff').lstrip('#'), 16)
     a = 255 if opacity is None else max(0, min(255, round(float(opacity) * 2.55)))

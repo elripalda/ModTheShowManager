@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDoubleSpinBo
                                QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QSlider, QSpinBox, QVBoxLayout, QWidget)
 
-from .. import fontlib, recipes, samples, teamart, uilang, uilayout, uiquery, uirender
+from .. import fontlib, recipes, samples, teamart, uibuild, uilang, uilayout, uiquery, uirender
 from . import theme
 from .common import button, label
 from .widgets import pil_to_qimage
@@ -372,6 +372,64 @@ class LayoutEditor(QWidget):
         self.text_row.setLayout(trow)
         self.text_row.hide()
         lay.addWidget(self.text_row)
+        # a design of your own: its pieces, and the chosen piece's place, colour, words and data
+        self.design = None
+        drow = QHBoxLayout()
+        drow.setSpacing(8)
+        drow.setContentsMargins(0, 0, 0, 0)
+        self.d_piece = QComboBox()
+        self.d_piece.setToolTip('The pieces of this design, back to front. Click one on the screen to pick it.')
+        self.d_piece.activated.connect(self._design_pick)
+        drow.addWidget(self.d_piece, 3)
+        for text, kind in (('+ Box', 'box'), ('+ Text', 'text'), ('+ Logo', 'logo'), ('+ Team Colour', 'team')):
+            drow.addWidget(button(text, on_click=lambda _=False, k=kind: self._design_add(k)), 1)
+        drow.addWidget(button('Copy', on_click=self._design_copy), 1)
+        drow.addWidget(button('Delete', on_click=self._design_delete), 1)
+        drow.addWidget(button('Save Design…', on_click=self._design_save), 1)
+        self.design_row = QWidget()
+        self.design_row.setLayout(drow)
+        self.design_row.hide()
+        lay.addWidget(self.design_row)
+        prow = QHBoxLayout()
+        prow.setSpacing(8)
+        prow.setContentsMargins(0, 0, 0, 0)
+        self.d_at = []
+        for pre, lo, hi in (('X  ', -1920, 1920), ('Y  ', -1080, 1080), ('W  ', 1, 1920), ('H  ', 1, 1080)):
+            sp = self._spin(lo, hi, 0)
+            sp.setPrefix(pre)
+            sp.valueChanged.connect(self._design_edit)
+            self.d_at.append(sp)
+            prow.addWidget(sp, 1)
+        self.d_color = button('Colour', on_click=self._design_color)
+        prow.addWidget(self.d_color, 1)
+        self.d_op = self._spin(0, 100, 0)
+        self.d_op.setPrefix('Opacity  ')
+        self.d_op.setSuffix(' %')
+        self.d_op.valueChanged.connect(self._design_edit)
+        prow.addWidget(self.d_op, 1)
+        self.d_words = QLineEdit()
+        self.d_words.setPlaceholderText('Words, with ^d0^ where a live value goes')
+        self.d_words.editingFinished.connect(self._design_edit)
+        prow.addWidget(self.d_words, 2)
+        self.d_data = QComboBox()
+        self.d_data.setEditable(True)
+        self.d_data.setToolTip('The game data shown: one query for each ^d0^ ^d1^, separated by ;')
+        self.d_data.addItems([''] + uibuild.DATA)
+        self.d_data.activated.connect(self._design_edit)
+        self.d_data.lineEdit().editingFinished.connect(self._design_edit)
+        prow.addWidget(self.d_data, 3)
+        self.d_size = self._spin(6, 200, 0)
+        self.d_size.setPrefix('Size  ')
+        self.d_size.valueChanged.connect(self._design_edit)
+        prow.addWidget(self.d_size, 1)
+        self.d_align = QComboBox()
+        self.d_align.addItems(['Left', 'Centre', 'Right'])
+        self.d_align.activated.connect(self._design_edit)
+        prow.addWidget(self.d_align, 1)
+        self.design_props = QWidget()
+        self.design_props.setLayout(prow)
+        self.design_props.hide()
+        lay.addWidget(self.design_props)
         self._fonts = None             # (FontTable, sheet) as the active mod has them
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
@@ -449,6 +507,7 @@ class LayoutEditor(QWidget):
         for n in names:
             self.which.addItem(n)
         self.which.blockSignals(False)
+        self._design_stop()
         self._fill_styles()
         self._team_art()
         self._asset_changed()
@@ -573,6 +632,157 @@ class LayoutEditor(QWidget):
             self.b_play.setText('Play')
         self.frame.setValue(f)
 
+    # ------------------------------------------------------------------ a design of your own
+    def _design_start(self, design):
+        """Work on a design: every change rebuilds the scorebug from it."""
+        import copy
+        self.design = copy.deepcopy(design)
+        self._design_build(0)
+
+    def _design_stop(self):
+        if self.design is not None:
+            self.tools_row.show()
+        self.design = None
+        self.design_row.hide()
+        self.design_props.hide()
+
+    def _design_build(self, keep=None):
+        if self.design is None:
+            return
+        if keep is None:
+            keep = self.d_piece.currentIndex()
+        try:
+            lay = uilayout.Layout.open(self.main.game.original(self.rel))
+            samples.replace_scorebug(lay, self.design, self.design.get('x'), self.design.get('y'))
+        except Exception as x:
+            self.note.setText(f'This design does not build: {x}')
+            return
+        self._use(lay)
+        pieces = self.design.get('pieces') or []
+        self.d_piece.blockSignals(True)
+        self.d_piece.clear()
+        for i, p in enumerate(pieces):
+            self.d_piece.addItem(f'{i + 1}.  {uibuild.describe(p)}')
+        self.d_piece.setCurrentIndex(max(0, min(keep, len(pieces) - 1)) if pieces else -1)
+        self.d_piece.blockSignals(False)
+        self.design_row.show()
+        self.design_props.setVisible(bool(pieces))
+        self.tools_row.hide()
+        self.text_row.hide()
+        self._design_pick()
+
+    def _design_piece(self):
+        pieces = (self.design or {}).get('pieces') or []
+        i = self.d_piece.currentIndex()
+        return pieces[i] if 0 <= i < len(pieces) else None
+
+    def _design_node(self, index):
+        """The node a top-level piece of the design was compiled into."""
+        made = self.layout.find(self.design['name']) if self.layout and self.design else None
+        root = made.root() if made else None
+        kids = root.children[0].children if root and root.children else []
+        return kids[index] if 0 <= index < len(kids) else None
+
+    def _design_pick(self, *_):
+        p = self._design_piece()
+        if p is None:
+            return
+        widgets = self.d_at + [self.d_op, self.d_words, self.d_data, self.d_size, self.d_align]
+        for w in widgets:
+            w.blockSignals(True)
+        for sp, v in zip(self.d_at, uibuild.rect(p)):
+            sp.setValue(v)
+        self.d_op.setValue(p.get('opacity', 100))
+        text = 'text' in p
+        self.d_words.setText(str(p.get('text', '')))
+        self.d_data.setEditText(' ; '.join(p.get('data') or []))
+        self.d_size.setValue(p.get('size', 28))
+        self.d_align.setCurrentIndex({'left': 0, 'right': 2}.get(str(p.get('align', 'centre')).lower(), 1))
+        for w in (self.d_words, self.d_data, self.d_size, self.d_align):
+            w.setEnabled(text)
+        self.d_color.setEnabled(uibuild.kind_of(p) in ('box', 'image', 'text', 'logo'))
+        for w in widgets:
+            w.blockSignals(False)
+        n = self._design_node(self.d_piece.currentIndex())
+        self._chosen_node = n
+        if n is not None:
+            self.canvas.chosen = next((i for i, h in enumerate(self._hits) if h.node.off == n.off), -1)
+            self.canvas.update()
+
+    def _design_edit(self, *_):
+        p = self._design_piece()
+        if p is None:
+            return
+        uibuild.set_rect(p, [sp.value() for sp in self.d_at])
+        if self.d_op.value() < 100 or 'opacity' in p:
+            p['opacity'] = self.d_op.value()
+        if 'text' in p:
+            p['text'] = self.d_words.text()
+            data = [q.strip() for q in self.d_data.currentText().split(';') if q.strip()]
+            holes = len(set(re.findall(r'\^d(\d+)\^', p['text'])))
+            if data and not holes:                         # data picked for plain words: show it
+                p['text'], holes = '^d0^', 1
+            p['data'] = data[:holes]
+            if len(p['data']) < holes:
+                self.note.setText('Pick one piece of data for each ^d0^ ^d1^ in the words.')
+                return
+            if not p['data']:
+                del p['data']
+            p['size'] = self.d_size.value()
+            p['align'] = ('left', 'centre', 'right')[self.d_align.currentIndex()]
+        self._design_build()
+
+    def _design_color(self):
+        p = self._design_piece()
+        if p is None:
+            return
+        c = QColorDialog.getColor(QColor(p.get('color', '#ffffff')), self, 'Colour')
+        if c.isValid():
+            p['color'] = c.name()
+            self._design_build()
+
+    def _design_add(self, kind):
+        if self.design is None:
+            return
+        w, h = self.design['size']
+        new = {'box': {'box': [10, 10, 80, 30], 'color': '#ffffff', 'opacity': 80},
+               'text': {'text': 'TEXT', 'at': [10, 6, 120, 34], 'size': 28, 'color': '#ffffff'},
+               'logo': {'logo': 'away', 'kind': 2, 'at': [4, 4, max(8, h - 8), max(8, h - 8)]},
+               'team': {'team': 'away', 'at': [0, 0, min(160, w), h]}}[kind]
+        if kind in ('logo', 'team'):                       # the second one you add is the other team's
+            seen = [p[kind] for p in self.design['pieces'] if kind in p]
+            new[kind] = 'home' if seen.count('away') > seen.count('home') else 'away'
+        self.design.setdefault('pieces', []).append(new)
+        self._design_build(len(self.design['pieces']) - 1)
+
+    def _design_copy(self):
+        import copy
+        p = self._design_piece()
+        if p is not None:
+            twin = copy.deepcopy(p)
+            at = uibuild.rect(twin)
+            uibuild.set_rect(twin, [at[0] + 12, at[1] + 12, at[2], at[3]])
+            self.design['pieces'].append(twin)
+            self._design_build(len(self.design['pieces']) - 1)
+
+    def _design_delete(self):
+        i = self.d_piece.currentIndex()
+        if self.design and 0 <= i < len(self.design.get('pieces') or []):
+            del self.design['pieces'][i]
+            self._design_build(max(0, i - 1))
+
+    def _design_save(self):
+        if self.design is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, 'Save the design', os.path.join(
+            self.main.last_dir(), self.design.get('name', 'design') + '.json'), 'Designs (*.json)')
+        if not path:
+            return
+        self.main.remember_dir(path)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(self.design, f, indent=1)
+        self.note.setText(f'Design saved to {os.path.basename(path)}. Open it again from Styles › Open a Design File.')
+
     # ------------------------------------------------------------------ styles
     def _lang_bytes(self):
         """The text file as the layout needs it: the game's plus the words of any design built into it."""
@@ -600,7 +810,9 @@ class LayoutEditor(QWidget):
             self.styles.addItem('Wide Top Bar', ('built-in', 'wide'))
             self.styles.addItem('Split Bar', ('built-in', 'split'))
             self.styles.addItem('Glass Bar', ('built-in', 'glass'))
-            self.styles.addItem('Classic Line', ('built-in', 'classic'))
+            for key, (title, _d) in samples.DESIGNS.items():
+                self.styles.addItem(title, ('built-in', key))
+            self.styles.addItem('New Blank Design', ('new', None))
             self.styles.addItem('Open a Design File…', ('design', None))
         try:
             for m in self.main.lib.list():
@@ -633,9 +845,18 @@ class LayoutEditor(QWidget):
                 self.main.remember_dir(path)
                 with open(path, encoding='utf-8') as f:
                     design = json.load(f)
-                samples.replace_scorebug(lay, design, design.get('x'), design.get('y'))
-            elif what == ('built-in', 'classic'):
-                samples.replace_scorebug(lay, samples.CLASSIC)
+                self._design_start(design)
+                self.note.setText('Design opened. Add pieces, pick one to change it, then Save to My Mod.')
+                return
+            elif what[0] == 'new':
+                self._design_start({'name': 'MTS_Mine', 'size': [600, 48], 'pieces': [
+                    {'box': [0, 0, 600, 48], 'color': '#101010', 'opacity': 85}]})
+                self.note.setText('A blank design. Add pieces, pick one to change it, then Save to My Mod.')
+                return
+            elif what[0] == 'built-in' and what[1] in samples.DESIGNS:
+                self._design_start(samples.DESIGNS[what[1]][1])
+                self.note.setText('Design loaded. Add pieces, pick one to change it, then Save to My Mod.')
+                return
             elif what == ('built-in', 'glass'):
                 samples.glass_bar(lay, self._table)
             elif what[0] == 'built-in':
@@ -648,6 +869,7 @@ class LayoutEditor(QWidget):
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Load the Style', str(x))
             return
+        self._design_stop()
         self._use(lay)
         self.note.setText('Style loaded. Change what you like, then Save to My Mod or Save as Style.')
 
@@ -973,6 +1195,16 @@ class LayoutEditor(QWidget):
             self.note.setText(self.HINT)
             return
         h = self._hits[i]
+        if self.design is not None:                       # in a design: pick the piece this belongs to
+            made = self.layout.find(self.design['name'])
+            wrap = made.root().children[0] if made and made.root() and made.root().children else None
+            n = h.node
+            while n is not None and n.parent is not wrap:
+                n = n.parent
+            if n is not None and wrap is not None:
+                self.d_piece.setCurrentIndex(wrap.children.index(n))
+                self._design_pick()
+            return
         self.strip.blockSignals(True)
         self.strip.setCurrentRow(-1)
         for k in range(self.strip.count()):
@@ -1201,12 +1433,15 @@ class LayoutEditor(QWidget):
 
     def _apply(self):
         if self.layout and self.node:
+            if self.design is not None and self.asset and self.asset.name == 'Scorebar':
+                self.design['x'], self.design['y'] = self.sx.value() + 5, self.sy.value() + 53
             self.layout.move(self.node, self.sx.value(), self.sy.value())
             if abs(self.sscale.value() - self._scale0) > 1e-6:
                 self.layout.scale(self.node, self.sscale.value())
 
     def reset(self):
         """The overlay, and the overlays it shows, back to the game's own."""
+        self._design_stop()
         if self.layout and self.asset and self._orig is not None:
             try:
                 self.layout.restore(self.asset, source=self._orig.d)

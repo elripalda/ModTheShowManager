@@ -168,6 +168,16 @@ class Situation:
             return self.home if _num(a0) == 1 else self.away
         if key in ('TEAM_UI SCORE', 'SCOREBAR SCORE', 'IG SCORE', 'SCOREBAR RUNS', 'IG RUNS'):
             return self.home_score if _num(a0) == 1 else self.away_score
+        if key == 'BoxScore INNING_VAL':                       # a made-up line: the runs fall in the latest inning
+            team, inn = _num(a0), _num(args[1]) if len(args) > 1 else 0
+            played = self.inning - (0 if team == 0 or self.bottom else 1)
+            if inn >= played:
+                return ''
+            return (self.home_score if team else self.away_score) if inn == played - 1 else 0
+        if key in ('BoxScore HITS', 'BoxScore ERRORS'):
+            return (self.home_score if _num(a0) else self.away_score) + 2 if key.endswith('HITS') else 0
+        if key == 'BoxScore INNING_STR':
+            return str(_num(a0) + 1)
         if key == 'SCOREBAR INNING_STR':
             return str(self.inning) if not _num(a0) else ordinal(self.inning)
         if key == 'SCOREBAR BATTER_BAR_NAME':

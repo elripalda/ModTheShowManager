@@ -360,7 +360,8 @@ def glass_bar(lay, table):
 
 def replace_scorebug(lay, design, x=None, y=None):
     """Swap Theme 1's scorebug for a design of our own (uibuild): the stock pieces are hidden and the design is
-    drawn where the frame was. x, y place its top-left corner; by default it sits bottom centre."""
+    drawn where the frame was. x, y place its top-left corner; by default it sits bottom centre. A design with
+    "bars": true keeps the game's batter and pitcher bars, rising from its top edge."""
     from . import uibuild
     asset = uibuild.install(lay, design)
     a = lay.find('Scorebar')
@@ -369,8 +370,15 @@ def replace_scorebug(lay, design, x=None, y=None):
     if panel is None or not c.children or not c.children[0].children:
         raise ValueError('This scorebug is not laid out like the stock Theme 1.')
     w, h = design['size']
+    keep = ()
+    if design.get('bars'):
+        batter, pitcher = lay.node_at(a, 0x488, 0x0F), lay.node_at(a, 0x3D40, 0x0F)
+        if batter is not None and pitcher is not None:
+            keep = (batter, pitcher)
+            # the batter sheet is tall and used to hide behind the bug: cut it off at the design's top edge instead
+            lay.resize(batter, batter.w, 12 - batter.y)
     for k in c.children[0].children[0].children:
-        if k is not panel:
+        if k is not panel and k not in keep:
             lay.recolor(k, alpha=0)
     inst = None
     for k in panel.children:
@@ -386,7 +394,7 @@ def replace_scorebug(lay, design, x=None, y=None):
     lay.move(panel, 5, 12)
     lay.resize(panel, w, h)
     lay.move(c, ((1920 - w) / 2 if x is None else x) - 5, (1080 - 60 - h if y is None else y) - 53)
-    lay.resize(c, w + 10, c.h)
+    lay.resize(c, w + 10, h + 60)
     return a
 
 
@@ -420,20 +428,66 @@ CLASSIC = {'name': 'MTS_Classic', 'size': [700, 46], 'pieces': [
 ]}
 
 
-def scorebug_classic(game, lib, current_file):
+def _line_score():
+    """A ballpark line score: runs by inning for both teams, then runs, hits and errors, and the count below."""
+    W, name_w, cell, top, row = 640, 96, 34, 24, 32
+    rhe = name_w + 9 * cell + 14
+    p = [{'box': [0, 0, W, top + 2 * row + 30], 'color': '#0d1f14', 'opacity': 92},
+         {'box': [0, top, W, 2], 'color': '#e8e2c8', 'opacity': 70},
+         {'box': [0, top + 2 * row, W, 2], 'color': '#e8e2c8', 'opacity': 70},
+         {'box': [rhe - 8, 4, 2, top + 2 * row - 8], 'color': '#e8e2c8', 'opacity': 45}]
+    for i in range(9):
+        p.append({'text': str(i + 1), 'at': [name_w + i * cell, 1, cell, top - 2], 'size': 18, 'color': '#e8e2c8'})
+    for j, t in enumerate('RHE'):
+        p.append({'text': t, 'at': [rhe + j * 40, 1, 40, top - 2], 'size': 18, 'color': '#e8e2c8'})
+    for team, side in ((0, 'AWAY'), (1, 'HOME')):
+        y = top + 3 + team * row
+        p.append({'text': '^d0^', 'data': [f'{side}_TEAM TEAM_PROF SHORT_NAME'], 'at': [12, y, name_w - 16, row - 4],
+                  'size': 26, 'align': 'left', 'color': '#ffffff'})
+        for i in range(9):
+            p.append({'text': '^d0^', 'data': [f'BoxScore INNING_VAL [ {team} , {i} ]'],
+                      'at': [name_w + i * cell, y, cell, row - 4], 'size': 24, 'color': '#e8e2c8'})
+        for j, q in enumerate((f'SCORER {side}_SCORE', f'BoxScore HITS [ {team} ]', f'BoxScore ERRORS [ {team} ]')):
+            p.append({'text': '^d0^', 'data': [q], 'at': [rhe + j * 40, y, 40, row - 4], 'size': 24,
+                      'color': '#ffd24a' if j == 0 else '#e8e2c8'})
+    y = top + 2 * row + 4
+    p += [{'switch': 'IG IS_BOTTOM', 'at': [12, y, 46, 24], 'looks': [
+              [{'text': 'TOP', 'at': [0, 0, 46, 24], 'size': 18, 'align': 'left', 'color': '#e8e2c8'}],
+              [{'text': 'BOT', 'at': [0, 0, 46, 24], 'size': 18, 'align': 'left', 'color': '#e8e2c8'}]]},
+          {'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 1 ]'], 'at': [58, y, 60, 24], 'size': 18, 'align': 'left',
+           'color': '#e8e2c8'},
+          {'text': 'BALL ^d0^   STRIKE ^d1^   OUT ^d2^', 'data': ['IG BALLS', 'IG STRIKES', 'SCORER OUTS'],
+           'at': [W - 372, y, 360, 24], 'size': 18, 'align': 'right', 'color': '#ffffff'}]
+    return {'name': 'MTS_LineScore', 'size': [W, top + 2 * row + 30], 'pieces': p}
+
+
+LINE_SCORE = _line_score()
+DESIGNS = {'classic': ('Classic Line', CLASSIC), 'linescore': ('Line Score', LINE_SCORE)}
+
+
+def _design_sample(game, lib, name, description, slug, design):
     if THEME not in game.file_set():
         raise ValueError('This install has no scorebug layout (THEME1.NSW).')
     from . import recipes
     lay = uilayout.Layout.open(game.original(THEME))
-    replace_scorebug(lay, CLASSIC)
-    mod = _mod(lib, 'Sample: Classic Line', 'A scorebug built from nothing: one line of text along the bottom, '
-               'the way an old broadcast did it. Teams, score, inning, bases, count and outs.')
+    replace_scorebug(lay, design)
+    mod = _mod(lib, name, description)
     folder = os.path.join(mod.path, 'layouts')
     os.makedirs(folder, exist_ok=True)
     import json
-    with open(os.path.join(folder, 'classic-line.json'), 'w', encoding='utf-8') as f:
+    with open(os.path.join(folder, slug + '.json'), 'w', encoding='utf-8') as f:
         json.dump([recipes.style_recipe(THEME, lay, game.original(THEME))], f)
     return mod, 'Pick scorebug Theme 1, switch other scorebug mods off, apply, and start a game.'
+
+
+def scorebug_classic(game, lib, current_file):
+    return _design_sample(game, lib, 'Sample: Classic Line', 'A scorebug built from nothing: one line of text along '
+                          'the bottom, the way an old broadcast did it.', 'classic-line', CLASSIC)
+
+
+def scorebug_linescore(game, lib, current_file):
+    return _design_sample(game, lib, 'Sample: Line Score', 'A scorebug built from nothing: a ballpark line score '
+                          'with runs by inning, hits and errors.', 'line-score', LINE_SCORE)
 
 
 def _style_sample(game, lib, name, description, slug, split, glass=False):
@@ -511,6 +565,8 @@ SAMPLES = [
      scorebug_split),
     ('classic', 'Sample: Classic Line', 'A scorebug built from nothing: one line of text along the bottom.',
      scorebug_classic),
+    ('linescore', 'Sample: Line Score', 'A scorebug built from nothing: runs by inning, hits and errors.',
+     scorebug_linescore),
     ('glass', 'Sample: Glass Bar', 'A scorebug style: three floating tiles of smoked glass.', scorebug_glass),
     ('texttest', 'Test: Scorebug Text', 'A check: scorebug text bigger, red and in another font.',
      scorebug_text_test),

@@ -75,8 +75,21 @@ Positions are `[x, y, width, height]` inside the parent, in screen pixels. `font
 in pixels, `align` is left, centre or right. Add `"x"` and `"y"` at the top to place the bug on screen. The data
 you can show is listed in [Game data for a scorebug](SCOREBUG_DATA.md).
 
-Load one from **Styles › Open a Design File…**. **Classic Line** in the same list is built this way: one line of
-text along the bottom.
+`"bars": true` at the top keeps the game's batter and pitcher bars, rising from the design's top edge.
+
+You don't have to write the file by hand. **Styles › New Blank Design** starts one in the sandbox, and so do
+**Classic Line** (one line of text along the bottom) and **Line Score** (runs by inning, hits and errors). In a
+design a new row appears:
+
+- **+ Box, + Text, + Logo, + Team Colour** add a piece. **Copy** and **Delete** act on the chosen one.
+- Pick a piece from the list or click it on the screen. The row under it sets its place and size, colour and
+  opacity, and for text its words, the data it shows, its size and alignment.
+- Type `^d0^` in the words where a live value goes and pick the data for it. For two values use `^d0^` and `^d1^`
+  and separate the two queries with `;`.
+- Drag the red box to place the whole bug.
+- **Save Design…** writes the file. **Save to My Mod** and **Save as Style…** work as they do for any layout.
+
+Switches and groups inside a design are edited in the file for now. **Styles › Open a Design File…** loads one.
 
 ## What a mockup needs if you hand it over
 
