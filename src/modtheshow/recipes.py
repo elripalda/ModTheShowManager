@@ -117,11 +117,29 @@ def _sha1(path):
 
 
 def style_recipe(rel, layout, original_path):
-    """The recipe entry that turns the original layout into this one."""
+    """The recipe entry that turns the original layout into this one: the assets it copied, then the bytes that
+    differ."""
     with open(original_path, 'rb') as f:
         orig = f.read()
     import hashlib
-    return {'file': rel, 'of': hashlib.sha1(orig).hexdigest(), 'runs': layout.runs(orig)}
+    entry = {'file': rel, 'of': hashlib.sha1(orig).hexdigest()}
+    ref = uilayout.Layout(orig)
+    if layout.clones:
+        entry['clones'] = [[f'{src:08x}', name] for src, name in layout.clones]
+        for src, name in layout.clones:
+            ref.clone(ref.by_hash[src], name)
+    entry['runs'] = layout.runs(ref.bytes())
+    return entry
+
+
+def apply_style(lay, entry):
+    """Carry a saved style out on the game's own layout."""
+    for src, name in entry.get('clones') or []:
+        a = lay.by_hash.get(int(str(src), 16))
+        if a is None:
+            raise ValueError('this style copies an asset the layout does not have')
+        lay.clone(a, str(name))
+    lay.apply_runs(entry['runs'])
 
 
 def apply_layouts(game, mods, problems):
@@ -145,7 +163,7 @@ def apply_layouts(game, mods, problems):
                         if e.get('of') and e['of'] != _sha1(orig):
                             raise ValueError(f'this style was made for a different version of {rel}')
                         lay = uilayout.Layout.open(orig)
-                        lay.apply_runs(e['runs'])
+                        apply_style(lay, e)
                         done[rel] = lay
                         if not e.get('asset'):
                             continue

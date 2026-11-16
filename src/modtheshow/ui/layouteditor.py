@@ -572,6 +572,7 @@ class LayoutEditor(QWidget):
         self.styles.addItem('Styles', None)
         if self.rel and self.rel.upper() == samples.THEME:
             self.styles.addItem('Wide Top Bar', ('built-in', 'wide'))
+            self.styles.addItem('Split Bar', ('built-in', 'split'))
         try:
             for m in self.main.lib.list():
                 for path in recipes.files(m.path, 'layouts'):
@@ -597,12 +598,12 @@ class LayoutEditor(QWidget):
         try:
             lay = uilayout.Layout.open(self.main.game.original(self.rel))
             if what[0] == 'built-in':
-                samples.wide_top_bar(lay)
+                samples.wide_top_bar(lay, split=what[1] == 'split')
             else:
                 with open(what[1], encoding='utf-8') as f:
                     for e in json.load(f):
                         if e.get('runs') and str(e.get('file', '')).strip('/').upper() == self.rel.upper():
-                            lay.apply_runs(e['runs'])
+                            recipes.apply_style(lay, e)
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Load the Style', str(x))
             return
@@ -1167,9 +1168,12 @@ class LayoutEditor(QWidget):
         if self.layout and self.asset and self._orig is not None:
             try:
                 self.layout.restore(self.asset, source=self._orig.d)
-            except ValueError as x:
-                QMessageBox.warning(self, 'Could Not Reset', str(x))
-                return
+            except ValueError:                   # a style that added to the file: start over from the game's own
+                try:
+                    self.layout = uilayout.Layout.open(self.main.game.original(self.rel))
+                except Exception as x:
+                    QMessageBox.warning(self, 'Could Not Reset', str(x))
+                    return
         self._asset_changed()
 
     def save(self):

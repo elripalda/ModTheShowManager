@@ -323,6 +323,11 @@ class Layout:
         self.d = bytearray(data)
         if self.d[:8] != b'IFF0ASSH':
             raise ValueError('not a UI layout (IFF0ASSH)')
+        self.clones = []                       # [(hash of the asset copied, the copy's name)], in the order made
+        self._index()
+        self.base = bytearray(self.d)          # as opened: edits to animated pieces are worked out from here
+
+    def _index(self):
         self.assets = []
         for m in re.finditer(rb'VOIDASS0', self.d):
             o = m.start()
@@ -331,7 +336,80 @@ class Layout:
             h, size = struct.unpack_from('<II', self.d, o + 8)
             self.assets.append(Asset(self, o, h, size))
         self.by_hash = {a.hash: a for a in self.assets}
-        self.base = bytearray(self.d)          # as opened: edits to animated pieces are worked out from here
+
+    @staticmethod
+    def _add_chunk(buf, src_off, h):
+        """Copy the asset chunk at src_off to the end of a layout file under hash h, and list it in the directory.
+
+        The file opens with a directory: at 0x0C the file's size, at 0x10 how many tables, at 0x18 where their
+        headers are; a header is (count u32, type u32, offset u64) and a table is (hash u32, 0, chunk offset u64)
+        rows sorted by hash, the last table ending where the first chunk starts."""
+        ntab, tl = struct.unpack_from('<I', buf, 0x10)[0], struct.unpack_from('<I', buf, 0x18)[0]
+        if not 0 < ntab <= 16 or struct.unpack_from('<I', buf, 0x0C)[0] != len(buf):
+            raise ValueError('this layout has a directory the manager does not know')
+        tables = [struct.unpack_from('<IIQ', buf, tl + 16 * t) for t in range(ntab)]
+        hit = None
+        for t, (cnt, _type, off) in enumerate(tables):
+            rows = [struct.unpack_from('<IIQ', buf, off + 16 * i) for i in range(cnt)]
+            if any(r[2] == src_off for r in rows):
+                hit = (t, sum(1 for r in rows if r[0] < h))
+            for i, r in enumerate(rows):                       # every chunk moves down by the new row
+                struct.pack_into('<Q', buf, off + 16 * i + 8, r[2] + 16)
+        if hit is None:
+            raise ValueError('the asset is not in the layout\'s directory')
+        t, row = hit
+        size = struct.unpack_from('<I', buf, src_off + 12)[0]
+        chunk = bytearray(buf[src_off:src_off + 0x10 + size])
+        struct.pack_into('<I', chunk, 8, h)
+        struct.pack_into('<I', buf, tl + 16 * t, tables[t][0] + 1)
+        for u in range(t + 1, ntab):
+            struct.pack_into('<Q', buf, tl + 16 * u + 8, tables[u][2] + 16)
+        at = tables[t][2] + 16 * row
+        buf[at:at] = struct.pack('<IIQ', h, 0, len(buf) + 16)
+        buf += chunk
+        struct.pack_into('<I', buf, 0x0C, len(buf))
+
+    def clone(self, asset, name):
+        """Add a copy of an asset to the file under a new name and return it. An Instance pointed at the copy
+        draws it, which is how one template used twice (the team row) can be given two different shapes.
+        Everything in the file moves, so fetch nodes again afterwards."""
+        h = name_hash(name)
+        if h in self.by_hash:
+            raise ValueError(f'the layout already has something called {name}')
+        src = asset.hash
+        for buf in (self.d, self.base):
+            self._add_chunk(buf, asset.off, h)
+        self.clones.append((src, name))
+        self._index()
+        return self.by_hash[h]
+
+    def mirror(self, asset):
+        """Flip an asset left to right: every piece changes side, text keeps reading the right way round and the
+        logo is not reversed. Textures are flipped so gradients still run toward the same edge of their piece."""
+        d = self.d
+        for n in asset.nodes():
+            if n.parent is None:
+                continue
+            pw, w = n.parent.w, n.w
+            self._keys(n, P_X, lambda v, pw=pw, w=w: pw - v - w)
+            n.x = pw - n.x - w
+            struct.pack_into('<f', d, n.off + 4, n.x)
+            side = (n.anchor >> 2) & 3
+            if side in (1, 2):
+                n.anchor ^= 0x0C
+                struct.pack_into('<H', d, n.off + 0x1E, n.anchor)
+            if n.kind == 0x22:
+                self.set_text_align(n, 2 - self.text_align(n) if self.text_align(n) in (0, 2) else 1)
+            elif n.kind in (0x18, 0x01) and n.ref != NONE and not self.is_slot(n):
+                d[n.off + 0x26] ^= 0x40
+                n.kflip ^= 1
+
+    def retarget(self, node, asset):
+        """Point an Instance at another asset."""
+        if node.kind != 0x1E:
+            raise ValueError('only an Instance draws another asset')
+        struct.pack_into('<I', self.d, node.off + 0x30, asset.hash)
+        node.ref = asset.hash
 
     @classmethod
     def open(cls, path):

@@ -56,8 +56,9 @@ A flat picture is enough to copy a layout: where things sit, how big, what colou
 
 ## Not possible yet
 
-- **New pieces.** You can change, move, hide and repaint what a theme has. Adding a piece that did not exist is
-  next.
+- **New pieces.** You can change, move, hide and repaint what a theme has, and a template can be copied and
+  reshaped (the Split Bar's mirrored home side is a second copy of the team row). A piece built from nothing,
+  with its own text and data, is next.
 - **Pop-ups dropping down.** The bars and cards are built to rise from behind the bug. On a top bar they still
   rise, so the bar has to sit low enough to leave them room.
 - **Transitions.** The wipes between plays are Bink videos (`CROSS/MOVIES/PRESENTATION/THEMEn/*.BK2`), not

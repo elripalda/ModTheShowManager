@@ -134,7 +134,8 @@ away, a score rolling over. Pick one and drag the slider to step through it, or 
 hiding a piece carries its animation with it, so a piece you moved still slides in at its new spot.
 
 **Styles** (bottom row) starts you from a whole look. **Wide Top Bar** turns Theme 1 into one strip across the top
-of the screen. **Save as Style…** keeps whatever you have built as its own small mod called `Scorebug: <name>`: it
+of the screen. **Split Bar** puts the teams at either end with the game state between them and mirrors the home
+side. **Save as Style…** keeps whatever you have built as its own small mod called `Scorebug: <name>`: it
 shows in the Styles list to come back to, and in the Mods list to switch on or share. A style holds only what
 differs from the game's layout, plus any pieces you repainted.
 
@@ -413,6 +414,12 @@ A text box (0x22): the node colour fills the letters and +0x40 is the outline; +
 `.LANG` file (0 when code fills it in); +0x58 is its base size and +0x60 the size it is drawn at (u16, 1/16 px,
 +0x60 wins when set); +0x70 holds the font number in its low six bits and left / centre / right in bits 18-19. An
 image with byte +0x4A set to 1 is a slot the game fills while it runs (a team logo).
+
+The file opens with a directory. At 0x0C is the file's size, at 0x10 the number of tables and at 0x18 where
+their headers are. A header is (count u32, type u32, offset u64) and a table is rows of (asset hash u32, 0, chunk
+offset u64) sorted by hash. Offsets inside an asset count from its own body, so an asset can be copied to the end
+of the file under a new name as long as the directory gets a row for it. A saved style lists such copies as
+`"clones": [["dc303b63", "MTS_TeamRow_Mirrored"]]`.
 
 Animations are section 1 of an asset: 16-byte entries (tracks offset u64, track count u16, length in frames u16).
 A track is 24 bytes (channels offset u64, the node's offset in the body u64, 0xFFFF, last frame u16, channel count

@@ -236,10 +236,22 @@ def scorebug_brick(game, lib, current_file):
                            BRICK_SAND)
 
 
-def wide_top_bar(lay):
+ROW = 0xDC303B63          # Theme 1's team row: one template, drawn for each team
+
+
+def wide_top_bar(lay, split=False):
     """Rearrange Theme 1's scorebug into one wide strip across the top: away row, home row, then inning, bases,
     count and outs in a line. The pitcher and batter bars keep rising above it, so the strip sits low enough for
-    the tallest of them. Works on the stock layout."""
+    the tallest of them. Works on the stock layout.
+
+    split puts the inning-to-outs block in the middle and gives the home team a mirrored row (score inside, logo
+    on the outer edge), which takes a second copy of the row template."""
+    mirrored = None
+    if split:
+        if ROW not in lay.by_hash:
+            raise ValueError('The team row was not found in the layout.')
+        mirrored = lay.clone(lay.by_hash[ROW], 'MTS_TeamRow_Mirrored')
+        lay.mirror(mirrored)
     a = lay.find('Scorebar')
     c = a.container() if a else None
     if c is None or not c.children or not c.children[0].children:
@@ -270,13 +282,18 @@ def wide_top_bar(lay):
         elif k.kind == 0x18:                               # the shade down the right edge
             lay.move(k, W - 40, k.y)
             lay.resize(k, k.w, H - 2)
+            if split:
+                lay.recolor(k, alpha=0)
     # the two team rows, side by side
-    for row, x in ((away, 5), (home, 5 + RW)):
+    for row, x in ((away, 5), (home, 5 + RW + (IW if split else 0))):
         lay.move(row, x, 14)
         lay.resize(row, RW, H)
         lay.resize(row.children[0], RW, H)
+    if split:
+        lay.retarget(home.children[0], mirrored)
     # inning, bases, count, outs in one line
-    lay.move(info, 5 + 2 * RW, 14)
+    block = 5 + (RW if split else 2 * RW)
+    lay.move(info, block, 14)
     lay.resize(info, IW, H)
     slide = info.children[0]
     lay.resize(slide, IW, H)
@@ -303,7 +320,7 @@ def wide_top_bar(lay):
     lay.resize(glow, W, glow.h)
     for k in glow.children:
         lay.resize(k, k.w * W / 473, k.h)
-    lay.move(kzone, 5 + 2 * RW, 14)
+    lay.move(kzone, block, 14)
     lay.scale_tree(kzone, H / 103)
     lay.recolor(banner, alpha=0)
     # the player card is too tall to rise above a top bar: it hangs under the strip's right end instead
@@ -311,20 +328,29 @@ def wide_top_bar(lay):
     return a
 
 
-def scorebug_wide(game, lib, current_file):
+def _style_sample(game, lib, name, description, slug, split):
     if THEME not in game.file_set():
         raise ValueError('This install has no scorebug layout (THEME1.NSW).')
     from . import recipes
     lay = uilayout.Layout.open(game.original(THEME))
-    wide_top_bar(lay)
-    mod = _mod(lib, 'Sample: Wide Top Bar', 'Theme 1 as one wide strip across the top of the screen: both teams, '
-               'inning, bases, count and outs in a line. A first try: tell me what looks off in a game.')
+    wide_top_bar(lay, split=split)
+    mod = _mod(lib, name, description)
     folder = os.path.join(mod.path, 'layouts')
     os.makedirs(folder, exist_ok=True)
     import json
-    with open(os.path.join(folder, 'wide-top-bar.json'), 'w', encoding='utf-8') as f:
+    with open(os.path.join(folder, slug + '.json'), 'w', encoding='utf-8') as f:
         json.dump([recipes.style_recipe(THEME, lay, game.original(THEME))], f)
     return mod, 'Pick scorebug Theme 1, switch other scorebug mods off, apply, and start a game.'
+
+
+def scorebug_wide(game, lib, current_file):
+    return _style_sample(game, lib, 'Sample: Wide Top Bar', 'Theme 1 as one wide strip across the top of the '
+                         'screen: both teams, inning, bases, count and outs in a line.', 'wide-top-bar', False)
+
+
+def scorebug_split(game, lib, current_file):
+    return _style_sample(game, lib, 'Sample: Split Bar', 'A wide strip with the teams at either end and the '
+                         'inning, bases, count and outs between them. The home side is mirrored.', 'split-bar', True)
 
 
 def scorebug_text_test(game, lib, current_file):
@@ -365,6 +391,8 @@ SAMPLES = [
     ('brick', 'Sample: Brick & Sand Scorebug', 'A scorebug style: brick red with sand trim.', scorebug_brick),
     ('wide', 'Sample: Wide Top Bar', 'A scorebug layout: one wide strip across the top of the screen.',
      scorebug_wide),
+    ('split', 'Sample: Split Bar', 'A scorebug layout: teams at either end, the game state in the middle.',
+     scorebug_split),
     ('texttest', 'Test: Scorebug Text', 'A check: scorebug text bigger, red and in another font.',
      scorebug_text_test),
     ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',

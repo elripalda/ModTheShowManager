@@ -268,6 +268,58 @@ def test_lang_and_place():
         assert uilayout.place(N, 50, 10, 200, 40) == want, hex(anchor)
 
 
+def directory(assets):
+    """A layout file's opening: one table of (hash, 0, offset) rows sorted by hash, then the chunks."""
+    assets = sorted(assets, key=lambda c: struct.unpack_from('<I', c, 8)[0])
+    first = 0x30 + 16 * len(assets)
+    rows, at = b'', first
+    for c in assets:
+        rows += struct.pack('<IIQ', struct.unpack_from('<I', c, 8)[0], 0, at)
+        at += len(c)
+    head = b'IFF0ASSH' + struct.pack('<IIIIII', 0, at, 1, 0, 0x20, 0) + struct.pack('<IIQ', len(assets), 7, 0x30)
+    return head + rows + b''.join(assets)
+
+
+def test_clone_and_mirror():
+    """One template drawn twice can be given a second shape: copy it, flip the copy, point one user at it."""
+    row = asset('Row', group(0, 0, 100, 40, [
+        bytes(node(0x18, 0, 0, 30, 40, ref=H('logo'))),
+        bytes(node(0x18, 70, 0, 30, 40, color=(255, 0, 0, 255))),
+    ]), [(0x90 + 0x50, uilayout.P_X, [(0, -30.0), (10, 0.0)])])
+    use = [bytes(node(0x1E, 0, i * 50, 100, 40, ref=H('Row'), size=0x58, extra=struct.pack('<HH', 0x58, 0)))
+           for i in (0, 1)]
+    main = asset('PBInterface\\ScoreBar', group(0, 0, 1920, 1080, [group(10, 10, 200, 100, use)]))
+    data = directory([main, row])
+    L = uilayout.Layout(data)
+    assert len(L.assets) == 2 and sum(a.problems for a in L.assets) == 0
+    twin = L.clone(L.by_hash[H('Row')], 'Row_Mirrored')
+    L.mirror(twin)
+    bar = L.by_hash[H('PBInterface\\ScoreBar')]
+    L.retarget(bar.container().children[1], twin)
+    L2 = uilayout.Layout(L.bytes())
+    assert len(L2.assets) == 3 and len(L2.bytes()) == len(data) + 16 + len(row)
+    d = L2.bytes()
+    assert struct.unpack_from('<I', d, 0x0C)[0] == len(d) and struct.unpack_from('<I', d, 0x20)[0] == 3
+    rows = [struct.unpack_from('<IIQ', d, 0x30 + 16 * i) for i in range(3)]
+    assert [r[0] for r in rows] == sorted(r[0] for r in rows)
+    assert all(d[r[2]:r[2] + 8] == b'VOIDASS0' and struct.unpack_from('<I', d, r[2] + 8)[0] == r[0] for r in rows)
+    a, b = L2.by_hash[H('Row')], L2.by_hash[H('Row_Mirrored')]
+    assert [n.x for n in a.nodes()[1:]] == [0, 70] and [n.x for n in b.nodes()[1:]] == [70, 0]
+    assert a.pose(0, 0)[a.nodes()[1].off][uilayout.P_X] == -30 and b.pose(0, 0)[b.nodes()[1].off][uilayout.P_X] == 100
+    assert b.nodes()[1].kflip == 1 and a.nodes()[1].kflip == 0
+    assert L2.by_hash[bar.hash].container().children[1].ref == H('Row_Mirrored')
+    # and it travels as a recipe: the copy by name, then the bytes that differ
+    import tempfile
+    from modtheshow import recipes
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        f.write(data)
+    entry = recipes.style_recipe('T.NSW', L, f.name)
+    assert entry['clones'] == [[f'{H("Row"):08x}', 'Row_Mirrored']]
+    again = uilayout.Layout(data)
+    recipes.apply_style(again, entry)
+    assert again.bytes() == L.bytes()
+
+
 def test_team_art():
     from modtheshow import teamart
     assert teamart.color('sd') == (0x2F, 0x24, 0x1D) and teamart.color('SD_CC') == teamart.color('SD')
@@ -291,5 +343,6 @@ if __name__ == '__main__':
     test_text()
     test_queries()
     test_lang_and_place()
+    test_clone_and_mirror()
     test_team_art()
     print('ui layout ok')
