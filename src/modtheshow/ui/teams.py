@@ -143,10 +143,35 @@ class TeamsPage(QWidget):
             self.spins[field] = s
         scroll.setWidget(rw)
         rl.addWidget(scroll, 1)
-        right.setMinimumWidth(380)
-        right.setMaximumWidth(460)
         self.right = right
-        split.addWidget(right)
+        from PySide6.QtWidgets import QButtonGroup, QPushButton, QStackedWidget
+        from .common import Inspector
+        side = QWidget()
+        sl = QVBoxLayout(side)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.setSpacing(10)
+        chips = QHBoxLayout()
+        chips.setSpacing(6)
+        self.side_group = QButtonGroup(self)
+        for i, text in enumerate(('Player', 'Face')):
+            b = QPushButton(text)
+            b.setObjectName('Chip')
+            b.setCheckable(True)
+            b.setChecked(i == 0)
+            b.setCursor(Qt.PointingHandCursor)
+            self.side_group.addButton(b, i)
+            chips.addWidget(b, 1)
+        sl.addLayout(chips)
+        self.side = QStackedWidget()
+        self.side.addWidget(right)
+        self.face = Inspector(main)
+        self.face.setMaximumWidth(16777215)
+        self.side.addWidget(self.face)
+        sl.addWidget(self.side, 1)
+        self.side_group.idClicked.connect(self._side)
+        side.setMinimumWidth(380)
+        side.setMaximumWidth(460)
+        split.addWidget(side)
         split.setStretchFactor(1, 1)
         split.setSizes([250, 640, 420])
         outer.addWidget(split, 1)
@@ -304,6 +329,35 @@ class TeamsPage(QWidget):
             self.rgrid.addWidget(s, n // 2, n % 2)
         self.rgrid.setRowStretch(len(shown) // 2, 1)
         self._busy = False
+        if self.side.currentIndex() == 1:
+            self._show_face()
+
+    def _side(self, i):
+        self.side.setCurrentIndex(i)
+        if i == 1:
+            self._show_face()
+
+    def _show_face(self):
+        p = self.player
+        if p is None:
+            return
+        rel = R.find_head(self.main.game.file_set(), p.first, p.last)
+        t = self.main.tex(rel) if rel else None
+        if t is None or not t.entries:
+            self.face.cur = None
+            self.face._enable(False)
+            self.face.title.setText(p.name.upper())
+            self.face.view.set_image(None, 'No face found')
+            self.face.note.setText('No face texture found for this player. Generic players use the shared face '
+                                   'parts in the player creator.')
+            return
+        self.face.note.setText('Drop a PNG on the preview to replace this face. Export first to get the exact layout.')
+        self.face.show_entry(rel, t, 0)
+        self.face.title.setText(f'{p.name.upper()} · FACE')
+
+    def refresh_overrides(self):
+        if self.side.currentIndex() == 1:
+            self._show_face()
 
     # ---- edits
     def _team_edited(self, *_):

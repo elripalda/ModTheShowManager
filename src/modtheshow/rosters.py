@@ -172,6 +172,53 @@ class Player:
         return self.att.int(field) if self.att is not None and field in self.att.fields else 0
 
 
+def _plain(text):
+    import unicodedata
+    t = unicodedata.normalize('NFKD', text)
+    return ''.join(c for c in t if c.isalnum()).upper()
+
+
+def head_candidates(first, last):
+    """Folder names under NSW/CHARACTERS/HEADS the game might use for a player (LAST_FIRST, Jr. folded in)."""
+    f, l = _plain(first), _plain(last)
+    bare = last
+    for suf in (' Jr.', ' Jr', ' Sr.', ' IV', ' III', ' II'):
+        bare = bare.replace(suf, '')
+    bare = _plain(bare)
+    out = []
+    for ln in (l, bare):
+        for fn in (f, f[:2], f[:3]):
+            out.append(f'{ln}_{fn}')
+    return list(dict.fromkeys(x for x in out if not x.endswith('_')))
+
+
+_HEADS = {}
+
+
+def _head_folders(files):
+    key = id(files)
+    if key not in _HEADS:
+        pre = 'NSW/CHARACTERS/HEADS/'
+        _HEADS.clear()
+        _HEADS[key] = {f.split('/')[3] for f in files if f.startswith(pre) and f.endswith('-COLOR.TEX')}
+    return _HEADS[key]
+
+
+def find_head(files, first, last):
+    """files: a set of romfs paths. Returns the face texture pack path, or None."""
+    folders = _head_folders(files)
+    cands = head_candidates(first, last)
+    hit = next((c for c in cands if c in folders), None)
+    if hit is None:
+        # same-name players get a letter on the end (BELL_JOSHE); take it when only one fits
+        for c in cands[:1] + cands[3:4]:
+            near = [f for f in folders if f.startswith(c) and len(f) == len(c) + 1]
+            if len(near) == 1:
+                hit = near[0]
+                break
+    return f'NSW/CHARACTERS/HEADS/{hit}/{hit}-COLOR.TEX' if hit else None
+
+
 class Database:
     """Teams and players, with edits that can be written back to every copy the game ships."""
 
