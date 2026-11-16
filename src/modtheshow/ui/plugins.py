@@ -40,8 +40,8 @@ class PluginsPage(QWidget):
                             'juiced ball, thin air). New Code Mod puts a starter file in your mod that explains the '
                             'format.')
         self.empty = label(self._empty_text, 'Soft', wrap=True)
-        self.hint = label('Tick what you want, press Rebuild Game once, then launch from the manager. After that you '
-                          'can tick and untick without rebuilding.', 'Sub', wrap=True)
+        self.hint = label('Tick what you want, press Rebuild Game once, then play. After that you can tick and '
+                          'untick without rebuilding; it takes effect the next time the game starts.', 'Sub', wrap=True)
         ll.addWidget(self.hint)
         ll.addWidget(self.empty)
         self.filler = QWidget()
@@ -142,16 +142,46 @@ class PluginsPage(QWidget):
         if bad:
             self.state.setText('Problems:\n' + '\n'.join(bad[:8]))
         elif sig == built:
-            self.state.setText('The game is built with the code mods above.' if sig else
-                               'No code mods are switched on. The game is the standard build.')
+            self.state.setText(('The game is built with the code mods above.\n' + self._last_launch_text(sets))
+                               if sig else 'No code mods are switched on. The game is the standard build.')
         else:
-            self.state.setText('Code mods changed since the last build. Rebuild Game to use them.')
+            self.state.setText('The game needs a rebuild before these code mods can work. Press Rebuild Game.')
         self.b_build.setEnabled(bool(r) and not bad and sig != built)
         self.b_restore.setEnabled(os.path.exists(os.path.join(self.main.game.root, 'mlb.original.exe')))
 
     def _toggle(self, name, on):
         self.switches()[name] = on
         self.main.save_settings()
+        self.write_switches()
+
+    def write_switches(self):
+        """Puts the ticks in the game folder, where the built game reads them however it is started."""
+        sets, _, _ = codemods.collect(self.main.lib.list())
+        sw = self.switches()
+        try:
+            codemods.write_switches(self.main.game.root, {n: sw.get(n, bool(d)) for n, _, d, _ in sets})
+        except OSError:
+            pass
+
+    def _last_launch_text(self, sets):
+        seen = codemods.last_launch(self.main.game.root)
+        if seen is None:
+            return 'The game hasn’t been started since a rebuild, so there is nothing to check yet.'
+        on = [codemods.nice(n) for n, (state, _) in seen.items() if state]
+        missing = [codemods.nice(n) for n, _, _, _ in sets if n not in seen]
+        text = ('Last time the game started it had on: ' + ', '.join(on) + '.') if on else \
+            'Last time the game started, every code mod was off.'
+        if missing:
+            text += ' Not in that build: ' + ', '.join(missing[:4]) + '.'
+        sw = codemods.last_swing(self.main.game.root)
+        if sw:
+            bits = []
+            if 'error' in sw:
+                bits.append(f'PCI was {sw["error"]:.2f} off the ball')
+            if 'perfect' in sw:
+                bits.append(f'perfect PCI {sw["perfect"][0]}, perfect timing {sw["perfect"][1]}')
+            text += '\nLast swing in the game’s log: ' + ', '.join(bits) + '.'
+        return text
 
     # ---- actions
     def pick_recomp(self):
@@ -236,6 +266,11 @@ class PluginsPage(QWidget):
     def _built(self, sig):
         self.main.settings['code_built'] = sig
         self.main.save_settings()
+        self.write_switches()
+        try:      # the note from an older build would only mislead
+            os.remove(os.path.join(self.main.game.root, 'logs', codemods.SWITCH_LOG))
+        except OSError:
+            pass
         self.main.toast('Game rebuilt with your code mods.')
         self.refresh()
 

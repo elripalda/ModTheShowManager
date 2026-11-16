@@ -7,10 +7,14 @@ it joins the patch tables of the mods that are switched on, runs the recomp's ge
 
 You need the recomp folder for this, the one `MLBTS-Setup.exe` is in. A rebuild takes about two minutes.
 
+One thing the manager does on top: the runtime library the recomp ships was built with no patch sets, so its
+switches are never filled in and a baked-in patch would stay off for good. The manager adds a small file of its
+own to the build that holds the switches and fills them in when the game starts.
+
 ## The samples
 
 **Add Arcade Samples** puts these in a mod called Arcade Code Mods. Tick what you want, **Rebuild Game** once, then
-launch from the manager. After that, ticking and unticking takes effect on the next launch with no rebuild.
+start the game. After that, ticking and unticking takes effect the next time the game starts, with no rebuild.
 
 | Sample | What it does |
 | --- | --- |
@@ -25,6 +29,18 @@ launch from the manager. After that, ticking and unticking takes effect on the n
 | Iron Arms | Pitchers tire four times slower. Experimental. |
 
 These are for offline play. None of them have been through a full season, so try one at a time first.
+
+## Checking that one is on
+
+- **Code Plugins** says what the game had on the last time it started, and what its log recorded about your
+  last swing.
+- `<game>\logs\mts-code.log` is written every time the game starts: one line per code mod, `1` for on, and
+  where the answer came from.
+- `<game>\logs\mlb.log` has the game's own notes. After a swing with Auto PCI on, the `ErrorXY` in
+  `BATTER SWING DIAGNOSTICS` reads `0.00, 0.00`. With Perfect Perfect on, the `PERFECT PERFECT` line reads `1 1`.
+
+Your ticks are saved in `<game>\mts-code.cfg`, which the game reads when it starts, so they hold whether you
+launch from the manager or not.
 
 ## Writing one
 

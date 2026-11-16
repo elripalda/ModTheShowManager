@@ -130,10 +130,149 @@ def fitting(game_root, text):
     return drop_sets(text, set(bad)), bad
 
 
+BUILD_REV = 2      # goes up when the way the manager builds changes, so an older build is offered a rebuild
+SWITCH_FILE = 'mts-code.cfg'
+SWITCH_LOG = 'mts-code.log'
+
+
 def signature(text):
     import hashlib
     body = '\n'.join(l for l in text.splitlines() if not l.startswith('#'))
-    return hashlib.sha1(body.encode()).hexdigest()[:16] if body.strip() else ''
+    return hashlib.sha1(f'{BUILD_REV}\n{body}'.encode()).hexdigest()[:16] if body.strip() else ''
+
+
+def switch_source(sets):
+    """C for the switches of the built-in sets. sets: [(name, env, default)] in table order.
+
+    The recomp's shipped runtime library was built without any patch sets, so its own switch array is never filled
+    in and a set baked into the game could not be turned on. The manager points the lifted code at this array
+    instead. It is filled before the game starts: each set's default, then mts-code.cfg in the game folder
+    (name=0/1, written by the manager), then the set's environment variable. What was decided goes to
+    logs/mts-code.log so it can be checked."""
+    rows = ',\n'.join(f'    {{"{n}", "{e}", {int(d)}}}' for n, e, d in sets)
+    return f'''// Written by Mod the Show Manager (codemods.switch_source). Switches for code mod sets.
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MTS_SETS {len(sets)}
+uint8_t mts_patch_on[MTS_SETS + 1];
+
+static const struct {{ const char *name; const char *env; int def; }} mts_sets[MTS_SETS] = {{
+{rows}
+}};
+
+__attribute__((constructor)) static void mts_switches_init(void) {{
+    const char *from[MTS_SETS];
+    char line[256];
+    FILE *f;
+    int i;
+    for (i = 0; i < MTS_SETS; i++) {{
+        mts_patch_on[i] = (uint8_t)(mts_sets[i].def != 0);
+        from[i] = "default";
+    }}
+    f = fopen("{SWITCH_FILE}", "r");
+    if (f) {{
+        while (fgets(line, sizeof line, f)) {{
+            char *eq = strchr(line, '=');
+            if (!eq || line[0] == '#')
+                continue;
+            *eq = 0;
+            for (i = 0; i < MTS_SETS; i++)
+                if (!strcmp(line, mts_sets[i].name)) {{
+                    mts_patch_on[i] = (uint8_t)(eq[1] == '1');
+                    from[i] = "{SWITCH_FILE}";
+                }}
+        }}
+        fclose(f);
+    }}
+    for (i = 0; i < MTS_SETS; i++) {{
+        const char *v = getenv(mts_sets[i].env);
+        if (v && v[0]) {{
+            mts_patch_on[i] = (uint8_t)(v[0] == '1');
+            from[i] = "launch switch";
+        }}
+    }}
+    f = fopen("logs/{SWITCH_LOG}", "w");
+    if (f) {{
+        fprintf(f, "Code mods built into this mlb.exe: %d\\n", MTS_SETS);
+        for (i = 0; i < MTS_SETS; i++)
+            fprintf(f, "%s=%d (%s)\\n", mts_sets[i].name, mts_patch_on[i], from[i]);
+        fclose(f);
+    }}
+}}
+'''
+
+
+def table_sets(patch_text):
+    """[(name, env, default)] in the order the generator numbers them."""
+    out = []
+    for raw in patch_text.splitlines():
+        f = raw.split('#', 1)[0].split()
+        if len(f) == 4 and f[0] == 'set':
+            out.append((f[1], f[2], int(f[3])))
+    return out
+
+
+def wire_switches(gen, patch_text):
+    """After the generator ran: point every patched chunk at the manager's switch array and add its source.
+    Returns how many chunks were changed."""
+    sets = table_sets(patch_text)
+    main = os.path.join(gen, 'main')
+    src = os.path.join(main, 'mts_switches.c')
+    if not sets:
+        if os.path.exists(src):
+            os.remove(src)
+        return 0
+    changed = 0
+    for mod in ('main', 'sdk'):
+        folder = os.path.join(gen, mod)
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            if not name.endswith('.c') or name == 'mts_switches.c':
+                continue
+            path = os.path.join(folder, name)
+            with open(path, 'rb') as f:
+                data = f.read()
+            if b'rt_patch_on' in data:
+                with open(path, 'wb') as f:
+                    f.write(data.replace(b'rt_patch_on', b'mts_patch_on'))
+                changed += 1
+    text = switch_source(sets)
+    old = None
+    if os.path.exists(src):
+        with open(src, encoding='utf-8') as f:
+            old = f.read()
+    if old != text:
+        with open(src, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(text)
+    return changed
+
+
+def write_switches(game_root, states):
+    """states: {set name: bool}. The built game reads this file when it starts, however it is launched."""
+    path = os.path.join(game_root, SWITCH_FILE)
+    body = ('# Code mod switches, written by Mod the Show Manager. name=1 is on.\n' +
+            ''.join(f'{n}={1 if on else 0}\n' for n, on in states.items()))
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(body)
+
+
+def last_launch(game_root):
+    """{set name: (on, where the answer came from)} from the game's last start, or None if it never wrote one."""
+    try:
+        with open(os.path.join(game_root, 'logs', SWITCH_LOG), encoding='utf-8', errors='replace') as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    out = {}
+    for line in lines[1:]:
+        m = re.match(r'(\w+)=([01]) \((.*)\)$', line)
+        if m:
+            out[m.group(1)] = (m.group(2) == '1', m.group(3))
+    return out
 
 
 def rebuild(recomp, game_root, patch_text, log=print):
@@ -158,7 +297,7 @@ def rebuild(recomp, game_root, patch_text, log=print):
                             '--ninja', os.path.join(recomp, 'bin', 'ninja.exe'),
                             '--runtime-lib', os.path.join(recomp, 'runtime', 'libmlbrt.a'), '--portable',
                             '--gen', gen, '--out', out])]
-    for title, cmd in steps:
+    for k, (title, cmd) in enumerate(steps):
         log(title + '...')
         p = subprocess.Popen(cmd, cwd=recomp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                              errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -171,6 +310,13 @@ def rebuild(recomp, game_root, patch_text, log=print):
                     log(f'{title}: {line.split("]")[0].lstrip("[") if line.startswith("[") else line}')
         if p.wait():
             raise PatchError(f'{title} failed:\n' + '\n'.join(tail))
+        if k == 0:
+            n = wire_switches(gen, patch_text)
+            if signature(patch_text):
+                if not n:
+                    raise PatchError('The translated code has no patched spots in it, so the code mods would do '
+                                     'nothing. Nothing was changed.')
+                log(f'Switches wired into {n} piece(s) of the game code')
     built = os.path.join(out, 'mlb.exe')
     if not os.path.exists(built):
         raise PatchError('The build finished without an mlb.exe.')
@@ -281,3 +427,24 @@ set  iron_arms MLB_MOD_IRONARMS 0
 site iron_arms main 3c56fc 72a800c8 72a7e0c8
 site iron_arms main 3c5710 72a800c8 72a7e0c8
 '''
+
+
+def last_swing(game_root):
+    """What the game's own log (logs/mlb.log) says about the last swing: {'error': aim error, 'perfect': (pci,
+    timing)} with whatever was found, or {}. Handy for checking Auto PCI (error 0.00) and Perfect-Perfect (1 1)."""
+    path = os.path.join(game_root, 'logs', 'mlb.log')
+    try:
+        size = os.path.getsize(path)
+        with open(path, 'rb') as f:
+            f.seek(max(0, size - 8_000_000))
+            tail = f.read().decode('utf-8', 'replace')
+    except OSError:
+        return {}
+    out = {}
+    m = re.findall(r'ErrorMag: (-?[\d.]+)', tail)
+    if m:
+        out['error'] = float(m[-1])
+    m = re.findall(r'PERFECT PERFECT (\d) (\d)', tail)
+    if m:
+        out['perfect'] = (int(m[-1][0]), int(m[-1][1]))
+    return out

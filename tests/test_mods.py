@@ -86,6 +86,36 @@ def test_drop_sets():
     assert not bad and {'auto_pci', 'moonshot', 'perfect_perfect'} <= {s[0] for s in sets}
 
 
+def test_switch_wiring():
+    gen = tempfile.mkdtemp()
+    os.makedirs(os.path.join(gen, 'main'))
+    os.makedirs(os.path.join(gen, 'sdk'))
+    with open(os.path.join(gen, 'main', 'main_0001.c'), 'w') as f:
+        f.write('extern uint8_t rt_patch_on[];\nvoid f(void) { if (rt_patch_on[1]) {} else {} }\n')
+    with open(os.path.join(gen, 'main', 'main_0002.c'), 'w') as f:
+        f.write('void g(void) {}\n')
+    table = 'set a MLB_A 0\nsite a main 10 1 2\nset b MLB_B 1\nsite b main 20 3 4\n'
+    assert codemods.wire_switches(gen, table) == 1
+    with open(os.path.join(gen, 'main', 'main_0001.c')) as f:
+        text = f.read()
+    assert 'rt_patch_on' not in text and 'mts_patch_on[1]' in text
+    with open(os.path.join(gen, 'main', 'mts_switches.c')) as f:
+        src = f.read()
+    assert '{"a", "MLB_A", 0}' in src and '{"b", "MLB_B", 1}' in src and '#define MTS_SETS 2' in src
+    assert codemods.wire_switches(gen, '') == 0 and not os.path.exists(os.path.join(gen, 'main', 'mts_switches.c'))
+    root = tempfile.mkdtemp()
+    os.makedirs(os.path.join(root, 'logs'))
+    codemods.write_switches(root, {'a': True, 'b': False})
+    with open(os.path.join(root, codemods.SWITCH_FILE)) as f:
+        assert 'a=1' in f.read()
+    with open(os.path.join(root, 'logs', codemods.SWITCH_LOG), 'w') as f:
+        f.write('Code mods built into this mlb.exe: 2\na=1 (launch switch)\nb=0 (default)\n')
+    assert codemods.last_launch(root) == {'a': (True, 'launch switch'), 'b': (False, 'default')}
+    with open(os.path.join(root, 'logs', 'mlb.log'), 'w') as f:
+        f.write('[lm 0] {CrossXY: 1, 2, AimXY: 1, 2, ErrorXY: 0.16, -0.35, ErrorMag: 0.37}\n[lm 0] PERFECT PERFECT 0 1\n')
+    assert codemods.last_swing(root) == {'error': 0.37, 'perfect': (0, 1)}
+
+
 def test_roster_keys():
     assert rosterjson._height('6\'2"') == 74 and rosterjson._height(74) == 74 and rosterjson._height('6-0') == 72
     assert rosterjson.RATING_KEYS['power_vs_r'] == 'POWER_RIGHT' and rosterjson._pos('SP') == 0
@@ -97,5 +127,6 @@ if __name__ == '__main__':
     test_apply_disable_restore()
     test_restore_exe()
     test_drop_sets()
+    test_switch_wiring()
     test_roster_keys()
     print('ok')

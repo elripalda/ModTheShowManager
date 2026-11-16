@@ -503,6 +503,7 @@ class MainWindow(QMainWindow):
                 self.go('Mods')
                 return
         try:
+            self.pages['Code Plugins'].write_switches()
             self.game.launch(self.pages['Code Plugins'].env())
             self.toast('Launching MLB The Show 26...')
         except Exception as x:

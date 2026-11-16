@@ -33,10 +33,10 @@ Code mods need the recomp's own folder, the one with `MLBTS-Setup.exe` in it.
 1. Go to **Code Plugins**. If it says the recomp folder wasn't found, press **Find Recomp Folder**.
 2. Tick **Moonshot** (or **Auto PCI**).
 3. Press **Rebuild Game** and wait about two minutes.
-4. Launch from the manager.
+4. Press **Play**.
 
-After the first rebuild you can tick and untick without rebuilding. It takes effect the next time you launch
-from the manager.
+After the first rebuild you can tick and untick without rebuilding. It takes effect the next time the game
+starts. Code Plugins shows what the game had on the last time it started, so you can check.
 
 ## 5. Go back to stock
 
