@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
                 self.nav_buttons[name] = b
                 lay.addWidget(b)
         lay.addStretch(1)
-        ver = label(f'Version {__version__} · Ripalda', 'Sub')
+        ver = label(f'Build {__version__} · Ripalda', 'Sub')
         ver.setContentsMargins(10, 4, 4, 0)
         ver.setStyleSheet('font-size: 11px;')
         lay.addWidget(ver)
@@ -448,9 +448,13 @@ class MainWindow(QMainWindow):
         w = b.fontMetrics().horizontalAdvance(text) + 44
         b.setFixedWidth(min(640, max(240, w)))
         b.adjustSize()
+        was_hidden = not b.isVisible()
         self._place_toast()
         b.show()
         b.raise_()
+        if was_hidden:
+            from .motion import rise
+            rise(b, b.pos())
         QTimer.singleShot(6000, lambda t=text: b.text() == t and b.hide())
 
     def _place_toast(self):
@@ -488,6 +492,9 @@ class MainWindow(QMainWindow):
         workers.start(job)
 
     def launch(self):
+        if self.game.running():
+            self.toast('MLB The Show 26 is already running.')
+            return
         if self.lib.pending():
             r = QMessageBox.question(self, 'Changes Not Applied',
                                      'Some mod changes aren\'t in the game yet. Launch anyway?\n\n'
@@ -509,7 +516,7 @@ class MainWindow(QMainWindow):
         from .viewer3d import ModelView3D
         for v in self.findChildren(ModelView3D):      # free GPU textures while their context still exists
             try:
-                v.set_meshes([])
+                v.release()
             except Exception:
                 pass
         super().closeEvent(e)

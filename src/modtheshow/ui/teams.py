@@ -37,8 +37,7 @@ class TeamsPage(QWidget):
         self.b_save = button('Save to My Mod', True, self.save)
         outer.addWidget(header('Teams & Rosters', 'Rename any team, fix player names and ratings, or move a player to '
                                'another club. Saves go into your mod like everything else.',
-                               [button('Arcade Rosters', on_click=self.league_tools),
-                                button('Team Builder Names', on_click=self.team_builder), self.b_reset, self.b_save]))
+                               [self._tools_button(), self._file_button(), self.b_reset, self.b_save]))
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
         split.setHandleWidth(16)
@@ -123,14 +122,15 @@ class TeamsPage(QWidget):
         self.number.setToolTip('Jersey number')
         self.number.valueChanged.connect(self._player_edited)
         self.bats = QComboBox()
-        self.bats.addItems(['Bats R', 'Bats L', 'Bats S'])
+        self.bats.addItems(['Bats R', 'Bats L', 'Switch'])
         self.bats.currentIndexChanged.connect(self._player_edited)
         self.throws = QComboBox()
-        self.throws.addItems(['Throws R', 'Throws L'])
+        self.throws.addItems(['Thr R', 'Thr L'])
         self.throws.currentIndexChanged.connect(self._player_edited)
         self.height = QSpinBox()
         self.height.setRange(60, 90)
-        self.height.setToolTip('Height in inches')
+        self.height.setSuffix(' in')
+        self.height.setToolTip('Height in inches (74 in is 6 ft 2)')
         self.height.valueChanged.connect(self._player_edited)
         row2 = QHBoxLayout()
         row2.setSpacing(8)
@@ -201,6 +201,104 @@ class TeamsPage(QWidget):
         split.setStretchFactor(1, 1)
         split.setSizes([250, 640, 420])
         outer.addWidget(split, 1)
+
+    def _tools_button(self):
+        from PySide6.QtWidgets import QMenu
+        b = button('Tools')
+        m = QMenu(b)
+        m.addAction('Arcade Rosters (boost or scramble ratings)', self.league_tools)
+        m.addAction('Auto Lineup for This Team', self.auto_lineup)
+        m.addAction('Team Builder Names', self.team_builder)
+        b.setMenu(m)
+        return b
+
+    def _file_button(self):
+        from PySide6.QtWidgets import QMenu
+        b = button('Import / Export')
+        m = QMenu(b)
+        m.addAction('Import a Roster File (.json)', self.import_json)
+        m.addSeparator()
+        m.addAction('Export This Team', lambda: self.export_json(False))
+        m.addAction('Export All 30 MLB Teams', lambda: self.export_json(True))
+        m.addAction('Save a Sample File to Edit', self.sample_json)
+        b.setMenu(m)
+        return b
+
+    def _relist(self):
+        """Team names in the list and the move menu, after a rename from a file."""
+        for i in range(self.list.count()):
+            it = self.list.item(i)
+            idx = it.data(Qt.UserRole)
+            if idx is not None and idx != R.FREE_AGENT and idx < len(self.db.teams):
+                it.setText(self.db.teams[idx].full)
+        for i in range(self.move_to.count()):
+            idx = self.move_to.itemData(i)
+            if idx != R.FREE_AGENT and idx < len(self.db.teams):
+                self.move_to.setItemText(i, self.db.teams[idx].full)
+
+    def auto_lineup(self):
+        if not self.db or self.team is None:
+            return
+        if self.db.roster_of(self.team.index).auto_lineups(self.db.players):
+            self._dirty(True)
+            self.main.toast(f'New lineups set for {self.team.full}. Save to My Mod to keep them.')
+        else:
+            QMessageBox.information(self, 'Auto Lineup', 'This team needs a starting pitcher and at least eight position '
+                                    'players first.')
+
+    def export_json(self, everyone):
+        from PySide6.QtWidgets import QFileDialog
+        from .. import rosterjson as J
+        if not self.db or (not everyone and self.team is None):
+            return
+        teams = list(range(30)) if everyone else [self.team.index]
+        name = 'MLB Rosters.json' if everyone else f'{self.team.full}.json'
+        path, _ = QFileDialog.getSaveFileName(self, 'Export Roster', os.path.join(self.main.last_dir(), name),
+                                              'Roster (*.json)')
+        if not path:
+            return
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(J.dump(J.export(self.db, teams)))
+        except OSError as x:
+            QMessageBox.warning(self, 'Could Not Export', str(x))
+            return
+        self.main.toast(f'Exported {os.path.basename(path)}')
+
+    def sample_json(self):
+        from PySide6.QtWidgets import QFileDialog
+        from .. import rosterjson as J
+        path, _ = QFileDialog.getSaveFileName(self, 'Sample Roster File', os.path.join(self.main.last_dir(),
+                                              'Sample Roster.json'), 'Roster (*.json)')
+        if path:
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(J.dump(J.SAMPLE))
+            except OSError as x:
+                QMessageBox.warning(self, 'Could Not Save', str(x))
+                return
+            self.main.toast('Sample saved. Edit it, then Import a Roster File.')
+
+    def import_json(self, path=None):
+        from PySide6.QtWidgets import QFileDialog
+        from .. import rosterjson as J
+        if not self.db:
+            return
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(self, 'Import Roster', self.main.last_dir(), 'Roster (*.json)')
+        if not path:
+            return
+        try:
+            rep = J.apply(self.db, J.load(path))
+        except Exception as x:
+            QMessageBox.warning(self, 'Could Not Import', f'That file could not be read as a roster:\n{x}')
+            return
+        self._relist()
+        self._fill_roster()
+        self._dirty(self.db.dirty())
+        if rep.problems:
+            QMessageBox.information(self, 'Imported With Notes', rep.text() + '\n\n' + '\n'.join(rep.problems[:25]))
+        self.main.toast(rep.text() + ' Save to My Mod to keep it.')
 
     def league_tools(self):
         if not self.db:

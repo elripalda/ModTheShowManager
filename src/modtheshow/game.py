@@ -34,9 +34,20 @@ def load_settings():
         return {}
 
 
+def write_json(path, data):
+    """Writes through a temp file, so a crash or a full disk never leaves half a file behind."""
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
 def save_settings(s):
-    with open(settings_path(), 'w', encoding='utf-8') as f:
-        json.dump(s, f, indent=2)
+    write_json(settings_path(), s)
+
+
+def log_path():
+    return os.path.join(os.path.dirname(settings_path()), 'manager.log')
 
 
 class Node:

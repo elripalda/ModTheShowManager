@@ -11,7 +11,7 @@ SECTIONS = [
     ('Scoreboards', 'The scorebug and overlays', 'Reskin the scorebug or move it anywhere on screen.'),
     ('Menus & Loading Screens', 'Front end art and fonts', 'Loading screens, menu art, headshots and fonts.'),
     ('3D Models', 'Look at and swap meshes', 'Open any model, export it, replace it with your own.'),
-    ('Sounds', 'Crowd, bats and music', 'Listen to the game’s audio and export it.'),
+    ('Sounds', 'Crowd, commentary and music', 'Hear every sound in the game, export it, or swap in your own.'),
     ('Teams & Rosters', 'Players, gear and ratings', 'Edit any player, his gear and ratings, and move him between clubs.'),
 ]
 STEPS = [('1', 'Pick a mod', 'Choose where your changes go in Saving To, up top. New Mod makes one.'),
@@ -102,6 +102,10 @@ class HomePage(QWidget):
             top.addWidget(b, 0, Qt.AlignBottom)
         lay.addLayout(top)
 
+        from .launcher import LauncherCard
+        self.launcher = LauncherCard(main)
+        lay.addWidget(self.launcher)
+
         steps = QGridLayout()
         steps.setSpacing(12)
         for i, s in enumerate(STEPS):
@@ -117,8 +121,8 @@ class HomePage(QWidget):
         fc = QVBoxLayout()
         fc.setSpacing(4)
         fc.addWidget(label('Arcade mods', 'CardTitle'))
-        fc.addWidget(label('Moonshot home runs, a juiced ball, thin air, or everyone rated 125. Switch them on, '
-                           'rebuild once, and play.', 'Sub', wrap=True))
+        fc.addWidget(label('Auto PCI, moonshot home runs, a juiced ball, thin air, or everyone rated 125. Switch '
+                           'them on, rebuild once, and play.', 'Sub', wrap=True))
         fl.addLayout(fc, 1)
         b1 = button('Arcade Rosters', on_click=lambda: main.go('Teams & Rosters'))
         b2 = button('Code Plugins', True, lambda: main.go('Code Plugins'))
@@ -142,6 +146,11 @@ class HomePage(QWidget):
 
     def activate(self):
         self.refresh()
+        if not getattr(self, '_shown', False):
+            self._shown = True
+            from .motion import fade_in
+            t = self.launcher
+            fade_in([t.t_files, t.t_code, t.t_display, t.t_time] + self.cards)
 
     def refresh(self):
         for c in self.cards:
@@ -149,6 +158,10 @@ class HomePage(QWidget):
         lib = self.main.lib
         if not lib:
             return
+        try:
+            self.launcher.refresh()
+        except Exception:      # a half-written cfg or json must never take the start screen down
+            pass
         mods = lib.list()
         on = sum(m.enabled for m in mods)
         pending = lib.pending_count()

@@ -72,7 +72,7 @@ class SettingsPage(QWidget):
         grid.addWidget(game, 0, 1)
 
         upd = self._card('Updates')
-        upd.lay.addWidget(label(f'You have version {__version__}.'))
+        upd.lay.addWidget(label(f'You have build {__version__}.'))
         self.upd_text = label('', 'Sub', wrap=True)
         upd.lay.addWidget(self.upd_text)
         self.auto = QCheckBox('Check when the manager starts')
@@ -106,12 +106,26 @@ class SettingsPage(QWidget):
         row.addWidget(button('Project Page', on_click=lambda: QDesktopServices.openUrl(
             QUrl('https://github.com/elripalda/ModTheShowManager'))), 1)
         files.lay.addLayout(row)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addWidget(button('Open Log', on_click=self._log), 1)
+        row.addWidget(button('Report a Problem', on_click=lambda: QDesktopServices.openUrl(
+            QUrl('https://github.com/elripalda/ModTheShowManager/issues'))), 1)
+        files.lay.addLayout(row)
         grid.addWidget(files, 1, 1)
         for i in (0, 1):
             grid.setColumnStretch(i, 1)
             grid.setRowStretch(i, 1)
         outer.addLayout(grid, 1)
         self.found = None
+
+    def _log(self):
+        from ..game import log_path
+        path = log_path()
+        if not os.path.exists(path):
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write('Nothing has gone wrong yet.\n')
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _card(self, title):
         p = panel()

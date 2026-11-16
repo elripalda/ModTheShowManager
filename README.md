@@ -16,13 +16,18 @@ drop in your own art and switch mods on and off.
   hide meshes. Bat Shapes turns every bat in the game into a wiffle bat, a big barrel toy bat or a fungo.
 - **Uniforms on a player** – flip the Uniforms page to *On a Player* and see the uniform you're editing on a
   mannequin with the cap, name and number, your replaced PNGs included.
-- **Sounds** – every sound file in the game. Sound banks and AT9 clips play and export as WAV.
+- **Sounds** – every sound in the game plays and exports as WAV: crowd and reaction streams, sound banks, and
+  the commentary, PA and music archives sample by sample. Streams can be replaced with your own WAV.
 - **Scorebug layout** – move the scorebug and other overlays anywhere on screen.
 - **Uniform schedule** – choose what each team wears and when, rename uniforms, hide them from the picker.
 - **Teams & Rosters** – rename teams, edit players, ratings, numbers and gear, move players, swap face textures,
-  and edit the custom team builder's names.
+  and edit the custom team builder's names. Rosters export to and import from a plain
+  [JSON file](docs/ROSTER_FILES.md), so a classic roster can be typed up (or written by an AI) and dropped in.
 - **Code Plugins** – build instruction patches from mods into the game and switch them per launch. Comes with
-  arcade samples: moonshot home runs, a juiced ball, thin air.
+  arcade samples: Auto PCI, moonshot home runs, a juiced ball, thin air. See [code mods](docs/CODE_MODS.md).
+- **Launcher** – Home shows what state the game is in (stock or modded files, standard or code-mod build), has a
+  Play button and the game's display settings.
+- **Sample Mods** – four ready-made mods, built on your PC from your own game files, one of each kind.
 - Dark, Light and OLED looks, text size, and an update check.
 - **Stadiums in 3D** – orbit a ballpark or fly through it.
 - Replaced textures keep the game's format: BC1, BC3, BC4 and BC7, with mip levels and loading previews rebuilt.
@@ -58,6 +63,10 @@ then export with the same axis settings.
 
 Share your own work, not the game's original files.
 
+Nothing a mod does touches the originals for good. Apply copies each file it is about to change into
+`<game>\mod-backup` first. Switch a mod off and Apply again and its files go back; **Restore Original Game** puts
+everything back at once, the standard `mlb.exe` included.
+
 ## Building
 
 ```
@@ -70,6 +79,6 @@ pyinstaller ModTheShowManager.spec      # build the exe
 
 Made by [Ripalda](https://www.elripalda.com). Runs on top of
 [mlbts-native](https://github.com/sam110411/mlbts-native). Audio decoding by [vgmstream](https://vgmstream.org).
-Fonts: Inter, Anton (SIL Open Font License).
+Fonts: Poppins, Anton (SIL Open Font License).
 
 Licensed under GPL-3.0.

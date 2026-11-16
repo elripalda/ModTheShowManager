@@ -36,13 +36,16 @@ class PluginsPage(QWidget):
         self.list.setStyleSheet('QListWidget { border: none; padding: 0; background: transparent; }')
         self.list.setSelectionMode(QListWidget.NoSelection)
         ll.addWidget(self.list, 1)
-        self.empty = label('No code mods yet. Add Arcade Samples gives you ready-made ones (moonshots, juiced ball, '
-                           'thin air). New Code Mod puts a starter file in your mod that explains the format.',
-                           'Soft', wrap=True)
+        self._empty_text = ('No code mods yet. Add Arcade Samples gives you ready-made ones (Auto PCI, moonshots, '
+                            'juiced ball, thin air). New Code Mod puts a starter file in your mod that explains the '
+                            'format.')
+        self.empty = label(self._empty_text, 'Soft', wrap=True)
         self.hint = label('Tick what you want, press Rebuild Game once, then launch from the manager. After that you '
                           'can tick and untick without rebuilding.', 'Sub', wrap=True)
         ll.addWidget(self.hint)
         ll.addWidget(self.empty)
+        self.filler = QWidget()
+        ll.addWidget(self.filler, 1)
         row.addWidget(left, 3)
         right = panel()
         rl = QVBoxLayout(right)
@@ -80,11 +83,23 @@ class PluginsPage(QWidget):
         sw = self.switches()
         return {env: '1' if sw.get(name, bool(default)) else '0' for name, env, default, _ in sets}
 
+    def active_names(self):
+        """Names of the code mods that are ticked, when the game is built with the current set."""
+        sets, text, bad = codemods.collect(self.main.lib.list())
+        if bad or not sets:
+            return []
+        text, misfit = codemods.fitting(self.main.game.root, text)
+        if codemods.signature(text) != self.main.settings.get('code_built', ''):
+            return []
+        sw = self.switches()
+        return [codemods.nice(n) for n, _, default, _ in sets if sw.get(n, bool(default)) and n not in misfit]
+
     def activate(self):
         self.refresh()
 
     def refresh(self):
         sets, text, bad = codemods.collect(self.main.lib.list())
+        text, misfit = codemods.fitting(self.main.game.root, text)
         self.list.clear()
         sw = self.switches()
         for name, env, default, mod in sets:
@@ -92,22 +107,32 @@ class PluginsPage(QWidget):
             w = QWidget()
             hl = QHBoxLayout(w)
             hl.setContentsMargins(4, 0, 4, 0)
-            chk = QCheckBox(name.replace('_', ' ').title())
-            chk.setChecked(sw.get(name, bool(default)))
+            chk = QCheckBox(codemods.nice(name))
+            chk.setChecked(sw.get(name, bool(default)) and name not in misfit)
             chk.setToolTip(f'Switch {env}. Takes effect the next time you launch from the manager.')
             chk.toggled.connect(lambda on, n=name: self._toggle(n, on))
+            if name in misfit:
+                chk.setEnabled(False)
+                chk.setToolTip('Made for a different game version:\n' + '\n'.join(misfit[name][:4]))
             chk.setMinimumWidth(170)
             hl.addWidget(chk)
-            d = label(codemods.DESCRIPTIONS.get(name, mod), 'Sub', wrap=True)
+            d = label('Doesn’t fit this game version, so it is left out of the build.' if name in misfit
+                      else codemods.DESCRIPTIONS.get(name, mod), 'Sub', wrap=True)
             hl.addWidget(d, 1)
             from PySide6.QtCore import QSize
             it.setSizeHint(QSize(0, 56))
             self.list.addItem(it)
             self.list.setItemWidget(it, w)
+        off = [m.name for m in self.main.lib.list() if not m.enabled and codemods.mod_patches(m)]
+        self.empty.setText(f'Your code mods are in mods that are switched off ({", ".join(off[:3])}). Switch them on '
+                           'in Mods and they show up here.' if off and not sets else self._empty_text)
         self.empty.setVisible(not sets)
         self.hint.setVisible(bool(sets))
-        self.b_arcade.setEnabled(not any(m.name == codemods.ARCADE_NAME for m in self.main.lib.list()))
+        have = self._arcade_text()
+        self.b_arcade.setText('Add Arcade Samples' if have is None else 'Update Arcade Samples')
+        self.b_arcade.setEnabled(have != codemods.ARCADE)
         self.list.setVisible(bool(sets))
+        self.filler.setVisible(not sets)
         r = self.recomp()
         self.recomp_label.setText(f'Recomp folder: {r}' if r else
                                   'The recomp folder (where MLBTS-Setup.exe is) wasn’t found. Point the manager at it '
@@ -140,6 +165,17 @@ class PluginsPage(QWidget):
         self.main.settings['recomp'] = path
         self.main.save_settings()
         self.refresh()
+
+    def _arcade_text(self):
+        """The arcade patch file in the library, or None when the samples are not added."""
+        mod = next((m for m in self.main.lib.list() if m.name == codemods.ARCADE_NAME), None)
+        if mod is None:
+            return None
+        try:
+            with open(os.path.join(mod.path, 'code', 'arcade.patch'), encoding='utf-8') as f:
+                return f.read()
+        except OSError:
+            return ''
 
     def add_arcade(self):
         lib = self.main.lib
@@ -178,6 +214,7 @@ class PluginsPage(QWidget):
         sets, text, bad = codemods.collect(self.main.lib.list())
         if bad:
             return
+        text, _ = codemods.fitting(self.main.game.root, text)
         r = QMessageBox.question(self, 'Rebuild Game', 'This rebuilds mlb.exe with the code mods that are switched '
                                  'on. It takes about two minutes and your current mlb.exe is kept as '
                                  'mlb.original.exe.\n\nRebuild now?')

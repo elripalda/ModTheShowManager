@@ -88,9 +88,10 @@ and carry progressive LODs and cloth data that a swap has to rebuild.
 
 ## Sounds
 
-**Sounds** lists every audio file. Sound banks and AT9 files play and export as WAV through vgmstream. The
-crowd and reaction streams (`.XVAG`) use a Switch-only codec (0x0E) nobody decodes yet, and the commentary,
-PA and music `.SKX` archives are listed by name only (their `.KEY` files name every sample).
+**Sounds** lists every audio file, and all of it plays and exports as WAV. The crowd and reaction streams
+(`.XVAG`) and most of the commentary, PA and music archives (`.SKX`) use Sony's SADPCM, which the manager decodes
+itself. Sound banks, AT9 files and the few ATRAC9 clips inside archives go through vgmstream. Pick an archive and
+its samples are listed by name; tutorial lines show what is being said.
 
 ## Scorebug layout
 
@@ -108,7 +109,11 @@ home or road, jersey, pants and cap, which days, day or night, a date window and
 
 **Teams & Rosters** reads `FRONTEND/STATS/ROSTERS.BIN` (teams) and `PLAYERS.BIN` (players and ratings). Rename a
 team, fix a player's name, position or ratings, or move him to another club. Saves patch the `_LIVE` and `_INJ`
-copies too. Moving players is in beta: rotations and lineups aren't rebuilt, so set them in the game afterwards.
+copies too.
+
+**Import / Export** turns a team into a JSON file and reads one back: see [roster files](ROSTER_FILES.md). A name
+the game doesn't have takes over a spare player with a built face, so a classic roster never puts a new name on a
+real player's scanned head. **Tools › Auto Lineup** fills a team's lineups from whoever is on it.
 
 The **Face** tab shows the player's face texture from `NSW/CHARACTERS/HEADS/<LAST_FIRST>/`. Players with the
 same name get a letter on the end (`BELL_JOSHE`). Young players without a scan use the generic creator faces.
@@ -134,13 +139,16 @@ power (mph) into the ball's speed off the bat (`main+167d0b4`), and Thin Air sca
 out from a park's temperature and altitude (`main+165ac78`). The file is commented; read it before writing your own.
 
 Rebuild Game runs the recomp's generator and build (about two minutes) and keeps your old exe as
-`mlb.original.exe`. Each set stays switchable when you launch from the manager. Finding what to patch is the hard
-part: offsets are for game version 1.0.15.
+`mlb.original.exe`. Each set stays switchable when you launch from the manager. The manager reads the game's own
+code (`game/exefs/main`) first and leaves out any set made for a different game version.
+
+[Code mods](CODE_MODS.md) has the samples, how to write your own, and a map of the gameplay code found so far.
 
 ## Replacing sounds
 
-Stream files (`.XVAG`) have **Replace With WAV (Beta)**. The replacement is written as PS ADPCM (XVAG codec 6),
-which the sound engine lists next to its own codec. Try it in the game before you build a mod around it.
+Stream files (`.XVAG`) have **Replace With WAV**. Your WAV is resampled to the original's rate, matched to its
+channel count and written in SADPCM, the same codec the game's own streams use. Replacing a sample inside an
+`.SKX` archive isn't in yet.
 
 ## Stadiums in 3D
 
@@ -149,15 +157,16 @@ and walk around with W A S D (Q and E for down and up). Hide Roof opens up cover
 
 ## Not cracked yet
 
-- Playing the game's own `.XVAG` streams. Codec 0x0E is Sony's SADPCM (the game's name for it); the frame layout
-  is in the format reference below, the predictor isn't solved. `.SKX` archives are XVAG clips at 0x800-aligned
-  offsets, named by the `.KEY` file.
 - Texture names inside UI layouts. They use a hash nobody has matched yet, so the Layout view draws boxes.
 - Head meshes. The `HEADS` folders hold hair and eyebrow models plus the face textures; the head shape is built at
   runtime.
-- Gameplay. The recomp's build can bake instruction patches into `mlb.exe` (`recomp/patches.py` in mlbts-native),
-  each switchable at run time. That's the road to gameplay mods like metal-bat exit velocity. The work left is
-  finding the right code.
+- Saves. A fresh profile only holds settings (`profile/save/<id>/SETT...`) and a marker (`PLYA...`); franchise and
+  Road to the Show saves haven't been looked at yet.
+- Scanned-head links. A player with a scan has `HEAD_SHAPE` 0 and an empty `APPEAR_VALUES` in `D_PLAYER_APP`;
+  what ties him to his `HEADS` folder (the name or `PLAYER_ID`) isn't confirmed, so the manager never renames a
+  scanned player into someone new.
+- More gameplay. Hit speed, air density, aim error, perfect contact, bat breaks and fatigue are mapped
+  ([code mods](CODE_MODS.md)). Runner speed, pitch speed and fielding aren't yet.
 
 ---
 
@@ -217,12 +226,22 @@ tangents), `kFP_0_0_8` (unorm8), `kUInt_8` (bone indices). The bat stores its le
 ## Audio
 
 - `.AT9`: RIFF WAVE, ATRAC9 (GUID `d242e147-ba36-8d4d-88fc-61654f8c836c`), 48 kHz.
-- `.XVAG`: `XVAG` header with an `fmat` chunk: channels, codec, samples, …, sample rate at +0x1C. Codec 0x0E on Switch.
-  Its data is 96-byte frames: four 4-byte group headers, then 80 bytes of 4-bit codes. Each header packs two
-  12-bit history samples (bits 0–11 and 12–23) and a byte whose low nibble looks like a filter index (0–4) and
-  high nibble a scale. The two header samples start the group and 40 codes follow: 42 samples per group. Mono files
-  run the four groups one after another; multichannel files give one group to each channel. The filter table is
-  still unknown.
+- `.XVAG`: `XVAG`, u32 offset of the audio, then chunks. `fmat`: channels, codec, samples (twice), a block
+  count, sample rate at +0x1C, audio size at +0x20. Codec 0x0E is SADPCM, 0x09 ATRAC9.
+- SADPCM: 96-byte frames, 168 samples of one channel each; channels take turns frame by frame. A frame is four
+  u32 group headers and 80 bytes of 4-bit codes. A header holds the group's second sample (bits 0–11) and first
+  sample (bits 12–23), both signed 12-bit and worth 16x in 16-bit terms, a filter (bits 24–27) and a shift
+  (bits 28–31). Codes are read high nibble first; nibble *k* belongs to group *k* mod 4, so the four groups are
+  woven together and each gets 40 codes, 42 samples with its header pair. The groups follow each other in time.
+  Each new sample is `k0 * s[n-1] + k1 * s[n-2] + (code << shift)` with code a signed nibble. The 16 filters
+  (`k0`, `k1`): (0, 0), (0.9375, 0), (1.796875, -0.8125), (1.53125, -0.859375), (1.90625, -0.9375), then those
+  four halved, then (0.234375, 0), (0.44921875, -0.203125), (0.3828125, -0.21484375), (0.4765625, -0.234375),
+  (0.5, -0.234375), (0.234375, -0.234375), (0.109375, -0.234375). The game's decoder is at `main+1b4ab80`, the
+  table at `main+1df27a0`.
+- `.SKX` + `.TBL` + `.KEY`: an archive of XVAG clips. `.TBL` (`STBL`): sample count at +8, sector size (u16) at
+  +0x18, then 6-byte records from +0x64: u32 sector, u16 kind. Kind 0x0100 is a pause in milliseconds, anything
+  else a clip at sector x sector size (some archives count from the end of the first sector). `.KEY` is XML:
+  one `SAMPLEFILE` per record with its name and, for spoken lines, the script.
 - In `PLAYERS.BIN`, `D_PLAYER_ACC` holds gear as the item's `style` from `FRONTEND/EQUIPMENT/MLBEQUIPMENT.JSON`.
   `UNSIGNED_PACK` bits: height 9–15 (inches), bats 23–24 (R, L, S), jersey number 128–134 and again 135–141.
   `SIGNED_PACK` bit 30 is throws left. `ROSTERS.BIN` `D_ROSTER_HLPR.PLAYER_NUMS` is 95 u32 slots of player

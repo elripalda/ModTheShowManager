@@ -1,8 +1,7 @@
-"""Write a replacement .XVAG from a WAV, in PS ADPCM (XVAG codec 6, the game lists it as XVAG_VAG).
+"""Write a replacement .XVAG from a WAV, in the game's own codec (SADPCM, XVAG codec 0x0E; see sadpcm.py).
 
-The game's own streams use codec 0x0E, which has no public decoder or encoder. Its sound engine also carries the
-classic VAG decoder, so a replacement is written in that. Experimental: it decodes back correctly here, but only a
-run in the game shows whether the Switch build plays codec 6.
+The replacement keeps the original's header, channel count and sample rate; only the length and the audio change.
+The PS ADPCM (codec 6) coder further down is what replacements were written in before SADPCM was worked out.
 """
 import struct
 import wave
@@ -99,6 +98,7 @@ def decode_channel(data):
 
 def build(original_path, wav_path, out_path):
     """Replacement for original_path (an XVAG) made from wav_path. Keeps the original's channels and sample rate."""
+    from . import sadpcm
     with open(original_path, 'rb') as f:
         orig = f.read(0x1000)
     if orig[:4] != b'XVAG':
@@ -107,21 +107,15 @@ def build(original_path, wav_path, out_path):
     fm = orig.find(b'fmat', 0, hdr)
     if fm < 0:
         raise ValueError('XVAG has no fmat chunk')
-    channels, _codec = struct.unpack_from('<II', orig, fm + 8)
+    channels, codec = struct.unpack_from('<II', orig, fm + 8)
+    if codec != 0x0E:
+        raise ValueError(f'this stream uses codec 0x{codec:02X}; only SADPCM (0x0E) streams can be replaced')
     rate = struct.unpack_from('<I', orig, fm + 0x1C)[0]
     pcm, wrate = read_wav(wav_path)
-    pcm = fit(pcm, wrate, channels, rate)
-    enc = [encode_channel(c) for c in pcm]
-    samples = enc[0][1]
-    frames = len(enc[0][0]) // 16
-    data = bytearray()
-    for f in range(frames):                       # one 16-byte frame per channel in turn
-        for c in range(channels):
-            data += enc[c][0][f * 16:f * 16 + 16]
+    pcm = np.clip(fit(pcm, wrate, channels, rate), -32768, 32767)
+    data, samples = sadpcm.encode(pcm)
     head = bytearray(orig[:hdr])
-    struct.pack_into('<I', head, fm + 0x0C, 6)    # codec: PS ADPCM
     struct.pack_into('<II', head, fm + 0x10, samples, samples)
-    struct.pack_into('<I', head, fm + 0x18, 1)    # interleave factor
     struct.pack_into('<I', head, fm + 0x20, len(data))
     with open(out_path, 'wb') as f:
         f.write(head)

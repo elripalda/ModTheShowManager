@@ -77,14 +77,22 @@ class Mod:
         t = self.textures()
         return sum(len(v) for v in t.values()), len(self.files())
 
-    def signature(self):
+    def signature(self, legacy=False):
+        """A fingerprint of what Apply installs from this mod: its textures and romfs files. '' when it has neither
+        (a code-only or empty mod has nothing to apply). legacy: the fingerprint builds before 0.10 wrote, which
+        covered every file in the folder."""
         h = hashlib.sha1()
+        any_ = False
         for dp, _, fs in sorted(os.walk(self.path)):
+            rel_dir = os.path.relpath(dp, self.path).replace('\\', '/')
+            if not legacy and rel_dir.split('/')[0] not in ('textures', 'romfs'):
+                continue
             for f in sorted(fs):
                 p = os.path.join(dp, f)
                 st = os.stat(p)
                 h.update(f'{os.path.relpath(p, self.path)}|{st.st_size}|{int(st.st_mtime)}'.encode())
-        return h.hexdigest()
+                any_ = True
+        return h.hexdigest() if any_ or legacy else ''
 
 
 class Library:
@@ -102,8 +110,8 @@ class Library:
             return {'order': [], 'disabled': []}
 
     def _save_state(self, st):
-        with open(os.path.join(self.root, STATE), 'w', encoding='utf-8') as f:
-            json.dump(st, f, indent=2)
+        from .game import write_json
+        write_json(os.path.join(self.root, STATE), st)
 
     def list(self):
         st = self._state()
@@ -235,26 +243,38 @@ class Library:
         return out
 
     # ---- install
-    def _signature(self):
-        return [[m.folder, m.signature()] for m in self.list() if m.enabled]
+    def _signature(self, legacy=False):
+        if legacy:
+            return [[m.folder, m.signature(True)] for m in self.list() if m.enabled]
+        return [[f, sig] for f, sig in ((m.folder, m.signature()) for m in self.list() if m.enabled) if sig]
+
+    def _applied(self):
+        """What the last Apply recorded: [[mod folder, fingerprint]]. A record from an older build is brought up to
+        date when nothing has changed since."""
+        path = os.path.join(self.game.backup, APPLIED)
+        try:
+            with open(path, encoding='utf-8') as f:
+                doc = json.load(f)
+            done = doc.get('mods', [])
+        except (OSError, ValueError, AttributeError):
+            return []
+        if done and done != self._signature() and done == self._signature(legacy=True):
+            done = self._signature()
+            try:
+                from .game import write_json
+                write_json(path, dict(doc, mods=done))
+            except OSError:
+                pass
+        return done
 
     def pending_count(self):
         """How many mods differ from what is in the game (turned on, off or edited since the last apply)."""
-        try:
-            with open(os.path.join(self.game.backup, APPLIED), encoding='utf-8') as f:
-                done = dict(map(tuple, json.load(f).get('mods', [])))
-        except (OSError, ValueError):
-            done = {}
+        done = dict(map(tuple, self._applied()))
         now = dict(map(tuple, self._signature()))
         return sum(1 for k in set(done) | set(now) if done.get(k) != now.get(k))
 
     def pending(self):
-        try:
-            with open(os.path.join(self.game.backup, APPLIED), encoding='utf-8') as f:
-                done = json.load(f).get('mods', [])
-        except (OSError, ValueError):
-            done = []
-        return done != self._signature()
+        return self._applied() != self._signature()
 
     def _backed_up(self):
         out = []

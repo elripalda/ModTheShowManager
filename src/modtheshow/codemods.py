@@ -99,6 +99,37 @@ def collect(mods):
     return sets, '\n'.join(lines) + '\n', bad
 
 
+def nice(name):
+    """A set name as a title: auto_pci -> Auto PCI."""
+    t = name.replace('_', ' ').title()
+    for a in ('Pci', 'Cpu', 'Hr', 'Fps'):
+        t = re.sub(rf'\b{a}\b', a.upper(), t)
+    return t
+
+
+def drop_sets(text, names):
+    """The table without the named sets (their set and site lines)."""
+    if not names:
+        return text
+    keep = []
+    for raw in text.splitlines():
+        f = raw.split('#', 1)[0].split()
+        if len(f) >= 2 and f[0] in ('set', 'site') and f[1] in names:
+            continue
+        keep.append(raw)
+    return '\n'.join(keep) + '\n'
+
+
+def fitting(game_root, text):
+    """(table text without the sets that do not match the installed game, {set: [why]})."""
+    from . import exefile
+    code = exefile.load(game_root)
+    if code is None:
+        return text, {}
+    bad = exefile.misfits(code, text)
+    return drop_sets(text, set(bad)), bad
+
+
 def signature(text):
     import hashlib
     body = '\n'.join(l for l in text.splitlines() if not l.startswith('#'))
@@ -221,4 +252,32 @@ site thin_air main 165ac78 1e210800 1e210800 1e2a1001 1e210800
 #: rocket_arms: Experimental. Thrown balls travel 1.25x faster.
 set  rocket_arms MLB_MOD_ROCKETARMS 0
 site rocket_arms main 1688088 72a7f768 72a7fd48
+
+# The swing's aim error is (where the PCI is) minus (where the pitch crosses the plate). These move the PCI onto the
+# ball right before that subtraction, so the contact is always centred. Timing is still up to you.
+#: auto_pci: Your PCI snaps onto the ball on every swing. You only have to time it. Offline fun only.
+set  auto_pci MLB_MOD_AUTOPCI 0
+site auto_pci main 35671c 1e203860 f9402288 79417908 51002508 4b0803e9 2a080128 131f7d08 1e260069 1e26000a 4a09014a 0a08014a 4a0a0129 1e270123 bd000a63 1e203860
+site auto_pci main 356724 1e213841 f9402288 79417908 51002508 4b0803e9 2a080128 131f7d08 1e260049 1e26002a 4a09014a 0a08014a 4a0a0129 1e270122 bd000e62 1e213841
+
+#: auto_pci_everyone: Same, but for every hitter, CPU included. Use it if the one above does nothing.
+set  auto_pci_everyone MLB_MOD_AUTOPCI_EVERYONE 0
+site auto_pci_everyone main 35671c 1e203860 1e204003 bd000a63 1e203860
+site auto_pci_everyone main 356724 1e213841 1e204022 bd000e62 1e213841
+
+# The game marks a swing "perfect PCI" and "perfect timing" with two flags. This sets both for human hitters.
+#: perfect_perfect: Experimental. Every ball you put in play counts as Perfect-Perfect contact.
+set  perfect_perfect MLB_MOD_PERFECT 0
+site perfect_perfect main 167a8cc 79009a68 79417b49 51002529 4b0903ea 2a090149 531f7d29 2a090108 79009a68
+site perfect_perfect main 167a8d8 12000002 12000002 79417b49 51002529 4b0903ea 2a090149 531f7d29 2a090042
+
+#: unbreakable_bats: Bats never break.
+set  unbreakable_bats MLB_MOD_NOBREAK 0
+site unbreakable_bats main 35acdc 1e2dcc2b 1e2041ab
+
+# Fatigue per pitch starts from 2.1; this makes it 0.525.
+#: iron_arms: Experimental. Pitchers tire four times slower.
+set  iron_arms MLB_MOD_IRONARMS 0
+site iron_arms main 3c56fc 72a800c8 72a7e0c8
+site iron_arms main 3c5710 72a800c8 72a7e0c8
 '''

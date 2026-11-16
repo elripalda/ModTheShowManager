@@ -159,6 +159,9 @@ QFrame#Card:hover {{ border-color: {LINE_HI}; background: {mix(S1, S2, 0.5)}; }}
 QFrame#Card:disabled {{ background: {mix(S1, BG, 0.5)}; }}
 QLabel#CardTitle {{ font-size: {px(17)}; font-weight: 500; }}
 QLabel#CardTag {{ color: {SOFT}; font-weight: 500; }}
+QFrame#Tile {{ background: {S2}; border: none; border-radius: {RC}px; }}
+QLabel#TileHead {{ color: {MUTED}; font-size: {px(11)}; font-weight: 700; letter-spacing: 1px; }}
+QLabel#TileValue {{ font-size: {px(16)}; font-weight: 500; }}
 QFrame#Step {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; }}
 QLabel#StepNum {{ background: {TEXT}; color: {BG}; border-radius: 17px; font-size: {px(14)}; font-weight: 700; }}
 QLabel#StepTitle {{ font-weight: 500; font-size: {px(14)}; }}

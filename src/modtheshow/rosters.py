@@ -196,8 +196,8 @@ class Team:
 
 
 class Player:
-    def __init__(self, i, prof, att, acc=None):
-        self.i, self.prof, self.att, self.acc = i, prof, att, acc
+    def __init__(self, i, prof, att, acc=None, app=None):
+        self.i, self.prof, self.att, self.acc, self.app = i, prof, att, acc, app
         self.id = prof.int('PLAYER_ID')
         self.first = prof.text('FIRST_NAME')
         self.last = prof.text('LAST_NAME')
@@ -219,6 +219,11 @@ class Player:
     @property
     def pitcher(self):
         return self.pos == 0
+
+    @property
+    def generic_face(self):
+        """True when the player uses a built face (HEAD_SHAPE set) rather than a scanned head."""
+        return self.app is not None and 'HEAD_SHAPE' in self.app.fields and self.app.int('HEAD_SHAPE') > 0
 
     def rating(self, field):
         return self.att.int(field) if self.att is not None and field in self.att.fields else 0
@@ -288,6 +293,8 @@ class Roster:
         self.rec = rec
         self.slots = list(struct.unpack('<95I', rec.raw('PLAYER_NUMS')))
         self.lineups = [(bytearray(l.raw('ROSTER')), bytearray(l.raw('BATTING_ORDER'))) for l in rec.kids.get('D_LINEUP', [])]
+        # how each lineup was set up: None unused, True with a DH, False with the pitcher batting
+        self.shape = [None if all(b == 255 for b in r) else r[9] != 255 for r, _ in self.lineups]
         self.dirty = False
 
     def slot_of(self, player_index):
@@ -316,6 +323,54 @@ class Roster:
                     roster[pos] = sub
                     if sub == 255 and pos and pos in order:
                         order[order.index(pos)] = 0
+
+    def holes(self):
+        """True when a lineup in use has a position nobody is playing."""
+        return any(sh is not None and any(sl == 255 or not self.slots[sl] for sl in r[:9])
+                   for (r, _), sh in zip(self.lineups, self.shape))
+
+    def auto_lineups(self, players):
+        """Fills every lineup in use from the players on the roster: the best glove-for-position at each spot, the best
+        remaining bat at DH, and a batting order from best hitter down. players is Database.players."""
+        def who(sl):
+            return players[self.slots[sl] - 1]
+
+        def bat(p):
+            return sum(p.rating(f) for f in ('CONTACT_LEFT', 'CONTACT_RIGHT', 'POWER_LEFT', 'POWER_RIGHT'))
+
+        hitters = [sl for sl in self.HITTERS if self.slots[sl]]
+        if not hitters or not self.slots[0]:
+            return False
+        near = {1: (1,), 2: (2, 4, 3), 3: (3, 5, 4), 4: (4, 5, 3, 2), 5: (5, 3, 4), 6: (6, 8, 7), 7: (7, 6, 8), 8: (8, 6, 7)}
+        field, used = {}, set()
+        for pos in (1, 5, 7, 3, 4, 2, 8, 6):          # hardest spots to cover first
+            for accept in near[pos]:
+                fit = [sl for sl in hitters if sl not in used and who(sl).pos == accept]
+                if fit:
+                    break
+            else:
+                fit = [sl for sl in hitters if sl not in used]
+            if not fit:
+                return False
+            best = max(fit, key=lambda sl: who(sl).rating('RANK'))
+            field[pos] = best
+            used.add(best)
+        spare = [sl for sl in hitters if sl not in used]
+        dh = max(spare, key=lambda sl: bat(who(sl))) if spare else 255
+        for k, ((roster, order), shape) in enumerate(zip(self.lineups, self.shape)):
+            if shape is None:
+                continue
+            roster[0] = 0
+            for pos, sl in field.items():
+                roster[pos] = sl
+            use_dh = shape and dh != 255
+            roster[9] = dh if use_dh else 255
+            spots = sorted(list(field) + ([9] if use_dh else []), key=lambda pos: -bat(who(roster[pos])))
+            if not use_dh:
+                spots = spots + [0]
+            order[:] = bytes(spots[:9])
+        self.dirty = True
+        return True
 
     def add(self, player_index, pitcher):
         group = self.PITCHERS if pitcher else self.HITTERS
@@ -347,7 +402,10 @@ class Database:
             atts = []
         if accs and len(accs) != len(profs):
             accs = []
-        self.players = [Player(i, p, atts[i] if atts else None, accs[i] if accs else None)
+        apps = self.pdb.tables.get('D_PLAYER_APP', [])
+        if apps and len(apps) != len(profs):
+            apps = []
+        self.players = [Player(i, p, atts[i] if atts else None, accs[i] if accs else None, apps[i] if apps else None)
                         for i, p in enumerate(profs)]
         self.edits_t = {}     # team index -> {field: value}
         self.edits_p = {}     # player index -> {('prof'|'att', field): value}
@@ -392,6 +450,9 @@ class Database:
             e[('team',)] = p.team
         for f, v in kw.get('ratings', {}).items():
             e[('att', f)] = max(0, min(255, int(v)))
+            if p.att is not None and f in p.att.fields:      # readable straight away, before anything is saved
+                off, old = p.att.fields[f]
+                p.att.fields[f] = (off, int(e[('att', f)]).to_bytes(len(old), 'little'))
         for key, v in kw.get('bits', {}).items():
             f, b, w = Player.BITS[key]
             raw = p.prof.int(f)
@@ -399,6 +460,12 @@ class Database:
             size = len(p.prof.raw(f))
             p.prof.fields[f] = (p.prof.fields[f][0], raw.to_bytes(size, 'little'))
             e[('prof', f)] = p.prof.raw(f)
+        if kw.get('look') is not None and kw['look'].app is not None and p.app is not None:
+            # wear another player's face and body: the whole appearance record is copied
+            src = kw['look']
+            e[('app',)] = src.i
+            for f, (off, _) in list(p.app.fields.items()):
+                p.app.fields[f] = (off, src.app.raw(f))
         for f, v in kw.get('gear', {}).items():
             size = len(p.acc.raw(f)) if p.acc is not None and f in p.acc.fields else 1
             e[('acc', f)] = max(0, min((1 << (8 * size)) - 1, int(v)))
@@ -431,18 +498,30 @@ class Database:
         profs = db.tables.get('PLR_PROFS', [])
         atts = db.tables.get('PLR_ATT', [])
         accs = db.tables.get('D_PLAYER_ACC', [])
+        apps = db.tables.get('D_PLAYER_APP', [])
         same = len(profs) == len(self.players) and all(
             profs[i].int('PLAYER_ID') == self.players[i].id for i in range(0, len(profs), 97))
         by_id = None if same else {}
         if by_id is not None:
             for i, r in enumerate(profs):
                 by_id.setdefault(r.int('PLAYER_ID'), i)
-        for i, e in edits.items():
+
+        def locate(i):
             j = i if same else by_id.get(self.players[i].id)
-            if j is None or j >= len(profs):
+            return j if j is not None and j < len(profs) else None
+
+        for i, e in edits.items():
+            j = locate(i)
+            if j is None:
                 continue
             for key, v in e.items():
-                if key == ('team',):
+                if key == ('app',):
+                    k = locate(v)
+                    if k is not None and j < len(apps) and k < len(apps):
+                        # the source's bytes as they were when the edit was made (kept on the in-memory record)
+                        for f in apps[j].fields:
+                            db.put(apps[j], f, self.players[i].app.raw(f))
+                elif key == ('team',):
                     sp = bytearray(profs[j].raw('SIGNED_PACK'))
                     sp[0] = v
                     db.put(profs[j], 'SIGNED_PACK', bytes(sp))

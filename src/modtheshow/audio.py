@@ -1,14 +1,14 @@
 """Game audio: what's there, what it is, and turning it into WAV for listening.
 
 The Switch build keeps its sound in NSW/AUDIO:
-  BANK_STREAMS/**.XVAG   Sony XVAG streams (crowd beds, reactions). Header parsed here; their Switch codec (0x0E)
-                         is not decodable yet.
+  BANK_STREAMS/**.XVAG   Sony XVAG streams (crowd beds, reactions) in SADPCM (codec 0x0E), decoded by sadpcm.py.
   BANK_STREAMS/**.AT9    RIFF WAVE files with ATRAC9 audio (dugout claps, short reactions).
   *.BNK                  Sony Scream sound banks ("SBlk"), many sounds each: bat cracks, mitt pops, menus.
-  *.SKX + .CTL/.KEY/.TBL commentary, PA, chants and music archives; the .KEY file names every sample.
+  *.SKX + .CTL/.KEY/.TBL commentary, PA, chants and music archives: XVAG clips back to back. The .KEY file names
+                         every sample and the .TBL file says where each one starts.
 
-Decoding goes through vgmstream-cli (bundled with the Windows build, vgmstream.org), which reads ATRAC9 and Scream
-banks. Nothing here changes game files.
+XVAG and SKX audio is decoded here. ATRAC9 and Scream banks go through vgmstream-cli (bundled with the Windows
+build, vgmstream.org). Nothing here changes game files.
 """
 import os
 import re
@@ -19,6 +19,7 @@ import sys
 import tempfile
 
 AUDIO_EXT = ('.XVAG', '.AT9', '.BNK')
+XVAG_CODECS = {0x06: 'PS ADPCM', 0x09: 'ATRAC9', 0x0E: 'SADPCM'}
 _CREATE_NO_WINDOW = 0x08000000
 
 
@@ -50,9 +51,8 @@ def header_info(path):
         if i >= 0:
             ch, codec, samples = struct.unpack_from('<III', head, i + 8)
             rate = struct.unpack_from('<I', head, i + 0x1C)[0]
-            out.update(channels=ch, rate=rate, seconds=samples / rate if rate else 0, codec=f'0x{codec:02X}')
-            if codec == 0x0E:
-                out['note'] = 'Switch codec 0x0E: listening to these is not possible yet.'
+            out.update(channels=ch, rate=rate, seconds=samples / rate if rate else 0,
+                       codec=XVAG_CODECS.get(codec, f'0x{codec:02X}'))
         return out
     if head[:4] == b'RIFF' and head[8:12] == b'WAVE':
         fmt = head.find(b'fmt ')
@@ -113,13 +113,31 @@ class Decoder:
             out['codec'] = m.group(1).strip()
         return out
 
-    def to_wav(self, path, out_wav=None, subsong=0):
-        """Decode to a WAV file (loops played once). Returns the WAV path or raises."""
-        if not self.exe:
-            raise RuntimeError('The audio decoder (vgmstream) is not installed next to the manager.')
+    def to_wav(self, path, out_wav=None, subsong=0, stereo=False):
+        """Decode to a WAV file (loops played once). Returns the WAV path or raises. stereo folds surround
+        streams down to two channels, for listening."""
         if out_wav is None:
             base = re.sub(r'[^A-Za-z0-9_.-]+', '_', os.path.basename(path))
-            out_wav = os.path.join(self.tmp, f'{base}_{subsong}.wav')
+            out_wav = os.path.join(self.tmp, f'{base}_{subsong}{"_st" if stereo else ""}.wav')
+        up = path.upper()
+        if up.endswith('.SKX'):
+            clip = skx_clip(path, subsong)
+            if _xvag_codec(clip) == 0x0E:
+                _sadpcm_wav(clip, out_wav, stereo)
+                return out_wav
+            # an ATRAC9 clip: hand it to vgmstream as a file of its own
+            path = os.path.join(self.tmp, f'clip_{subsong}.xvag')
+            with open(path, 'wb') as f:
+                f.write(clip)
+            subsong = 0
+        if up.endswith('.XVAG'):
+            with open(path, 'rb') as f:
+                data = f.read()
+            if _xvag_codec(data) == 0x0E:
+                _sadpcm_wav(data, out_wav, stereo)
+                return out_wav
+        if not self.exe:
+            raise RuntimeError('The audio decoder (vgmstream) is not installed next to the manager.')
         args = [self.exe, '-i', '-o', out_wav, path]
         if subsong:
             args[1:1] = ['-s', str(subsong)]
@@ -129,14 +147,115 @@ class Decoder:
         return out_wav
 
 
-def skx_names(key_path):
-    """Sample names from an SKX .KEY file (XML)."""
+def _xvag_codec(data):
+    i = data.find(b'fmat', 0, 0x400)
+    return struct.unpack_from('<I', data, i + 12)[0] if data[:4] == b'XVAG' and i >= 0 else None
+
+
+def _sadpcm_wav(data, out_wav, stereo=False):
+    import wave
+
+    import numpy as np
+
+    from . import sadpcm
+    channels, rate, samples, codec, body = sadpcm.xvag(data)
+    if codec != 0x0E:
+        raise RuntimeError(f'XVAG codec 0x{codec:02X} is not one the manager decodes.')
+    pcm = sadpcm.decode(body, channels, samples)
+    if stereo and channels > 2:
+        x = pcm.astype(np.float64)
+        left, right = x[:, 0::2].mean(1), x[:, 1::2].mean(1) if channels > 1 else x[:, 0]
+        pcm = np.clip(np.stack([left, right], 1) * 1.4, -32768, 32767).astype(np.int16)
+        channels = 2
+    with wave.open(out_wav, 'wb') as w:
+        w.setnchannels(channels)
+        w.setsampwidth(2)
+        w.setframerate(rate or 48000)
+        w.writeframes(pcm.astype('<i2').tobytes())
+
+
+def skx_table(skx_path):
+    """Where each sample of an SKX archive starts: [(sample index, byte offset or None)]. Offsets come from the
+    .TBL file next to it: the sector size is the u16 at 0x18 and 6-byte records start at 0x64 (u32 sector, u16
+    kind). Kind 0x0100 is a timer delay with no audio (None here). Some archives count sectors from the start of
+    the file and some from the end of the first sector, so the first sound is looked at to tell which."""
+    with open(skx_path[:-4] + '.TBL', 'rb') as f:
+        t = f.read()
+    if t[:4] != b'STBL' or len(t) < 0x64:
+        raise ValueError('not an SKX table')
+    count = struct.unpack_from('<I', t, 8)[0]
+    sector = struct.unpack_from('<H', t, 0x18)[0] or 0x800
+    if 0x64 + count * 6 > len(t):
+        raise ValueError('SKX table is shorter than its sample count')
+    recs = [struct.unpack_from('<IH', t, 0x64 + i * 6) for i in range(count)]
+    sounds = [v for v, kind in recs if kind != 0x0100]
+    base = None
+    with open(skx_path, 'rb') as f:
+        for v in sounds[:8]:
+            for cand in (0, sector):
+                f.seek(v * sector + cand)
+                if f.read(4) == b'XVAG':
+                    base = cand
+                    break
+            if base is not None:
+                break
+    if base is None:                 # an archive of pauses and nothing else
+        return [(i, None) for i in range(count)]
+    return [(i, v * sector + base if kind != 0x0100 else None) for i, (v, kind) in enumerate(recs)]
+
+
+def skx_clip(skx_path, index):
+    """The XVAG file of one sample, as bytes."""
+    table = skx_table(skx_path)
+    if not 0 <= index < len(table) or table[index][1] is None:
+        raise RuntimeError('That entry has no sound in it.')
+    start = table[index][1]
+    later = sorted(o for _, o in table if o is not None and o > start)
+    end = later[0] if later else os.path.getsize(skx_path)
+    with open(skx_path, 'rb') as f:
+        f.seek(start)
+        data = f.read(end - start)
+    if data[:4] != b'XVAG':
+        raise RuntimeError('The archive has no sound where its table says.')
+    return data
+
+
+def skx_info(skx_path, index):
+    """{channels, rate, seconds, codec} of one sample without decoding it."""
+    table = skx_table(skx_path)
+    if not 0 <= index < len(table) or table[index][1] is None:
+        return {}
+    with open(skx_path, 'rb') as f:
+        f.seek(table[index][1])
+        head = f.read(0x200)
+    i = head.find(b'fmat')
+    if head[:4] != b'XVAG' or i < 0:
+        return {}
+    ch, codec, samples = struct.unpack_from('<III', head, i + 8)
+    rate = struct.unpack_from('<I', head, i + 0x1C)[0]
+    return dict(channels=ch, rate=rate, seconds=samples / rate if rate else 0,
+                codec=XVAG_CODECS.get(codec, f'0x{codec:02X}'))
+
+
+def skx_entries(key_path):
+    """Samples listed in an SKX .KEY file (XML): [(index, name, script)]. script is the line being spoken, when
+    the file has it."""
+    import html
     try:
         with open(key_path, encoding='cp1252', errors='replace') as f:
             text = f.read()
     except OSError:
         return []
-    return [(int(v), n) for v, n in re.findall(r'<SAMPLEFILE value="(\d+)">([^<]+)</SAMPLEFILE>', text)]
+    out = []
+    for v, attrs, n in re.findall(r'<SAMPLEFILE value="(\d+)"([^>]*)>([^<]+)</SAMPLEFILE>', text):
+        m = re.search(r'script="([^"]*)"', attrs)
+        out.append((int(v), html.unescape(n), html.unescape(m.group(1)) if m else ''))
+    return out
+
+
+def skx_names(key_path):
+    """Sample names from an SKX .KEY file."""
+    return [(v, n) for v, n, _ in skx_entries(key_path)]
 
 
 class Player:

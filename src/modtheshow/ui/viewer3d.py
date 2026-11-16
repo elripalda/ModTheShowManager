@@ -290,6 +290,8 @@ class ModelView3D(QOpenGLWidget):
         self.center, self.radius, self.floor = np.zeros(3, np.float32), 1.0, 0.0
         self.show_floor = True
         self.walk = False
+        self._scene = 0            # goes up whenever what is drawn changes (not the camera)
+        self._shadow_for = None
         self.setFocusPolicy(Qt.StrongFocus)
         self.reset()
 
@@ -383,14 +385,28 @@ class ModelView3D(QOpenGLWidget):
         self.meshes = meshes
         self.message = message
         self.up = up
+        self._scene += 1
         self._frame()
         if not keep_camera:
             self.reset()
         self.update()
 
+    def release(self):
+        """Frees everything on the GPU. Call before the window goes away, while the context still exists."""
+        self.set_meshes([])
+        blank = getattr(self, '_blank', None)
+        if blank is not None and self.context() is not None:
+            self.makeCurrent()
+            blank.destroy()
+            self._blank = None
+            self._shadow = None
+            self._shadow_for = None
+            self.doneCurrent()
+
     def set_visible(self, i, on):
         if 0 <= i < len(self.meshes):
             self.meshes[i].visible = on
+            self._scene += 1
             self.update()
 
     def set_highlight(self, i):
@@ -400,21 +416,26 @@ class ModelView3D(QOpenGLWidget):
 
     def set_textured(self, on):
         self.textured = on
+        self._scene += 1
         self.update()
 
     def _free(self, m):
+        blank = getattr(self, '_blank', None)
         for attr in ('vbo', 'tex', 'ntex', 'rtex', 'otex'):
             o = getattr(m, attr, None)
-            if o is not None:
+            if o is not None and o is not blank:
                 o.destroy()
             setattr(m, attr, None)
+        self._scene += 1
 
     def free_textures(self, m):
+        blank = getattr(self, '_blank', None)
         for attr in ('tex', 'ntex', 'rtex', 'otex'):
             o = getattr(m, attr)
-            if o is not None:
+            if o is not None and o is not blank:
                 o.destroy()
             setattr(m, attr, None)
+        self._scene += 1
 
     def _texture(self, img):
         t = QOpenGLTexture(img)
@@ -442,24 +463,30 @@ class ModelView3D(QOpenGLWidget):
         ok = lambda q: isinstance(q, QImage) and not q.isNull()
         if m.tex is None:
             m.has_tex = ok(m.image)
-            img = m.image if m.has_tex else self._white
-            if m.has_tex and not m.cutout:
-                # alpha in game textures is a mask (team-colour tint, paint zones), not transparency:
-                # drop it so nothing turns black when the texture is uploaded premultiplied
-                img = img.convertToFormat(QImage.Format_RGBX8888)
-            m.tex = self._texture(img)
+            if m.has_tex:
+                img = m.image
+                if not m.cutout:
+                    # alpha in game textures is a mask (team-colour tint, paint zones), not transparency:
+                    # drop it so nothing turns black when the texture is uploaded premultiplied
+                    img = img.convertToFormat(QImage.Format_RGBX8888)
+                m.tex = self._texture(img)
+            else:
+                m.tex = self._blank
         if getattr(m, 'otex', None) is None:
             m.has_o = ok(m.overlay)
-            o = QOpenGLTexture(m.overlay if m.has_o else self._white)
-            o.setMinMagFilters(QOpenGLTexture.LinearMipMapLinear, QOpenGLTexture.Linear)
-            o.setWrapMode(QOpenGLTexture.ClampToEdge)
-            m.otex = o
+            if m.has_o:
+                o = QOpenGLTexture(m.overlay)
+                o.setMinMagFilters(QOpenGLTexture.LinearMipMapLinear, QOpenGLTexture.Linear)
+                o.setWrapMode(QOpenGLTexture.ClampToEdge)
+                m.otex = o
+            else:
+                m.otex = self._blank
         if m.ntex is None:
             m.has_n = ok(m.normal_map)
-            m.ntex = self._texture(m.normal_map if m.has_n else self._white)
+            m.ntex = self._texture(m.normal_map) if m.has_n else self._blank
         if m.rtex is None:
             m.has_r = ok(m.rough_map)
-            m.rtex = self._texture(m.rough_map if m.has_r else self._white)
+            m.rtex = self._texture(m.rough_map) if m.has_r else self._blank
 
     # ---------------------------------------------------------- GL
     def _program(self, vs, fs, attrs):
@@ -481,6 +508,9 @@ class ModelView3D(QOpenGLWidget):
             self.floorp = self._program(FLOOR_VERT, FLOOR_FRAG, ['a_pos'])
             self._white = QImage(4, 4, QImage.Format_RGBA8888)
             self._white.fill(QColor('white'))
+            # one stand-in for every map a mesh does not have, instead of a texture each
+            self._blank = self._texture(self._white)
+            self._locs.clear()
         except Exception as x:
             self.prog = None
             self.failed.emit(str(x))
@@ -488,9 +518,14 @@ class ModelView3D(QOpenGLWidget):
     def resizeGL(self, w, h):
         pass
 
-    @staticmethod
-    def _u(prog, name, value):
-        loc = prog.uniformLocation(name)
+    _locs = {}
+
+    @classmethod
+    def _u(cls, prog, name, value):
+        key = (id(prog), name)
+        loc = cls._locs.get(key)
+        if loc is None:
+            loc = cls._locs[key] = prog.uniformLocation(name)
         if isinstance(value, bool):
             prog.setUniformValue1f(loc, 1.0 if value else 0.0)
         elif isinstance(value, float):
@@ -556,9 +591,14 @@ class ModelView3D(QOpenGLWidget):
             self._textures(m)
         model = self._model()
         if self.hq:
-            self._shadow_pass(f, vis, model)
-            f.glClearColor(bg.redF(), bg.greenF(), bg.blueF(), 1)
-            f.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            # the light does not move with the camera, so the shadow map is only drawn again when the scene changes
+            key = (self._scene, len(vis), sum(m.count for m in vis), self.textured, self.up, self.radius,
+                   tuple(float(c) for c in self.center))
+            if key != self._shadow_for or self._shadow is None:
+                self._shadow_pass(f, vis, model)
+                self._shadow_for = key
+                f.glClearColor(bg.redF(), bg.greenF(), bg.blueF(), 1)
+                f.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         proj = QMatrix4x4()
         proj.perspective(50 if self.walk else 32, max(self.width(), 1) / max(self.height(), 1),
                          self.radius * (0.002 if self.walk else 0.02), self.radius * (14 if self.walk else 50))
@@ -579,22 +619,24 @@ class ModelView3D(QOpenGLWidget):
             f.glActiveTexture(GL_TEXTURE0 + 3)
             f.glBindTexture(GL_TEXTURE_2D, self._shadow.texture())
             f.glActiveTexture(GL_TEXTURE0)
+        last, bound = {}, {}
         for m in vis:
             self._attrs(p, m)
             c = m.color
-            self._u(p, 'u_color', QVector3D(c.redF(), c.greenF(), c.blueF()))
-            self._u(p, 'u_textured', bool(self.textured and m.has_tex))
-            self._u(p, 'u_cutout', bool(self.textured and m.has_tex and m.cutout))
-            self._u(p, 'u_highlight', bool(m.highlight))
-            self._u(p, 'u_has_n', bool(self.hq and m.has_n))
-            self._u(p, 'u_has_r', bool(self.hq and m.has_r))
-            self._u(p, 'u_metal', float(m.metal))
-            self._u(p, 'u_rough', float(m.rough))
-            self._u(p, 'u_has_o', bool(m.has_o))
-            m.tex.bind(0)
-            m.ntex.bind(1)
-            m.rtex.bind(2)
-            m.otex.bind(4)
+            state = (('u_color', (c.redF(), c.greenF(), c.blueF())),
+                     ('u_textured', bool(self.textured and m.has_tex)),
+                     ('u_cutout', bool(self.textured and m.has_tex and m.cutout)),
+                     ('u_highlight', bool(m.highlight)), ('u_has_n', bool(self.hq and m.has_n)),
+                     ('u_has_r', bool(self.hq and m.has_r)), ('u_metal', float(m.metal)),
+                     ('u_rough', float(m.rough)), ('u_has_o', bool(m.has_o)))
+            for name, v in state:                 # only what differs from the mesh before
+                if last.get(name) != v:
+                    last[name] = v
+                    self._u(p, name, QVector3D(*v) if isinstance(v, tuple) else v)
+            for unit, t in ((0, m.tex), (1, m.ntex), (2, m.rtex), (4, m.otex)):
+                if bound.get(unit) is not t:
+                    bound[unit] = t
+                    t.bind(unit)
             f.glDrawArrays(GL_TRIANGLES, 0, m.count)
             m.vbo.release()
         p.release()

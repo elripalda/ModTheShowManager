@@ -11,7 +11,7 @@ from .workers import Job, start
 
 GROUPS = [('All Sounds', ''), ('Sound Banks (bat cracks, mitts, menus)', 'BNK'),
           ('Reactions', 'BANK_STREAMS/REACTION_STREAMS/'), ('Crowd', 'BANK_STREAMS/CROWD_STREAMS/'),
-          ('Other Streams', 'BANK_STREAMS/*'), ('Commentary, PA & Music (names)', 'SKX')]
+          ('Other Streams', 'BANK_STREAMS/*'), ('Commentary, PA & Music', 'SKX')]
 
 
 def _secs(s):
@@ -91,9 +91,9 @@ class SoundsPage(QWidget):
         self.b_stop = button('Stop', on_click=self.stop)
         self.b_wav = button('Export WAV', on_click=self.export_wav)
         self.b_raw = button('Export Original File', on_click=self.export_raw)
-        self.b_rep = button('Replace With WAV (Beta)', on_click=self.replace_wav)
-        self.b_rep.setToolTip('Stream files (.XVAG) only. Written in the classic VAG codec the sound engine also '
-                              'carries; check it in the game.')
+        self.b_rep = button('Replace With WAV', on_click=self.replace_wav)
+        self.b_rep.setToolTip('Stream files (.XVAG) only. Your WAV is written in the game’s own codec, with the '
+                              'original’s channels and sample rate.')
         for b in (self.b_play, self.b_stop, self.b_wav, self.b_raw):
             row.addWidget(b, 1)
         rl.addLayout(row)
@@ -151,10 +151,12 @@ class SoundsPage(QWidget):
         self.inside.setVisible(on)
         self.spacer.setVisible(not on)
 
-    def _enable(self, on, playable=True):
-        self.b_play.setEnabled(on and playable and self.dec.ok and self.player.ok)
+    def _enable(self, on, playable=True, need_dec=True):
+        """need_dec: the sound has to go through vgmstream (ATRAC9, sound banks). SADPCM is decoded here."""
+        can = on and playable and (self.dec.ok or not need_dec)
+        self.b_play.setEnabled(can and self.player.ok)
         self.b_stop.setEnabled(on and self.player.ok)
-        self.b_wav.setEnabled(on and playable and self.dec.ok)
+        self.b_wav.setEnabled(can)
         self.b_raw.setEnabled(on)
         self.b_rep.setEnabled(on and bool(self.rel) and self.rel.endswith('.XVAG'))
 
@@ -170,15 +172,29 @@ class SoundsPage(QWidget):
         self.path.setText(f'romfs/{rel}')
         self.inside.clear()
         if rel.endswith('.SKX'):
-            key = path[:-4] + '.KEY'
-            names = audio.skx_names(key)
-            self._show_inside(bool(names))
-            self.inside_label.setText(f'{len(names):,} SAMPLES IN THIS ARCHIVE')
-            for _, n in names[:5000]:
-                self.inside.addItem(n)
-            self.facts.setText('Commentary, PA and music archive. The names come from its .KEY file; '
-                               'playing these is not possible yet.')
+            self._skx = entries = audio.skx_entries(path[:-4] + '.KEY')
+            try:
+                self._skx_has = {i for i, off in audio.skx_table(path) if off is not None}
+            except (OSError, ValueError):
+                self._skx_has = set()
+            self._show_inside(bool(entries))
+            more = ' (showing the first 5,000)' if len(entries) > 5000 else ''
+            self.inside_label.setText(f'{len(entries):,} SAMPLES IN THIS ARCHIVE{more}')
+            self.inside.blockSignals(True)
+            for v, n, script in entries[:5000]:
+                it = QListWidgetItem(n)
+                it.setData(Qt.UserRole, v)
+                if script:
+                    it.setToolTip(script)
+                self.inside.addItem(it)
+            self.inside.blockSignals(False)
+            self.facts.setText('Commentary, PA and music archive. Pick a sample below to hear it.'
+                               if self._skx_has else 'This archive only holds timing entries, no sound.')
             self._enable(True, playable=False)
+            first = next((r for r in range(self.inside.count())
+                          if self.inside.item(r).data(Qt.UserRole) in self._skx_has), -1)
+            if first >= 0:
+                self.inside.setCurrentRow(first)
             return
         info = audio.header_info(path)
         playable = 'note' not in info
@@ -194,7 +210,7 @@ class SoundsPage(QWidget):
         if info.get('bank'):
             facts.append(f"“{info['bank']}”")
         self.facts.setText('  ·  '.join(facts) + (f"\n{info['note']}" if info.get('note') else ''))
-        self._enable(True, playable)
+        self._enable(True, playable, need_dec=info.get('codec') != 'SADPCM')
         self._show_inside(rel.endswith('.BNK'))
         if rel.endswith('.BNK') and self.dec.ok:
             self.inside_label.setText('SOUNDS IN THIS BANK')
@@ -237,6 +253,25 @@ class SoundsPage(QWidget):
         start(job)
 
     def _sub_picked(self, row):
+        if self.rel and self.rel.endswith('.SKX'):
+            it = self.inside.item(row) if row >= 0 else None
+            if it is None:
+                return
+            idx = it.data(Qt.UserRole)
+            self.subsong = idx
+            ok = idx in getattr(self, '_skx_has', ())
+            info = audio.skx_info(self.main.game.original(self.rel), idx) if ok else {}
+            facts = []
+            if info:
+                facts = [info['codec'], f"{info['channels']} channel{'s' if info['channels'] != 1 else ''}",
+                         f"{info['rate']:,} Hz", _secs(info['seconds'])]
+            script = next((sc for v, _, sc in self._skx if v == idx), '')
+            self.facts.setText(('  ·  '.join(facts) if facts else 'A pause between lines, not a sound.') +
+                               (f'\n“{script}”' if script else ''))
+            # codec 9 clips are ATRAC9 and go through vgmstream
+            need_dec = bool(info) and info.get('codec') != 'SADPCM'
+            self._enable(True, playable=ok, need_dec=need_dec)
+            return
         self.subsong = row + 1 if row >= 0 else 0
 
     # ---------------------------------------------------------- actions
@@ -247,7 +282,7 @@ class SoundsPage(QWidget):
         self.status.setText('Decoding…')
 
         def work(job):
-            return self.dec.to_wav(path, out, sub)
+            return self.dec.to_wav(path, out, sub, stereo=out is None)
 
         def done(wav):
             self.status.setText('')
@@ -269,6 +304,9 @@ class SoundsPage(QWidget):
         if not self.rel:
             return
         base = self.rel.rsplit('/', 1)[-1].rsplit('.', 1)[0] + (f'_{self.subsong}' if self.rel.endswith('.BNK') else '')
+        if self.rel.endswith('.SKX') and self.inside.currentItem():
+            name = self.inside.currentItem().text().replace('\\', '/').rsplit('/', 1)[-1]
+            base = name.rsplit('.', 1)[0] or base
         out, _ = QFileDialog.getSaveFileName(self, 'Export WAV', os.path.join(self.main.last_dir(), base + '.wav'),
                                              'WAV audio (*.wav)')
         if out:

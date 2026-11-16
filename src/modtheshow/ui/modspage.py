@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayo
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
                                QProgressBar, QPushButton, QVBoxLayout, QWidget)
 
+from .. import codemods
 from . import theme, workers
 from .common import badge, button, header, label, panel, section_title
 from .widgets import Toggle
@@ -117,7 +118,10 @@ class ModRow(QWidget):
             chips.addWidget(badge(f'{nt} texture{"s" if nt != 1 else ""}'))
         if nf:
             chips.addWidget(badge(f'{nf} file{"s" if nf != 1 else ""}'))
-        if not nt and not nf:
+        nc = len(codemods.mod_patches(mod))
+        if nc:
+            chips.addWidget(badge('Code mod'))
+        if not nt and not nf and not nc:
             chips.addWidget(badge('Empty: add textures from any section'))
         if overrides:
             chips.addWidget(badge(f'Overrides {", ".join(sorted(overrides))}', True))
@@ -160,6 +164,9 @@ class ModRow(QWidget):
         m.addAction('Open Folder', lambda: open_folder(self.mod.path))
         m.addAction('Export as .zip', self._export)
         m.addSeparator()
+        m.addAction('Move to Top', lambda: self._move(-10000))
+        m.addAction('Move to Bottom (wins conflicts)', lambda: self._move(10000))
+        m.addSeparator()
         m.addAction('Delete', self._delete)
         m.exec(self.cursor().pos())
 
@@ -182,6 +189,56 @@ class ModRow(QWidget):
             self.changed.emit()
 
 
+class SamplesDialog(QDialog):
+    """Ready-made mods, built here from this install's own files."""
+
+    def __init__(self, page):
+        super().__init__(page)
+        from PySide6.QtWidgets import QCheckBox
+        from .. import samples
+        self.page, self.made, self.notes = page, [], []
+        self.setWindowTitle('Sample Mods')
+        self.setMinimumWidth(520)
+        lay = QVBoxLayout(self)
+        lay.setSpacing(12)
+        lay.addWidget(label('Each one shows a different kind of mod. They are made on your PC from your own game '
+                            'files and added switched off, so nothing changes until you switch one on and Apply.',
+                            'Sub', wrap=True))
+        have = {m.name for m in page.lib.list()}
+        self.boxes = []
+        for key, name, text, build in samples.SAMPLES:
+            c = QCheckBox(name + ('  (already added, tick to rebuild it)' if name in have else ''))
+            c.setChecked(name not in have)
+            lay.addWidget(c)
+            d = label(text, 'Sub', wrap=True)
+            d.setContentsMargins(28, 0, 0, 6)
+            lay.addWidget(d)
+            self.boxes.append((c, name, build))
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText('Add Samples')
+        bb.button(QDialogButtonBox.Ok).setObjectName('Primary')
+        bb.accepted.connect(self._go)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    def _go(self):
+        main, lib = self.page.main, self.page.lib
+        for c, name, build in self.boxes:
+            if not c.isChecked():
+                continue
+            new = not any(m.name == name for m in lib.list())
+            try:
+                mod, note = build(main.game, lib, main.current_file)
+            except Exception as x:
+                self.notes.append(f'{name}: {x}')
+                continue
+            if new and (mod.textures() or mod.files()):      # a code-only mod changes nothing until it is built
+                lib.set_enabled(mod, False)
+            self.made.append(name)
+            self.notes.append(f'{name}: {note}')
+        self.accept()
+
+
 class ModsPage(QWidget):
     applied = Signal()
 
@@ -195,7 +252,8 @@ class ModsPage(QWidget):
         lay.setContentsMargins(28, 24, 28, 20)
         lay.setSpacing(18)
         lay.addWidget(header('Mods', 'Switch mods on, set the order, then apply. When two mods change the same texture, '
-                             'the lower one wins.', [button('Import Mod', on_click=self.import_zip),
+                             'the lower one wins.', [button('Sample Mods', on_click=self.samples),
+                                                    button('Import Mod', on_click=self.import_zip),
                                                     button('New Mod', on_click=self.new_mod)]))
         self.banner = QFrame()
         self.banner.setObjectName('Banner')
@@ -259,6 +317,8 @@ class ModsPage(QWidget):
         self.progress.setFixedWidth(220)
         self.progress.hide()
         bb.addWidget(self.progress)
+        bb.addWidget(button('All Off', on_click=lambda: self.set_all(False)))
+        bb.addWidget(button('All On', on_click=lambda: self.set_all(True)))
         self.restore_btn = button('Restore Original Game', on_click=self.restore)
         bb.addWidget(self.restore_btn)
         self.apply_btn = button('Apply Mods', True, self.apply)
@@ -317,6 +377,25 @@ class ModsPage(QWidget):
         names = [m.name for m in self.lib.list() if m.folder in {x[0] for x in data.get('mods', [])}]
         return (f'Applied {when}\n' + (', '.join(names) if names else 'No mods') +
                 '\nOriginals are kept in mod-backup.')
+
+    def samples(self):
+        if not self.lib:
+            return
+        dlg = SamplesDialog(self)
+        if dlg.exec() and dlg.made:
+            self.refresh()
+            self.main.changed(f'{len(dlg.made)} sample mod{"s" if len(dlg.made) != 1 else ""} added, switched off. '
+                              'Switch on the ones you want and Apply.')
+            if dlg.notes:
+                QMessageBox.information(self, 'Sample Mods', '\n'.join(dlg.notes))
+
+    def set_all(self, on):
+        if not self.lib:
+            return
+        for m in self.lib.list():
+            if m.enabled != on:
+                self.lib.set_enabled(m, on)
+        self.refresh()
 
     def new_mod(self):
         dlg = ModInfoDialog(self, 'New Mod', {'author': self.main.settings.get('author', '')})
@@ -400,7 +479,8 @@ class ModsPage(QWidget):
         if not self._check_game():
             return
         if QMessageBox.question(self, 'Restore Original Game',
-                                'Put every original game file back and switch all mods off?\n\n'
+                                'Put every original game file back, bring back the standard mlb.exe if code mods '
+                                'were built in, and switch all mods off?\n\n'
                                 'Your mods stay in the list, so you can switch them back on and Apply later.'
                                 ) != QMessageBox.Yes:
             return
@@ -412,6 +492,9 @@ class ModsPage(QWidget):
             for m in lib.list():
                 if m.enabled:
                     lib.set_enabled(m, False)
+            if codemods.restore_exe(self.main.game.root):
+                self.main.settings['code_built'] = ''
+                self.main.save_settings()
             return rels
 
         job = workers.Job(work)
