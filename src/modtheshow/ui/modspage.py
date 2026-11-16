@@ -255,7 +255,7 @@ class SamplesDialog(QDialog):
         il.setContentsMargins(0, 0, 8, 0)
         il.setSpacing(4)
         for key, name, text, build in samples.SAMPLES:
-            c = QCheckBox(name + ('  (already added, tick to rebuild it)' if name in have else ''))
+            c = QCheckBox(name.replace('&', '&&') + ('  (already added, tick to rebuild it)' if name in have else ''))
             il.addWidget(c)
             d = label(text, 'Sub', wrap=True)
             d.setContentsMargins(28, 0, 0, 8)
@@ -267,6 +267,10 @@ class SamplesDialog(QDialog):
         scroll.setFrameShape(QScrollArea.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(inner)
+        scroll.viewport().setAutoFillBackground(False)        # the window's own colour behind the list
+        inner.setAutoFillBackground(False)
+        scroll.setStyleSheet('QScrollArea { background: transparent; }')
+        inner.setStyleSheet('QWidget { background: transparent; }')
         scroll.setMinimumHeight(420)
         lay.addWidget(scroll, 1)
         self.resize(560, 620)
