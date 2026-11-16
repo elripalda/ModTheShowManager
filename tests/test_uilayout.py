@@ -131,6 +131,18 @@ def test_edit():
     assert len(a2.nodes()) == len(a.nodes())
 
 
+def test_repaint():
+    L = uilayout.Layout(build())
+    a = L.by_hash[H('PBInterface\\ScoreBar')]
+    names = {H(n): n for n in ('bar', 'logo', 'glow', 'dot')}
+    n = L.repaint(a, [{'from': '#252c34', 'to': '#102030'}, {'from': '#ffffff', 'texture': 'dot', 'opacity': 0}], names)
+    assert n == 2
+    frame = next(x for x in a.nodes() if x.kind == 0x18 and x.ref == uilayout.NONE)
+    assert frame.rgba() == (16, 32, 48, 255)
+    dot = next(x for x in L.by_hash[H('Badge')].nodes() if x.ref == H('dot'))
+    assert dot.rgba()[3] == 0
+
+
 def test_hash():
     assert H('PBInterface\\ScoreBar') == 0xF3657054
     assert H('') == uilayout.NONE
@@ -141,4 +153,5 @@ if __name__ == '__main__':
     test_parse()
     test_draw()
     test_edit()
+    test_repaint()
     print('ui layout ok')

@@ -120,6 +120,19 @@ The same edits can go in a layout recipe, so a scorebug style can be shared with
              {"texture": "circle_32x32", "color": "#ffb000", "size": 1.2, "dx": 2, "dy": 0}]}]
 ```
 
+A recipe can also recolour an overlay by the colours the game paints it with. `texture` narrows a rule to pieces
+drawing that texture (`""` for plain ones) and `kind` to `image` or `text`. It reaches the overlays the scorebug
+shows too:
+
+```json
+[{"file": "NSW/UI/GAME/THEME1.NSW", "asset": "Scorebar",
+  "colours": [{"from": "#cecece", "to": "#18202e"},
+              {"from": "#252c34", "kind": "text", "to": "#ffffff"},
+              {"from": "#ffffff", "texture": "gradient_vertical", "opacity": 12}]}]
+```
+
+The Midnight, Brick & Sand and Flat White samples are built this way.
+
 `use` in a piece draws another texture of the same pack in its place.
 
 ## Jersey builder

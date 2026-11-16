@@ -324,5 +324,45 @@ class Layout:
                 changed += 1
         return changed
 
+    def family(self, asset):
+        """The asset and every asset it draws, nearest first."""
+        out, todo = [], [asset]
+        while todo:
+            a = todo.pop(0)
+            if a in out:
+                continue
+            out.append(a)
+            todo += [self.by_hash[h] for h in sorted(a.instances()) if h in self.by_hash]
+        return out
+
+    def repaint(self, asset, rules, table=None):
+        """Recolour an overlay by colour: each rule names a colour the game uses ('from': '#cecece') and gives
+        'to' ('#rrggbb') and/or 'opacity' (0-100). 'texture' narrows a rule to pieces drawing that texture ('' for
+        plain pieces), 'kind' to 'image' or 'text'. Covers the overlays it draws too. Returns how many changed."""
+        table = table or {}
+        kinds = {'image': (0x18, 0x01, 0x04), 'text': (0x22,)}
+        done = set()
+        for rule in rules:
+            want = int(str(rule['from']).lstrip('#'), 16)
+            want = ((want >> 16) & 255, (want >> 8) & 255, want & 255)
+            tex = rule.get('texture')
+            ks = kinds.get(rule.get('kind'), (0x18, 0x01, 0x04, 0x22))
+            for a in self.family(asset):
+                for n in a.nodes():
+                    if n.off in done or n.kind not in ks or n.rgba()[:3] != want:
+                        continue
+                    if tex is not None:
+                        name = '' if n.ref == NONE else table.get(n.ref, '?')
+                        if name.lower() != str(tex).lower():
+                            continue
+                    rgb = None
+                    if rule.get('to'):
+                        v = int(str(rule['to']).lstrip('#'), 16)
+                        rgb = ((v >> 16) & 255, (v >> 8) & 255, v & 255)
+                    alpha = round(float(rule['opacity']) * 2.55) if rule.get('opacity') is not None else None
+                    self.recolor(n, rgb=rgb, alpha=alpha)
+                    done.add(n.off)
+        return len(done)
+
     def bytes(self):
         return bytes(self.d)

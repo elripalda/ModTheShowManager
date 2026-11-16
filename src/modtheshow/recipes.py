@@ -93,6 +93,16 @@ def apply_rosters(game, mods, problems):
     return list(out)
 
 
+def _texture_table(game, rel):
+    """{hash: name} for the texture pack beside a layout, or {} when there is none."""
+    from . import texlib
+    p = game.path(rel[:-4] + '.TEX')
+    if not os.path.exists(p):
+        return {}
+    with texlib.Tex(p, readonly=True) as t:
+        return uilayout.Layout.texture_table([e['name'] for e in t.entries])
+
+
 def apply_layouts(game, mods, problems):
     done = {}
     for m in mods:
@@ -120,6 +130,10 @@ def apply_layouts(game, mods, problems):
                     if e.get('pieces'):
                         if not lay.restyle(asset, e['pieces']):
                             raise ValueError(f'none of the pieces named for {e["asset"]} are in {rel}')
+                    if e.get('colours'):
+                        table = _texture_table(game, rel)
+                        if not lay.repaint(asset, e['colours'], table):
+                            raise ValueError(f'none of the colours named for {e["asset"]} are in {rel}')
                     done[rel] = lay
                 except Exception as x:
                     problems.append(f'{m.name}: {os.path.basename(path)}: {x}')

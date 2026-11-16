@@ -163,6 +163,84 @@ def scorebug_corner(game, lib, current_file):
     return mod, 'Scorebug moves to 40, 838 when applied.'
 
 
+# colour styles for Theme 1's scorebug, matched by the colours the game paints it with
+MIDNIGHT = [
+    {'from': '#cecece', 'to': '#18202e'},
+    {'from': '#c0c0c0', 'to': '#18202e'},
+    {'from': '#e0e0e0', 'to': '#222c3f'},
+    {'from': '#dbdbdb', 'to': '#222c3f'},
+    {'from': '#ffffff', 'texture': 'gradient_vertical', 'opacity': 12},
+    {'from': '#ffffff', 'texture': '', 'kind': 'image', 'to': '#f2b632'},
+    {'from': '#2f3641', 'to': '#f2b632'},
+    {'from': '#8c8c8c', 'to': '#34405a'},
+    {'from': '#252c34', 'kind': 'text', 'to': '#ffffff'},
+    {'from': '#323232', 'kind': 'text', 'to': '#ffffff'},
+    {'from': '#252c34', 'texture': 't1_outbkg', 'to': '#0b111c'},
+    {'from': '#ffffff', 'texture': 'theshownetworkhorizontal', 'to': '#f2b632'},
+]
+BRICK_SAND = [
+    {'from': '#cecece', 'to': '#6e1a25'},
+    {'from': '#c0c0c0', 'to': '#6e1a25'},
+    {'from': '#e0e0e0', 'to': '#e6d8b5'},
+    {'from': '#dbdbdb', 'to': '#e6d8b5'},
+    {'from': '#ffffff', 'texture': 'gradient_vertical', 'opacity': 18},
+    {'from': '#ffffff', 'texture': '', 'kind': 'image', 'to': '#e6d8b5'},
+    {'from': '#2f3641', 'to': '#3f0e15'},
+    {'from': '#8c8c8c', 'to': '#b9a77e'},
+    {'from': '#252c34', 'kind': 'text', 'to': '#3f0e15'},
+    {'from': '#323232', 'kind': 'text', 'to': '#f6eedb'},
+    {'from': '#252c34', 'texture': 't1_outbkg', 'to': '#3f0e15'},
+    {'from': '#ffffff', 'texture': 'theshownetworkhorizontal', 'to': '#e6d8b5'},
+]
+FLAT_WHITE = [
+    {'from': '#cecece', 'to': '#f5f5f3'},
+    {'from': '#c0c0c0', 'to': '#f5f5f3'},
+    {'from': '#e0e0e0', 'to': '#ffffff'},
+    {'from': '#dbdbdb', 'to': '#ffffff'},
+    {'from': '#ffffff', 'texture': 'gradient_vertical', 'opacity': 0},
+    {'from': '#808080', 'texture': 'gradient_vertical', 'opacity': 0},
+    {'from': '#000000', 'texture': 'gradient_vertical', 'opacity': 0},
+    {'from': '#ffffff', 'texture': 't1_chvrns', 'opacity': 0},
+    {'from': '#ffffff', 'texture': '', 'kind': 'image', 'to': '#111111'},
+    {'from': '#2f3641', 'to': '#111111'},
+    {'from': '#8c8c8c', 'to': '#d6d6d2'},
+    {'from': '#252c34', 'kind': 'text', 'to': '#111111'},
+    {'from': '#323232', 'kind': 'text', 'to': '#111111'},
+    {'from': '#252c34', 'texture': 't1_outbkg', 'to': '#111111'},
+    {'from': '#ffffff', 'texture': 'theshownetworkhorizontal', 'to': '#111111'},
+]
+
+
+def _scorebug_style(game, lib, name, description, colours):
+    if THEME not in game.file_set():
+        raise ValueError('This install has no scorebug layout (THEME1.NSW).')
+    asset = uilayout.Layout.open(game.original(THEME)).find('Scorebar')
+    if asset is None or asset.container() is None:
+        raise ValueError('The scorebug was not found in the layout.')
+    mod = _mod(lib, name, description)
+    folder = os.path.join(mod.path, 'layouts')
+    os.makedirs(folder, exist_ok=True)
+    import json
+    with open(os.path.join(folder, 'scorebug-style.json'), 'w', encoding='utf-8') as f:
+        json.dump([{'file': THEME, 'asset': 'Scorebar', 'colours': colours}], f, indent=2)
+    return mod, 'Pick scorebug Theme 1 in the game’s settings, apply, and start a game.'
+
+
+def scorebug_midnight(game, lib, current_file):
+    return _scorebug_style(game, lib, 'Sample: Midnight Scorebug', 'Theme 1 in deep navy with gold lines and white '
+                           'scores.', MIDNIGHT)
+
+
+def scorebug_brick(game, lib, current_file):
+    return _scorebug_style(game, lib, 'Sample: Brick & Sand Scorebug', 'Theme 1 in brick red with sand trim.',
+                           BRICK_SAND)
+
+
+def scorebug_flat(game, lib, current_file):
+    return _scorebug_style(game, lib, 'Sample: Flat White Scorebug', 'Theme 1 flat and white: no gradients or '
+                           'chevrons, black lines and scores.', FLAT_WHITE)
+
+
 def arcade_code(game, lib, current_file):
     mod = _mod(lib, codemods.ARCADE_NAME, 'Auto PCI, moonshots, juiced ball and more. Switch them on in Code Plugins.')
     folder = os.path.join(mod.path, 'code')
@@ -178,6 +256,10 @@ SAMPLES = [
     ('moonshot', 'Sample: Moonshot League', 'A ratings mod: every MLB hitter gets 125 power.', moonshot_league),
     ('scorebug', 'Sample: Scorebug Bottom Left', 'A layout mod: the scorebug moves to the bottom left corner.',
      scorebug_corner),
+    ('midnight', 'Sample: Midnight Scorebug', 'A scorebug style: navy, gold lines, white scores.', scorebug_midnight),
+    ('brick', 'Sample: Brick & Sand Scorebug', 'A scorebug style: brick red with sand trim.', scorebug_brick),
+    ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',
+     scorebug_flat),
     ('arcade', codemods.ARCADE_NAME, 'Code mods: Auto PCI, Perfect-Perfect, moonshots, juiced ball, thin air and more.',
      arcade_code),
 ]
