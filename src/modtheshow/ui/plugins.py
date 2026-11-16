@@ -257,7 +257,8 @@ class PluginsPage(QWidget):
         if bad:
             self.state.setText('Problems:\n' + '\n'.join(bad[:8]))
         elif current:
-            text_ = 'The game is built with these code mods. Switch them here or in the game with F4.'
+            text_ = ('The game is built with these code mods, so nothing needs rebuilding. Switching one on or off '
+                     'here takes effect the next time the game starts, and at once with F4 in the game.')
             if frozen:
                 text_ += ' This build has its dials fixed: after turning one, press Rebuild Game.'
             self.state.setText(text_)
@@ -266,7 +267,12 @@ class PluginsPage(QWidget):
         else:
             self.state.setText('Press Rebuild Game once to build the code mods into the game. Your current mlb.exe is '
                                'kept as mlb.original.exe.')
-        self.b_build.setEnabled(bool(r) and not bad and bool(sig) and (sig != built or stale))
+        # always there once the recomp is found: building again does no harm, and it is the way back when something
+        # else (a game update, the recomp's own setup) has swapped mlb.exe for one without the code mods
+        self.b_build.setEnabled(bool(r) and not bad and bool(sig))
+        self.b_build.setObjectName('Primary' if (sig != built or stale) else '')
+        self.b_build.style().unpolish(self.b_build)
+        self.b_build.style().polish(self.b_build)
         self.b_restore.setEnabled(os.path.exists(os.path.join(root, 'mlb.original.exe')))
         self.last.setText(self._last_game_text(current))
         self._fit()
@@ -320,8 +326,6 @@ class PluginsPage(QWidget):
         self.dial_values()[dial] = value
         self.main.save_settings()
         self.write_switches()
-        if not self.main.settings.get('code_live', True):
-            self.b_build.setEnabled(bool(self.recomp()))
 
     def write_switches(self):
         """Puts the switches and dials in the game folder, where the built game reads them however it is started."""
@@ -403,9 +407,14 @@ class PluginsPage(QWidget):
         sets, text, bad, _ = self.table()
         if bad:
             return
-        r = QMessageBox.question(self, 'Rebuild Game', 'This builds every code mod in the list into mlb.exe, switched '
-                                 'off until you switch it on. It takes about two minutes and your current mlb.exe is '
-                                 'kept as mlb.original.exe.\n\nRebuild now?')
+        sig_now = codemods.signature(text)
+        fresh = sig_now and sig_now == self.main.settings.get('code_built', '')
+        r = QMessageBox.question(self, 'Rebuild Game',
+                                 ('The game already has these code mods built in, and switching them on or off needs '
+                                  'no rebuild. Build it again anyway? It takes about two minutes.' if fresh else
+                                  'This builds every code mod in the list into mlb.exe, switched off until you switch '
+                                  'it on. It takes about two minutes and your current mlb.exe is kept as '
+                                  'mlb.original.exe.\n\nRebuild now?'))
         if r != QMessageBox.Yes:
             return
         recomp, root = self.recomp(), self.main.game.root
