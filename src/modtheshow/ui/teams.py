@@ -734,6 +734,7 @@ class TeamsPage(QWidget):
             self.main.lib.add_file(mod, rel, tmp)
         try:
             n = self.db.write(sources, out)
+            n += self._metal_bats(mod, tmpdir)
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Save', str(x))
             return
@@ -742,6 +743,18 @@ class TeamsPage(QWidget):
         self.db.rosters.clear()
         self._dirty(False)
         self.main.changed(f'Rosters saved into {mod.name} ({n} files). Apply to use them.')
+
+    def _metal_bats(self, mod, folder):
+        """A roster with an aluminum bat in it needs the equipment list to allow the bat, or the game swaps it for
+        wood. The sound comes along when Arcade Rosters asked for it."""
+        metal = {st for st, _ in self.equipment.metal_bats()} if self.equipment else set()
+        if not metal or not any(p.gear('BAT') in metal for p in self.db.players):
+            return 0
+        extra = R.metal_bat_files(self.main.current_file, self.main.game.file_set(), folder,
+                                  sound=getattr(self, 'ping', False))
+        for rel, src in extra:
+            self.main.lib.add_file(mod, rel, src)
+        return len(extra)
 
     def reset(self):
         if self.db and self.db.dirty():

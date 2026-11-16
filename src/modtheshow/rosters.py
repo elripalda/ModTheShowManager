@@ -11,6 +11,8 @@ The team a player belongs to is byte 0 of PLR_PROFS.SIGNED_PACK; 255 means free 
 Edits are written in place (fixed-size fields), so the file layout never changes. The game ships _LIVE and _INJ
 copies of both files; every save patches all of them.
 """
+import os
+import re
 import struct
 
 ROSTERS = 'FRONTEND/STATS/ROSTERS.BIN'
@@ -84,6 +86,52 @@ class Equipment:
             if st == style and lab:
                 return lab
         return 'None' if style == 0 else f'#{style}'
+
+
+# The game's sounds for a regular stadium, and the set it loads for high school and college games. Every sound has
+# the same name in both; in the second one the ball comes off an aluminum bat.
+STADIUM_SOUNDS = 'NSW/AUDIO/GAMEFX_EXTERIOR_STADIUMS.BNK'
+COLLEGE_SOUNDS = 'NSW/AUDIO/GAMEFX_AMATEUR.BNK'
+_ITEM = re.compile(r'\{[^{}]*\}')
+
+
+def allow_metal_bats(text):
+    """The equipment list with its aluminum bats switched on, and how many were off.
+
+    The list ships them with "enb": 0. When the game builds a bat it asks whether the style is switched off, and
+    hands over the plain wood bat if it is, unless the game is a Road to the Show college game or the style is one
+    of 22, 63, 64, 119, 120. Only that one number changes; the rest of the file is kept to the letter."""
+    n = 0
+
+    def fix(m):
+        nonlocal n
+        block = m.group(0)
+        if not re.search(r'"type"\s*:\s*0\s*,', block) or not re.search(r'"gfxinfo"\s*:\s*"[^"]*mtl\s*=\s*1', block):
+            return block
+        out = re.sub(r'("enb"\s*:\s*)0\b', r'\g<1>1', block, count=1)
+        n += out != block
+        return out
+    return _ITEM.sub(fix, text), n
+
+
+def metal_bat_files(source, files, folder, sound=False):
+    """[(game path, file to put there)] that aluminum bats need besides the roster: the equipment list with the
+    bats switched on and, with sound, the college game sounds standing in for the stadium ones.
+
+    source(rel) gives the file to start from, files is the set of paths the game has, folder is where the new
+    files are written."""
+    out = []
+    if EQUIPMENT in files and os.path.exists(source(EQUIPMENT)):
+        with open(source(EQUIPMENT), 'rb') as f:
+            text, n = allow_metal_bats(f.read().decode('latin-1'))
+        if n:
+            p = os.path.join(folder, os.path.basename(EQUIPMENT))
+            with open(p, 'wb') as f:
+                f.write(text.encode('latin-1'))
+            out.append((EQUIPMENT, p))
+    if sound and STADIUM_SOUNDS in files and COLLEGE_SOUNDS in files and os.path.exists(source(COLLEGE_SOUNDS)):
+        out.append((STADIUM_SOUNDS, source(COLLEGE_SOUNDS)))
+    return out
 
 
 class Rec:

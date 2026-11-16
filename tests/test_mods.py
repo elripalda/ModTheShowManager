@@ -427,3 +427,30 @@ if __name__ == '__main__':
     test_layout_restyle()
     test_sorted_saves_and_tidy()
     print('ok')
+
+
+def test_metal_bats_allowed(tmp_path):
+    from modtheshow import rosters as R
+    text = ('{\n "makers": [{"id": 0, "name": "zGeneric"}],\n "eqlist": [\n'
+            '  {"id": 1, "enb": 1, "enb_mobile": 0, "type": 0, "style": 0, "gfxinfo": "tx=$_$(B)_Tier1"},\n'
+            '  {"id": 2, "enb": 0, "enb_mobile": 0, "type": 0, "style": 7, "gfxinfo": "mtl=1"},\n'
+            '  {"id": 3, "enb": 0, "enb_mobile": 0, "type": 0, "style": 9, "gfxinfo": "tx=$_$(B)_Tier2"},\n'
+            '  {"id": 4, "enb": 0, "enb_mobile": 0, "type": 3, "style": 7, "gfxinfo": "mtl=1"}\n ]\n}\n')
+    out, n = R.allow_metal_bats(text)
+    assert n == 1 and len(out) == len(text)
+    assert [i for i, (a, b) in enumerate(zip(text, out)) if a != b] == [text.index('"id": 2') + len('"id": 2, "enb": ')]
+    assert R.allow_metal_bats(out) == (out, 0)
+
+    game = tmp_path / 'game'
+    for rel, data in ((R.EQUIPMENT, text.encode()), (R.COLLEGE_SOUNDS, b'college'), (R.STADIUM_SOUNDS, b'stadium')):
+        f = game / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data)
+    files = {R.EQUIPMENT, R.COLLEGE_SOUNDS, R.STADIUM_SOUNDS}
+    src = lambda rel: str(game / rel)
+    quiet = R.metal_bat_files(src, files, str(tmp_path))
+    assert [rel for rel, _ in quiet] == [R.EQUIPMENT]
+    loud = dict(R.metal_bat_files(src, files, str(tmp_path), sound=True))
+    assert open(loud[R.EQUIPMENT], 'rb').read() == out.encode()
+    assert open(loud[R.STADIUM_SOUNDS], 'rb').read() == b'college'
+    assert R.metal_bat_files(src, {R.EQUIPMENT}, str(tmp_path), sound=True)[0][0] == R.EQUIPMENT

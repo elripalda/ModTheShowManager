@@ -167,8 +167,15 @@ error, each hit's type, power, spin and air density. That log is how a code mod 
   sleeves, spine, collarbone, hips, thighs, glutes and arms, a byte each with 127 or so as the usual build.
   Arcade Rosters sets them for a whole league.
 - **Aluminum bats.** The equipment list (`FRONTEND/EQUIPMENT/MLBEQUIPMENT.JSON`) has ten bats marked `mtl=1`,
-  the ones Road to the Show uses in college. They are switched off for normal play, but a player's bat is just a
-  style number in the players file, so anyone can be handed one.
+  the ones Road to the Show uses in college. A player's bat is a style number in the players file, so anyone can
+  be handed one, but the list has them at `"enb": 0`, and outside a college game the code that builds a bat
+  swaps a switched-off style for the plain wood one (it lets styles 22, 63, 64, 119 and 120 through by number).
+  Setting `"enb": 1` on the ten is enough for all of them to show. They use the `bat_college` and
+  `bat_collegeRing` shapes in `NSW/OBJECTS/G4GAMEBAT.MOD` and their own skins in `G4BATTEXTURES.TEX`.
+- **The ping is a sound bank, not a bat.** The game asks for the same sounds whatever the bat is (`BAT_HIT`,
+  `HIT_BALL_NORM`...). A regular game loads `NSW/AUDIO/GAMEFX_EXTERIOR_STADIUMS.BNK`; a high school or college
+  game loads `GAMEFX_AMATEUR.BNK`, where the contact sounds under those names are aluminum recordings. Put the
+  second file in the first one's place and every game pings.
 - **The body is one model** (`NSW/CHARACTERS/MASTERFILES/BODIES/STANDARDMALE/MALEBODY24.MOD`) on 27 bones:
   hips, waist, back, neck, head, and four or six bones a limb. Caps, helmets, gloves and hands are separate
   models attached to it. `BODYMETA_*.XML` beside it lists the attachments.
@@ -186,5 +193,5 @@ error, each hit's type, power, spin and air density. That log is how a code mod 
 - Head meshes; putting a mascot's head and textures on a player.
 - Franchise and Road to the Show saves.
 - Runner speed, fielding and the pitch speed shown on screen, in the code.
-- Which sound a metal bat makes, and where Road to the Show keeps its tokens.
+- Where Road to the Show keeps its tokens.
 - Tying a flame to the ball, and taking caps, helmets and gloves off.

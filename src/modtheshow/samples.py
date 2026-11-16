@@ -1060,7 +1060,8 @@ def fireball(game, lib, current_file):
 
 
 def aluminum_bats(game, lib, current_file):
-    """Every MLB hitter swings one of the catalogue's metal bats (the Road to the Show college ones)."""
+    """Every hitter swings one of the catalogue's metal bats (the Road to the Show college ones), the game is told
+    they are allowed, and the college game sounds stand in for the stadium ones so contact pings."""
     if R.EQUIPMENT not in game.file_set():
         raise ValueError('This install has no equipment list.')
     metal = [st for st, _ in R.Equipment(game.original(R.EQUIPMENT)).metal_bats()]
@@ -1073,10 +1074,15 @@ def aluminum_bats(game, lib, current_file):
             if p.acc is not None and 'BAT' in p.acc.fields:
                 db.set_player(p, gear={'BAT': metal[p.i % len(metal)]})
                 n += 1
-        return f'{n} players handed an aluminum bat. Apply and start a game.'
-    return _roster_mod(game, lib, current_file, 'Sample: Aluminum Bats',
-                       'Everyone swings aluminum: the metal bats Road to the Show uses in college games. Turn up '
-                       'Exit Velocity in Code Mods for the extra pop.', change)
+        return f'{n} players handed an aluminum bat.'
+    mod, note = _roster_mod(game, lib, current_file, 'Sample: Aluminum Bats',
+                            'Everyone swings aluminum: the metal bats and the ping from Road to the Show’s college '
+                            'games. Turn up Exit Velocity in Code Mods for the extra pop.', change)
+    extra = R.metal_bat_files(game.original, game.file_set(), tempfile.mkdtemp(prefix='mts_'), sound=True)
+    for rel, src in extra:
+        lib.add_file(mod, rel, src)
+    heard = any(rel == R.STADIUM_SOUNDS for rel, _ in extra)
+    return mod, note + (' The college game sounds are in too, for the ping.' if heard else '') + ' Apply and start a game.'
 
 
 def big_heads(game, lib, current_file):
@@ -1114,7 +1120,8 @@ def mascot_bodies(game, lib, current_file, team='ARZ'):
 
 
 SAMPLES = [
-    ('aluminum', 'Sample: Aluminum Bats', 'A roster mod: every player swings a metal bat.', aluminum_bats),
+    ('aluminum', 'Sample: Aluminum Bats', 'Every player swings a metal bat, with the ping to go with it.',
+     aluminum_bats),
     ('bigheads', 'Sample: Big Heads', 'A roster mod: every player gets the biggest head size.', big_heads),
     ('yankees', 'Sample: 1927 Yankees', 'A classic roster brought in from a roster file: 25 players, built faces for '
      'the ones the game doesn’t have, lineups set for you.', yankees_1927),

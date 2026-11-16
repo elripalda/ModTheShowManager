@@ -96,6 +96,11 @@ class LeagueTools(QDialog):
                 self.bats.addItem(f'Aluminum: {lab}', [st])
             lay.addWidget(label('Aluminum bats are the ones Road to the Show uses in college games.', 'Sub', wrap=True))
             lay.addWidget(self.bats)
+            self.ping = QCheckBox('Aluminum sound on contact (the game has one bat sound, so every bat pings)')
+            self.ping.setChecked(True)
+            self.ping.setEnabled(False)
+            self.bats.currentIndexChanged.connect(lambda _i: self.ping.setEnabled(bool(self.bats.currentData())))
+            lay.addWidget(self.ping)
         row = QHBoxLayout()
         row.setSpacing(8)
         self.scope = QComboBox()
@@ -156,4 +161,6 @@ class LeagueTools(QDialog):
             if mine or fits or swung:
                 n += 1
         self.count = n
+        if bats and self.ping.isChecked():
+            self.page.ping = True
         self.accept()
