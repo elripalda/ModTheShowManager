@@ -123,11 +123,13 @@ def _sha1(path):
         return hashlib.sha1(f.read()).hexdigest()
 
 
-def style_recipe(rel, layout, original_path):
+def style_recipe(rel, layout, original_path, original=None):
     """The recipe entry that turns the original layout into this one: the assets it copied, then the bytes that
-    differ."""
-    with open(original_path, 'rb') as f:
-        orig = f.read()
+    differ. original: the original file's bytes, when they are in hand."""
+    orig = original
+    if orig is None:
+        with open(original_path, 'rb') as f:
+            orig = f.read()
     import hashlib
     entry = {'file': rel, 'of': hashlib.sha1(orig).hexdigest()}
     ref = uilayout.Layout(orig)
@@ -139,8 +141,11 @@ def style_recipe(rel, layout, original_path):
         from . import uibuild
         entry['designs'] = list(layout.designs)
         from .samples import CARRIERS
+        carriers = getattr(layout, 'carriers', None) or list(CARRIERS)
+        if carriers != list(CARRIERS):                 # a theme whose pictures ride in other textures
+            entry['carriers'] = carriers
         for design in layout.designs:
-            uibuild.install(ref, design, CARRIERS)
+            uibuild.install(ref, design, carriers)
     entry['runs'] = layout.runs(ref.bytes())
     return entry
 
@@ -157,7 +162,7 @@ def apply_style(lay, entry):
         from . import uibuild
         from .samples import CARRIERS
         for design in entry['designs']:
-            uibuild.install(lay, design, CARRIERS)
+            uibuild.install(lay, design, entry.get('carriers') or CARRIERS)
     lay.apply_runs(entry.get('runs') or [])
 
 

@@ -1073,7 +1073,14 @@ class LayoutEditor(QWidget):
         if self.design.get('fonts'):
             self._fonts = None                            # start from the game's fonts, then draw the design's in
             self._design_fonts()
-        self._design_build(0)
+        if self._design_build(0) is False:                # it cannot be built here: say why, and stay as you were
+            why = self.note.text()
+            self.design = None
+            self._design_stop()
+            QMessageBox.warning(self, 'This Design Does Not Fit Here', why)
+            self.note.setText(self.HINT)
+            return False
+        return True
 
     def _design_stop(self):
         if self.design is not None:
@@ -1091,12 +1098,14 @@ class LayoutEditor(QWidget):
             keep = self.d_piece.currentIndex()
         try:
             lay = uilayout.Layout.open(self.main.game.original(self.rel))
-            samples.replace_scorebug(lay, self.design, self.design.get('x'), self.design.get('y'))
+            tex = self.main.tex(self._pack)
+            samples.replace_scorebug(lay, self.design, self.design.get('x'), self.design.get('y'),
+                                     {e['name']: (e['w'], e['h']) for e in tex.entries} if tex else None)
             for carrier, path in lay.art.items():           # the design's own pictures, shown as the game will
                 self._img_cache[carrier] = self._art(path)
         except Exception as x:
             self.note.setText(f'This design does not build: {x}')
-            return
+            return False
         self._use(lay)
         self._pieces = list(uibuild.walk(self.design.get('pieces') or []))      # nested ones too, in drawing order
         pieces = self._pieces
@@ -1476,10 +1485,11 @@ class LayoutEditor(QWidget):
         self.styles.blockSignals(True)
         self.styles.clear()
         self.styles.addItem('Styles', None)
-        if self.rel and self.rel.upper() == samples.THEME:
-            self.styles.addItem('Wide Top Bar', ('built-in', 'wide'))
-            self.styles.addItem('Split Bar', ('built-in', 'split'))
-            self.styles.addItem('Glass Bar', ('built-in', 'glass'))
+        if self.rel and self.rel.upper() in samples.THEMES:
+            if self.rel.upper() == samples.THEME:           # the stock bug rearranged: Theme 1's pieces only
+                self.styles.addItem('Wide Top Bar', ('built-in', 'wide'))
+                self.styles.addItem('Split Bar', ('built-in', 'split'))
+                self.styles.addItem('Glass Bar', ('built-in', 'glass'))
             for key, (title, _d) in samples.DESIGNS.items():
                 self.styles.addItem(title, ('built-in', key))
             self.styles.addItem('New Blank Design', ('new', None))
@@ -1514,17 +1524,17 @@ class LayoutEditor(QWidget):
                 if not path:
                     return
                 self.main.remember_dir(path)
-                self._design_start(self._design_open(path))
-                self.note.setText('Design opened. Add pieces, pick one to change it, then Save to My Mod.')
+                if self._design_start(self._design_open(path)):
+                    self.note.setText('Design opened. Add pieces, pick one to change it, then Save to My Mod.')
                 return
             elif what[0] == 'new':
-                self._design_start({'name': 'MTS_Mine', 'size': [600, 48], 'pieces': [
-                    {'box': [0, 0, 600, 48], 'color': '#101010', 'opacity': 85}]})
-                self.note.setText('A blank design. Add pieces, pick one to change it, then Save to My Mod.')
+                if self._design_start({'name': 'MTS_Mine', 'size': [600, 48], 'pieces': [
+                        {'box': [0, 0, 600, 48], 'color': '#101010', 'opacity': 85}]}):
+                    self.note.setText('A blank design. Add pieces, pick one to change it, then Save to My Mod.')
                 return
             elif what[0] == 'built-in' and what[1] in samples.DESIGNS:
-                self._design_start(samples.DESIGNS[what[1]][1])
-                self.note.setText('Design loaded. Add pieces, pick one to change it, then Save to My Mod.')
+                if self._design_start(samples.DESIGNS[what[1]][1]):
+                    self.note.setText('Design loaded. Add pieces, pick one to change it, then Save to My Mod.')
                 return
             elif what == ('built-in', 'glass'):
                 samples.glass_bar(lay, self._table)
@@ -2158,7 +2168,8 @@ class LayoutEditor(QWidget):
     def _apply(self):
         if self.layout and self.node:
             if self.design is not None and self.asset and self.asset.name == 'Scorebar':
-                self.design['x'], self.design['y'] = self.sx.value() + 5, self.sy.value() + 53
+                dx, dy = getattr(self.layout, 'design_origin', (5, 53))
+                self.design['x'], self.design['y'] = self.sx.value() + dx, self.sy.value() + dy
             self.layout.move(self.node, self.sx.value(), self.sy.value())
             if abs(self.sscale.value() - self._scale0) > 1e-6:
                 self.layout.scale(self.node, self.sscale.value())

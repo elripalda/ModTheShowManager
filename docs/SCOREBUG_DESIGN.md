@@ -109,8 +109,17 @@ follows the uniform, but a design cannot say "only in the throwback".
 
 A PNG of your own is drawn at whatever size its piece is, so export it large and let the piece set the size. Inside
 a `tint` group it takes the team's colour, so paint a plate in white and keep its gloss and rim as a second picture
-outside the group. A design can carry twelve pictures. Each one takes the place of an equipment brand mark in the
-theme's pack, which the scorebug never draws. Paths that are not full ones are looked for beside the design file.
+outside the group. Paths that are not full ones are looked for beside the design file.
+
+### Which theme it replaces
+
+The game has four scorebug themes and you pick one in its settings. A design takes the place of whichever theme is
+open in the sandbox, so four designs can sit in the game at once, one per theme. Open Theme 2, 3 or 4 in
+Scoreboards, pick a design from Styles and save it the same way.
+
+A design's pictures ride in textures the theme no longer needs once its own scorebug is hidden, so the room for
+them differs: twelve on Theme 1, nineteen on Theme 2, nine on Theme 3 and four on Theme 4. The sandbox says so
+when a design has too many for the theme you are on.
 
 **Save Design…** writes one `.mtsbug` file with the design, its pictures and any font file of its own inside.
 Send that one file to someone and they open it from Styles › Open a Design File.
@@ -177,16 +186,15 @@ A flat picture is enough to copy a layout: where things sit, how big, what colou
   stock batter bar under a design, is next.
 - **More motion.** A piece can arrive, at the start or when its rule comes true. Leaving, looping and a number
   rolling over are not built.
-- **More than twelve pictures.** A design's own art borrows textures the scorebug never draws, and there are
-  twelve of them.
 - **Pop-ups dropping down.** The bars and cards are built to rise from behind the bug. On a top bar they still
   rise, so the bar has to sit low enough to leave them room.
 - **Transitions.** The wipes between plays are Bink videos (`CROSS/MOVIES/PRESENTATION/THEMEn/*.BK2`), not
   layouts. Replacing them means encoding a video, which the manager does not do.
 - **A colour for one throwback.** Colours follow the uniform on their own, and City Connect can have a colour of
   yours, but the game has no question for "is this the 1980s throwback".
-- **Themes 2 to 4.** The designs replace Theme 1's scorebug. The other three are laid out differently and their
-  previews are still missing pieces.
+- **The stock bugs of Themes 2 to 4.** A design can go on any of the four themes, but the previews of those
+  three stock scorebugs are still missing pieces, and the batter and pitcher bars only stay under a design on
+  Theme 1.
 
 Starting lineups, the pre-game matchup, due up and the lower thirds are layouts like the scorebug
 (`NSW/UI/GAME/PRES/PRESOSDSn`). They open in the same sandbox, without their lists filled in.

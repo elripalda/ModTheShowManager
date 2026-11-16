@@ -246,7 +246,7 @@ class Builder:
                 return name
         free = [c for c in self.carriers if c not in self.art]
         if not free:
-            raise ValueError(f'this design has more pictures of its own than there is room for ({len(self.carriers)})')
+            raise ValueError(f'this design has more pictures of its own than this theme has room for ({len(self.carriers)})')
         self.art[free[0]] = path
         return free[0]
 

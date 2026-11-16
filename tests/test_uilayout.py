@@ -544,6 +544,52 @@ def test_design_one_file():
     assert Image.open(os.path.join(back['_folder'], 'art', 'dot.png')).size == (8, 8)
 
 
+def test_design_on_any_theme():
+    """A design takes the place of a scorebug that is not laid out like Theme 1: its window is found, the rest is
+    hidden, and the textures only the hidden pieces drew carry the design's pictures."""
+    import tempfile
+    from PIL import Image
+    from modtheshow import recipes, samples, uibuild
+    d = tempfile.mkdtemp()
+    Image.new('RGBA', (8, 8), (255, 0, 0, 255)).save(os.path.join(d, 'dot.png'))
+    win = asset('T9_Win', group(0, 0, 300, 80, [bytes(node(0x18, 0, 0, 300, 80))]))
+    use = bytes(node(0x1E, 0, 0, 300, 80, (10, 20, 30, 255), ref=H('T9_Win'), size=0x58, extra=struct.pack('<HH', 0x58, 0)))
+    small = bytes(node(0x1E, 0, 0, 40, 40, ref=H('T9_Win'), size=0x58, extra=struct.pack('<HH', 0x58, 0)))
+    scene = group(0, 0, 300, 80, [
+        group(0, 0, 300, 80, [small], (255, 255, 255, 0)),                       # a pop-up, faded out
+        bytes(node(0x18, 5, 5, 20, 20, ref=H('t9_base'))),                       # stock art only the bug draws
+        group(0, 0, 300, 80, [bytes(node(0x18, 0, 0, 10, 10, ref=H('t9_shared'))), use])])
+    bar = asset('Scorebar', group(0, 0, 1920, 1080, [group(1500, 900, 300, 80, [scene])]))
+    other = asset('Elsewhere', group(0, 0, 50, 50, [bytes(node(0x18, 0, 0, 10, 10, ref=H('t9_shared')))]))
+    data = directory([bar, win, other])
+    L = uilayout.Layout(data)
+    path = samples.scorebug_frame(L, L.find('Scorebar'))
+    assert path[-1].ref == H('T9_Win') and path[-1].w == 300 and len(path) == 4
+    design = {'name': 'MTS_T8', 'size': [200, 40], 'pieces': [{'box': [0, 0, 200, 40], 'color': '#102030'},
+                                                             {'image': os.path.join(d, 'dot.png'), 'at': [0, 0, 8, 8]}]}
+    textures = {'t9_base': (64, 64), 't9_shared': (64, 64), 't9_tiny': (8, 8)}
+    samples.replace_scorebug(L, design, 100, 50, textures)
+    assert L.carriers == ['t9_base'] and L.art == {'t9_base': os.path.join(d, 'dot.png')}
+    assert L.design_origin == (0, 0)
+    L2 = uilayout.Layout(L.bytes())
+    a = L2.find('Scorebar')
+    c = a.container()
+    assert sum(x.problems for x in L2.assets) == 0 and (c.x, c.y, c.w, c.h) == (100, 50, 200, 40)
+    inst = [n for n in a.nodes() if n.kind == 0x1E and n.ref == H('MTS_T8')]
+    assert len(inst) == 1 and (inst[0].w, inst[0].h) == (200, 40) and inst[0].color == 0xFFFFFFFF
+    assert [n.color >> 24 for n in a.nodes() if n.kind == 0x18] == [0, 0]       # the stock art is hidden
+    entry = recipes.style_recipe('NSW/UI/GAME/THEME9.NSW', L, None, original=data)
+    assert entry['carriers'] == ['t9_base']
+    again = uilayout.Layout(data)
+    recipes.apply_style(again, entry)
+    assert again.bytes() == L.bytes() and again.art == L.art
+    try:
+        samples.replace_scorebug(uilayout.Layout(directory([other])), design)
+        assert False
+    except (ValueError, AttributeError):
+        pass
+
+
 def test_design_rule():
     """A piece with a rule is drawn only while the rule holds."""
     from modtheshow import uibuild, uilang, uiquery
@@ -639,6 +685,7 @@ if __name__ == '__main__':
     test_design_uniform_colours()
     test_boards()
     test_design_one_file()
+    test_design_on_any_theme()
     test_design_rule()
     test_design_own_pictures()
     test_team_art()

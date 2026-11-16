@@ -4,9 +4,11 @@ Each sample is (key, name, description, build). build(game, lib, current_file) m
 raises ValueError with a line saying why it could not.
 """
 import os
+import struct
 import tempfile
 
 from . import codemods, rosterjson, rosters as R, uilayout
+from .uilayout import name_hash
 
 AUTHOR = 'Mod the Show Manager'
 THEME = 'NSW/UI/GAME/THEME1.NSW'
@@ -363,12 +365,94 @@ CARRIERS = ['100percent_logo', '44pro_logo', 'aria_logo', 'b45_logo', 'bwp_logo'
             'dingerbats_logo', 'gform_logo', 'lizardskin_logo', 'oldhickory_logo', 'taterbats_logo', 'trinity_logo']
 
 
-def replace_scorebug(lay, design, x=None, y=None):
-    """Swap Theme 1's scorebug for a design of our own (uibuild): the stock pieces are hidden and the design is
-    drawn where the frame was. x, y place its top-left corner; by default it sits bottom centre. A design with
-    "bars": true keeps the game's batter and pitcher bars, rising from its top edge."""
+THEMES = tuple(f'NSW/UI/GAME/THEME{n}.NSW' for n in (1, 2, 3, 4))      # the scorebugs a design can take the place of
+_PICTURES = (0x18, 0x01, 0x04)
+
+
+def scorebug_frame(lay, a):
+    """The nodes from a scorebug's container down to its window: the first piece in the scene in play that is
+    another overlay, always shown, and about the size of the bug. A design is drawn in its place. None when the
+    scorebug has no such piece."""
+    from . import uirender
+    c = a.container() if a else None
+    sc = uirender.scenes(a) if c is not None else []
+    if not sc:
+        return None
+
+    def walk(n, path):
+        for k in n.children:
+            if (k.color >> 24) == 0 or n.kind == 0x1C:        # faded out, or one look of several: not always shown
+                continue
+            if k.kind == 0x1E and k.w >= 0.5 * c.w and k.h >= 0.4 * c.h and k.ref in lay.by_hash:
+                return path + [k]
+            hit = walk(k, path + [k])
+            if hit:
+                return hit
+        return None
+    return walk(sc[0], [c, sc[0]])
+
+
+def _spare_textures(lay, hidden, textures):
+    """Textures of the pack that only the hidden pieces drew, biggest first: with those pieces gone a design's own
+    pictures can take them over. hidden: node offsets. textures: {name: (width, height)} of the pack."""
+    by_hash = {name_hash(n): n for n in textures}
+    gone, kept = set(), set()
+    for x in lay.assets:
+        for n in x.nodes():
+            if n.kind in _PICTURES and n.ref in by_hash:
+                (gone if n.off in hidden else kept).add(n.ref)
+    spare = [by_hash[h] for h in gone - kept if min(textures[by_hash[h]]) >= 32]
+    return sorted(spare, key=lambda n: (-textures[n][0] * textures[n][1], n))
+
+
+def replace_scorebug(lay, design, x=None, y=None, textures=None):
+    """Swap a theme's scorebug for a design of our own (uibuild): the stock pieces are hidden and the design is
+    drawn where the bug's window was. x, y place its top-left corner; by default it sits bottom centre. On Theme 1
+    a design with "bars": true keeps the game's batter and pitcher bars, rising from its top edge. textures:
+    {name: (width, height)} of the theme's pack, which a design with pictures of its own needs on the other
+    themes. Leaves lay.carriers (the textures its pictures may take) and lay.design_origin (how far the design
+    sits from the scorebug's own corner)."""
+    from . import uibuild
+    a = lay.find('Scorebar')
+    if a is None or a.container() is None:
+        raise ValueError('This layout has no scorebug.')
+    panel = lay.node_at(a, 0x4910, 0x0F)
+    main = next((k for k in panel.children if k.kind == 0x1E), None) if panel is not None else None
+    if main is not None and main.ref in lay.by_hash and lay.by_hash[main.ref].name == 'Main':
+        return _replace_theme1(lay, design, x, y)
+    path = scorebug_frame(lay, a)
+    if not path:
+        raise ValueError('This theme’s scorebug has no window a design can take the place of.')
+    on = {n.off for n in path}
+    hide = [k for n in path[:-1] for k in n.children if k.off not in on]
+    hidden = {m.off for k in hide for m in k.walk()}
+    have = textures or {}
+    carriers = [c for c in CARRIERS if c in have] + _spare_textures(lay, hidden, have)
+    rel = [n.off - a.body for n in path]                     # building the design moves the file: find them again
+    hide_rel = [k.off - a.body for k in hide]
+    asset = uibuild.install(lay, design, carriers)
+    a = lay.find('Scorebar')
+    w, h = design['size']
+    for r in hide_rel:
+        lay.recolor(lay.node_at(a, r), alpha=0)
+    nodes = [lay.node_at(a, r) for r in rel]
+    lay.retarget(nodes[-1], asset)
+    for n in nodes[1:]:
+        lay.move(n, 0, 0)
+        lay.resize(n, w, h)
+        lay.recolor(n, rgb=(255, 255, 255), alpha=255)       # the stock window's own tint would colour the design
+        if n.kind == 0x0F:
+            struct.pack_into('<Q', lay.d, n.off + 0x40, 0)   # and so would a team colour asked for it
+    lay.move(nodes[0], (1920 - w) / 2 if x is None else x, 1080 - 60 - h if y is None else y)
+    lay.resize(nodes[0], w, h)
+    lay.carriers, lay.design_origin = carriers, (0, 0)
+    return a
+
+
+def _replace_theme1(lay, design, x=None, y=None):
     from . import uibuild
     asset = uibuild.install(lay, design, CARRIERS)
+    lay.carriers, lay.design_origin = list(CARRIERS), (5, 53)
     a = lay.find('Scorebar')
     c = a.container() if a else None
     panel = lay.node_at(a, 0x4910, 0x0F) if c is not None else None
