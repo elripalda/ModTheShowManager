@@ -253,7 +253,7 @@ class UniformsPage(CollectionPage):
     TITLE = 'Uniforms'
     SUB = 'Pick a team and a uniform, then swap any part with your own PNG. Export a part first to get the exact template.'
     SEARCH = 'Find a team'
-    MODE_HIDES_INSPECTOR = (2, 3)
+    MODE_HIDES_INSPECTOR = (2, 3, 4)
 
     def __init__(self, main):
         super().__init__(main)
@@ -263,7 +263,10 @@ class UniformsPage(CollectionPage):
         data = TeamUniforms(main)
         self.schedule = ScheduleEditor(main, data)
         self.unilist = UniformList(main, data)
-        self.add_modes(('Textures', 'On a Player', 'Schedule', 'Uniform List'), [self.preview, self.schedule, self.unilist])
+        from .jerseybuilder import JerseyBuilder
+        self.builder = JerseyBuilder(main)
+        self.add_modes(('Textures', 'On a Player', 'Builder', 'Schedule', 'Uniform List'),
+                       [self.preview, self.builder, self.schedule, self.unilist])
         self._team_shown = None
 
     def _folder(self):
@@ -272,12 +275,14 @@ class UniformsPage(CollectionPage):
     def mode_changed(self, i):
         if i == 1 and self._folder():
             self.preview.show_uniform(self._folder())
-        elif i in (2, 3) and self.key:
+        elif i == 2 and self._folder():
+            self.builder.show_uniform(self._folder())
+        elif i in (3, 4) and self.key:
             self.vscroll.setVisible(False)
             league, team = self.key
             self.mid_title.set(self._name, [])
-            (self.schedule if i == 2 else self.unilist).show_team(f'{league}/{team}', self._name)
-        if i in (0, 1) and self.key:
+            (self.schedule if i == 3 else self.unilist).show_team(f'{league}/{team}', self._name)
+        if i in (0, 1, 2) and self.key:
             self.vscroll.setVisible(len(self.variants_for(self.key)) > 1)
 
     def _set_packs(self, packs, variant):

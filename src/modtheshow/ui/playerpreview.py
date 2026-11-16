@@ -64,7 +64,8 @@ class PlayerPreview(QWidget):
         bar.addWidget(self.note, 1)
         bar.addWidget(button('Front', on_click=lambda: self._turn(0.0)))
         bar.addWidget(button('Back', on_click=lambda: self._turn(3.14159)))
-        bar.addWidget(button('Save Image', on_click=self.save_image))
+        self.b_image = button('Save Image', on_click=self.save_image)
+        bar.addWidget(self.b_image)
         lay.addLayout(bar)
         self.gl = viewer3d.available()
         self._lay = lay

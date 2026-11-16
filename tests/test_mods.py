@@ -152,6 +152,24 @@ def test_roster_keys():
     import json
     assert json.loads(rosterjson.dump(rosterjson.SAMPLE))['teams'][0]['players'][0]['last'] == 'Ruth'
 
+def test_uniform_builder():
+    from PIL import Image
+    from modtheshow import uniformbuilder as UB
+    img = Image.new('RGBA', (256, 128), (240, 240, 225, 200))
+    for x in range(100, 110):
+        for y in range(128):
+            img.putpixel((x, y), (170, 30, 50, 200))
+    pal = UB.palette(img)
+    assert max(abs(a - b) for a, b in zip(pal[0][0], (240, 240, 225))) < 6 and len(pal) == 2, pal
+    logo = Image.new('RGBA', (20, 20), (0, 0, 255, 255))
+    out = UB.apply(img, [(pal[0][0], (10, 20, 120))], dict(color=(255, 255, 255), spacing=16, width=2),
+                   dict(image=logo, x=0.75, y=0.5, width=0.1))
+    assert out.size == img.size and out.getpixel((5, 5))[3] == 200            # the mask is kept
+    assert max(abs(a - b) for a, b in zip(out.getpixel((5, 5))[:3], (10, 20, 120))) < 8      # fabric recoloured
+    assert out.getpixel((105, 60))[:3] == (170, 30, 50)                       # trim untouched, no stripe over it
+    assert out.getpixel((32, 60))[:3] == (255, 255, 255)                      # a pinstripe on the fabric
+    assert out.getpixel((192, 64))[:3] == (0, 0, 255)                         # the logo
+
 
 if __name__ == '__main__':
     test_apply_disable_restore()
@@ -161,4 +179,5 @@ if __name__ == '__main__':
     test_shared_zip_rules()
     test_layout_recipe_targets()
     test_roster_keys()
+    test_uniform_builder()
     print('ok')

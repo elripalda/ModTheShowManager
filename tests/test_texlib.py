@@ -49,6 +49,32 @@ def main():
         os.remove(path)
         print(f'format {fmt:#x}: mean error {err:.2f}')
         assert err < 12, err
+    # a higher-resolution replacement: the entry grows to the PNG's size and still reads back
+    path = 'test_hq.tex'
+    with open(path, 'wb') as f:
+        f.write(make_pack(0x07, 256, 128))
+    t = texlib.Tex(path)
+    e = t.entries[0]
+    big = img.resize((1024, 512), Image.BILINEAR)
+    assert t.can_grow(e, (1024, 512)) and not t.can_grow(e, (300, 150)) and not t.can_grow(e, (512, 128))
+    t.replace(e, big)
+    t.save(path)
+    t2 = texlib.Tex(path)
+    e2 = t2.entries[0]
+    assert (e2['w'], e2['h'], e2['mips']) == (1024, 512, 3), (e2['w'], e2['h'], e2['mips'])
+    assert t2.simple(e2)
+    back = t2.image(e2).convert('RGB')
+    err = sum(abs(a - b) for p, q in zip(back.getdata(), big.convert('RGB').getdata()) for a, b in zip(p, q))
+    err /= 1024 * 512 * 3
+    assert back.size == (1024, 512) and err < 12, err
+    t2.replace(e2, big)                      # and it can be replaced again at its new size
+    try:
+        t2.replace(e2, img.resize((300, 150)))
+        raise AssertionError('an odd size should be refused')
+    except ValueError:
+        pass
+    os.remove(path)
+    print(f'higher resolution: mean error {err:.2f}')
     lin = os.urandom(64 * 32 * 16)
     assert texlib.deswizzle(texlib.swizzle(lin, 64, 32, 16), 64, 32, 16) == lin
     print('ok')

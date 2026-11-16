@@ -455,18 +455,22 @@ class Inspector(QFrame):
             return
         from PIL import Image
         img = Image.open(path).convert('RGBA')
-        if img.size != (e['w'], e['h']):
+        hq = tex.can_grow(e, img.size)
+        if img.size != (e['w'], e['h']) and not hq:
             r = QMessageBox.question(self, 'Different Size',
                                      f"Your image is {img.width}×{img.height}; the game uses {e['w']}×{e['h']}.\n\n"
-                                     f"Resize it to fit?")
+                                     f"Resize it to fit? (An image exactly 2, 4 or 8 times that size is kept as a "
+                                     f"higher-resolution texture instead.)")
             if r != QMessageBox.Yes:
                 return
             img = img.resize((e['w'], e['h']), Image.LANCZOS)
         if masked(rel) and img.split()[3].getextrema()[0] == 255:
             # an opaque PNG keeps the game's mask, so lettering and trim still behave
-            img.putalpha(tex.image(e).split()[3])
+            mask = tex.image(e).split()[3]
+            img.putalpha(mask if mask.size == img.size else mask.resize(img.size, Image.LANCZOS))
         self.main.lib.add_texture(mod, rel, e['name'], img)
-        self.main.changed(f'{e["name"]} saved to {mod.name}')
+        self.main.changed(f'{e["name"]} saved to {mod.name}' +
+                          (f' at {img.width}×{img.height}, higher resolution than the game’s' if hq else ''))
         idx = tex.entries.index(e)
         self.show_entry(rel, tex, idx)
         self.b_mod.setChecked(True)

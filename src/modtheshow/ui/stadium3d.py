@@ -121,7 +121,7 @@ class StadiumView(QWidget):
             return
         from PIL import Image
         img = Image.open(path).convert('RGBA')
-        if img.size != (entry['w'], entry['h']):
+        if img.size != (entry['w'], entry['h']) and not tex.can_grow(entry, img.size):
             img = img.resize((entry['w'], entry['h']), Image.LANCZOS)
         self.main.lib.add_texture(mod, pack, name, img)
         self.main.changed(f'{name} saved to {mod.name}')

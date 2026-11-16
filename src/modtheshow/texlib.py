@@ -24,6 +24,7 @@ except ImportError:      # the plain-Python path below still works, just slower
     np = None
 
 ENTRY = 0x140
+MAX_SIDE = 8192     # largest side a higher-resolution replacement may have
 STRIP = 8   # block rows per decode/encode call: keeps native buffers small (big ones crash on Windows)
 
 # pixel format -> (codec, bytes per block, block size in pixels, can import)
@@ -141,13 +142,68 @@ class Tex:
             img = Image.merge('RGBA', (r, r, r, Image.new('L', img.size, 255)))
         return img
 
+    def can_grow(self, e, size):
+        """True when size is the entry's size doubled one or more times (2x, 4x, 8x) and within the limit."""
+        w, h = size
+        if not self.simple(e) or w <= e['w'] or w % e['w'] or h % e['h'] or w // e['w'] != h // e['h']:
+            return False
+        k = w // e['w']
+        return k in (2, 4, 8) and max(w, h) <= MAX_SIDE
+
+    def grow(self, e, size):
+        """Makes the entry a higher-resolution texture: more mip levels on top, laid out in chunks the way the
+        game's own textures of that size are (every level of 64 KiB or more gets its own chunk, at most two, the
+        rest share one). The small preview copy keeps its slot."""
+        if not self.can_grow(e, size):
+            raise ValueError(f"{e['name']}: {size[0]}x{size[1]} is not {e['w']}x{e['h']} doubled")
+        d, o = self.d, e['pos']
+        add = (size[0] // e['w']).bit_length() - 1
+        preview = [c for c in e['recs'] if c['slot'] > 0 and c['start'] == 0]
+        tops = {c['slot']: struct.unpack_from('<I', d, o + 0xD0 + c['slot'] * 0x14 + 0x10)[0] >> 24 for c in e['recs']}
+        e['w'], e['h'], e['mips'] = size[0], size[1], e['mips'] + add
+        _, bpb, bs, _ = FORMATS[e['fmt']]
+        sizes = [level_size(_div(max(1, e['w'] >> m), bs), _div(max(1, e['h'] >> m), bs), bpb)
+                 for m in range(e['mips'])]
+        chunks, i = [], 0
+        while i < 2 and len(sizes) > i + 1 and sizes[i] >= 65536:
+            chunks.append((i, 1))
+            i += 1
+        chunks.append((i, len(sizes) - i))
+        free = [k for k in range(4) if k not in {c['slot'] for c in preview}]
+        if len(chunks) > len(free):
+            raise ValueError(f"{e['name']}: no room for another level in this texture's record")
+        recs = []
+        for k in range(4):                          # clear the data slots, then lay the new ones down
+            if k in free:
+                struct.pack_into('<5I', d, o + 0xD0 + k * 0x14, 0, 0, 0, 0, 0)
+        for slot, (start, count) in zip(free, chunks):
+            usize = sum(sizes[start:start + count])
+            flags = (tops.get(slot, tops.get(0, 0)) << 24) | (count << 16) | (start << 8) | 1
+            struct.pack_into('<5I', d, o + 0xD0 + slot * 0x14, usize, 0, 0, 0, flags)
+            recs.append(dict(slot=slot, usize=usize, psize=0, rel=len(recs), start=start, count=count))
+        for n, c in enumerate(preview):
+            c['rel'] = len(recs) + n                # keeps its place after the data when the payload is written
+        struct.pack_into('<IHH', d, o + 0x60, sum(sizes), e['w'], e['h'])
+        struct.pack_into('<I', d, o + 0x6C, e['mips'])
+        e['recs'] = sorted(recs + preview, key=lambda c: c['slot'])
+        e['usize'] = e['recs'][0]['usize']
+        e['levels'] = sizes
+        for c in e['recs']:
+            c['plan'] = chunk_plan(e, c)
+        if not all(c.get('plan') for c in e['recs']):
+            raise ValueError(f"{e['name']}: could not lay out the larger texture")
+
     def replace(self, e, img):
-        """Encode img (same size as the entry), rebuild its mip levels, append the payload and point the entry at it."""
+        """Encode img, rebuild its mip levels, append the payload and point the entry at it. img is the entry's size,
+        or that size doubled (2x, 4x, 8x) for a higher-resolution replacement."""
         from PIL import Image
         if not self.simple(e):
             raise ValueError(f"{e['name']}: format {e['fmt']:#x} cannot be imported yet")
         if img.size != (e['w'], e['h']):
-            raise ValueError(f"{e['name']}: PNG is {img.size[0]}x{img.size[1]}, the game expects {e['w']}x{e['h']}")
+            if not self.can_grow(e, img.size):
+                raise ValueError(f"{e['name']}: PNG is {img.size[0]}x{img.size[1]}, the game expects "
+                                 f"{e['w']}x{e['h']} (or that doubled)")
+            self.grow(e, img.size)
         img = img.convert('RGBA')
         packed = []
         for c in sorted(e['recs'], key=lambda c: c['rel']):
