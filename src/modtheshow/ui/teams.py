@@ -78,10 +78,10 @@ class TeamsPage(QWidget):
             names.addWidget(w, 0, i)
             names.setColumnStretch(i, 1)
         ml.addLayout(names)
-        self.roster = table(['Player', 'Pos', 'OVR', 'Team'])
+        self.roster = table(['Player', '#', 'Pos', 'B/T', 'OVR'])
         h = self.roster.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.Stretch)
-        for i in (1, 2, 3):
+        for i in (1, 2, 3, 4):
             h.setSectionResizeMode(i, QHeaderView.ResizeToContents)
         self.roster.setEditTriggers(QAbstractItemView.NoEditTriggers)
         h.setSectionsClickable(True)
@@ -114,12 +114,35 @@ class TeamsPage(QWidget):
         self.pos.addItems(R.POSITIONS)
         self.pos.setToolTip('Primary position')
         self.pos.currentIndexChanged.connect(self._player_edited)
-        form.addWidget(self.pos, 1, 0)
+        self.number = QSpinBox()
+        self.number.setRange(0, 99)
+        self.number.setPrefix('#')
+        self.number.setToolTip('Jersey number')
+        self.number.valueChanged.connect(self._player_edited)
+        self.bats = QComboBox()
+        self.bats.addItems(['Bats R', 'Bats L', 'Bats S'])
+        self.bats.currentIndexChanged.connect(self._player_edited)
+        self.throws = QComboBox()
+        self.throws.addItems(['Throws R', 'Throws L'])
+        self.throws.currentIndexChanged.connect(self._player_edited)
+        self.height = QSpinBox()
+        self.height.setRange(60, 90)
+        self.height.setToolTip('Height in inches')
+        self.height.valueChanged.connect(self._player_edited)
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+        for wdg in (self.pos, self.number, self.bats, self.throws):
+            row2.addWidget(wdg, 1)
+        form.addLayout(row2, 1, 0, 1, 2)
         self.move_to = QComboBox()
         self.move_to.setToolTip('Move to another club. He leaves his old lineup and rotation; the new team puts him '
                                 'on the bench or in the bullpen.')
         self.move_to.currentIndexChanged.connect(self._player_edited)
-        form.addWidget(self.move_to, 1, 1)
+        row3 = QHBoxLayout()
+        row3.setSpacing(8)
+        row3.addWidget(self.height, 1)
+        row3.addWidget(self.move_to, 3)
+        form.addLayout(row3, 2, 0, 1, 2)
         form.setColumnStretch(0, 1)
         form.setColumnStretch(1, 1)
         rl.addLayout(form)
@@ -277,10 +300,10 @@ class TeamsPage(QWidget):
             name = QTableWidgetItem(p.name)
             name.setData(Qt.UserRole, p.i)
             self.roster.setItem(r, 0, name)
-            self.roster.setItem(r, 1, QTableWidgetItem(R.POSITIONS[p.pos] if p.pos < len(R.POSITIONS) else '?'))
-            self.roster.setItem(r, 2, NumItem(str(p.rating('RANK'))))
-            self.roster.setItem(r, 3, QTableWidgetItem(self.db.teams[p.team].short if p.team < len(self.db.teams)
-                                                       else 'FA'))
+            self.roster.setItem(r, 1, NumItem(str(p.bits('jersey'))))
+            self.roster.setItem(r, 2, QTableWidgetItem(R.POSITIONS[p.pos] if p.pos < len(R.POSITIONS) else '?'))
+            self.roster.setItem(r, 3, QTableWidgetItem(f"{'RLS'[min(p.bits('bats'), 2)]}/{'RL'[p.bits('throws')]}"))
+            self.roster.setItem(r, 4, NumItem(str(p.rating('RANK'))))
         pitchers = sum(p.pitcher for p in players)
         self.count.setText(f'{len(players)} players · {pitchers} pitchers · {len(players) - pitchers} position players')
         if players:
@@ -290,7 +313,7 @@ class TeamsPage(QWidget):
             self.right.setEnabled(False)
 
     def _sort(self, col):
-        order = Qt.DescendingOrder if col == 2 else Qt.AscendingOrder
+        order = Qt.DescendingOrder if col == 4 else Qt.AscendingOrder
         if getattr(self, '_sorted', None) == (col, order):
             order = Qt.AscendingOrder if order == Qt.DescendingOrder else Qt.DescendingOrder
         self._sorted = (col, order)
@@ -309,10 +332,15 @@ class TeamsPage(QWidget):
         self.player = p
         self.right.setEnabled(True)
         self._busy = True
-        self.ptitle.set(p.name, [R.POSITIONS[p.pos] if p.pos < len(R.POSITIONS) else '?', f'OVR {p.rating("RANK")}'])
+        self.ptitle.set(p.name, [f'#{p.bits("jersey")}', R.POSITIONS[p.pos] if p.pos < len(R.POSITIONS) else '?',
+                                 f'OVR {p.rating("RANK")}'])
         self.first.setText(p.first)
         self.last.setText(p.last)
         self.pos.setCurrentIndex(min(p.pos, len(R.POSITIONS) - 1))
+        self.number.setValue(p.bits('jersey'))
+        self.bats.setCurrentIndex(min(p.bits('bats'), 2))
+        self.throws.setCurrentIndex(p.bits('throws'))
+        self.height.setValue(max(60, min(90, p.bits('height'))))
         j = self.move_to.findData(p.team)
         self.move_to.setCurrentIndex(j if j >= 0 else self.move_to.count() - 1)
         # pitchers and hitters see the ratings that matter to them, laid out two to a row
@@ -458,9 +486,18 @@ class TeamsPage(QWidget):
         p = self.player
         moved = self.move_to.currentData() != p.team
         ratings = {f: s.value() for f, s in self.spins.items() if s.isVisible() and s.value() != p.rating(f)}
+        bits = {}
+        if self.number.value() != p.bits('jersey'):
+            bits['jersey'] = bits['jersey2'] = self.number.value()
+        if self.bats.currentIndex() != p.bits('bats'):
+            bits['bats'] = self.bats.currentIndex()
+        if self.throws.currentIndex() != p.bits('throws'):
+            bits['throws'] = self.throws.currentIndex()
+        if self.height.value() != p.bits('height'):
+            bits['height'] = self.height.value()
         try:
             self.db.set_player(p, first=self.first.text(), last=self.last.text(), pos=self.pos.currentIndex(),
-                               team=self.move_to.currentData(), ratings=ratings)
+                               team=self.move_to.currentData(), ratings=ratings, bits=bits)
         except ValueError as x:
             QMessageBox.information(self, 'No Room', str(x))
             self._busy = True
@@ -477,8 +514,11 @@ class TeamsPage(QWidget):
         elif r >= 0:
             self._busy = True
             self.roster.item(r, 0).setText(p.name)
-            self.roster.item(r, 1).setText(R.POSITIONS[p.pos])
-            self.roster.item(r, 2).setText(str(p.rating('RANK')))
+            self.roster.item(r, 1).setText(str(p.bits('jersey')))
+            self.roster.item(r, 2).setText(R.POSITIONS[p.pos])
+            self.roster.item(r, 3).setText(f"{'RLS'[min(p.bits('bats'), 2)]}/{'RL'[p.bits('throws')]}")
+            self.roster.item(r, 4).setText(str(p.rating('RANK')))
+            self.ptitle.set(p.name, [f'#{p.bits("jersey")}', R.POSITIONS[p.pos], f'OVR {p.rating("RANK")}'])
             self._busy = False
 
     def _dirty(self, on):

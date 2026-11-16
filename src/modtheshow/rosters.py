@@ -204,6 +204,14 @@ class Player:
         self.pos = prof.int('POSITION')
         self.team = prof.raw('SIGNED_PACK')[0]
 
+    # packed fields: (field, bit, width). UNSIGNED_PACK is 28 bytes little-endian.
+    BITS = {'jersey': ('UNSIGNED_PACK', 128, 7), 'jersey2': ('UNSIGNED_PACK', 135, 7),
+            'height': ('UNSIGNED_PACK', 9, 7), 'bats': ('UNSIGNED_PACK', 23, 2), 'throws': ('SIGNED_PACK', 30, 1)}
+
+    def bits(self, key):
+        f, b, w = self.BITS[key]
+        return (self.prof.int(f) >> b) & ((1 << w) - 1)
+
     @property
     def name(self):
         return f'{self.first} {self.last}'.strip()
@@ -384,6 +392,13 @@ class Database:
             e[('team',)] = p.team
         for f, v in kw.get('ratings', {}).items():
             e[('att', f)] = max(0, min(255, int(v)))
+        for key, v in kw.get('bits', {}).items():
+            f, b, w = Player.BITS[key]
+            raw = p.prof.int(f)
+            raw = (raw & ~(((1 << w) - 1) << b)) | ((int(v) & ((1 << w) - 1)) << b)
+            size = len(p.prof.raw(f))
+            p.prof.fields[f] = (p.prof.fields[f][0], raw.to_bytes(size, 'little'))
+            e[('prof', f)] = p.prof.raw(f)
         for f, v in kw.get('gear', {}).items():
             size = len(p.acc.raw(f)) if p.acc is not None and f in p.acc.fields else 1
             e[('acc', f)] = max(0, min((1 << (8 * size)) - 1, int(v)))
