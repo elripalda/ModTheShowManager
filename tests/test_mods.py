@@ -140,7 +140,7 @@ def test_dials():
     src = codemods.switch_source(codemods.table_sets(table), codemods.MENU_FULL, codemods.dials(table),
                                  codemods.menu_rows(table))
     assert '#define MTS_DIALS 2' in src and '{"power", "Power x", 1.5f, 0.5f, 4.0f, 0.25f}' in src
-    assert 'input_block(on)' in src and '#define MTS_SEAMS 1' in src
+    assert 'input_block(on)' in src and '#define MTS_SEAMS 1' in src and 'GetForegroundDrawList' in src
     plain = codemods.switch_source(codemods.table_sets(table), codemods.MENU_PLAIN, codemods.dials(table))
     assert '#define MTS_SEAMS 0' in plain and 'VK_F4' in plain
     assert 'VK_F4' not in codemods.switch_source(codemods.table_sets(table), codemods.MENU_NONE)

@@ -262,7 +262,7 @@ def fitting(game_root, text):
     return drop_sets(text, set(bad)), bad
 
 
-BUILD_REV = 5      # goes up when the way the manager builds changes, so an older build is offered a rebuild
+BUILD_REV = 6      # goes up when the way the manager builds changes, so an older build is offered a rebuild
 SWITCH_FILE = 'mts-code.cfg'
 SWITCH_LOG = 'mts-code.log'
 

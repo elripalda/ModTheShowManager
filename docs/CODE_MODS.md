@@ -32,7 +32,8 @@ comes off the bat; Air's is how much air it flies through.
 | Enter | Switch the mod on or off |
 | Left, Right | Turn its dial (on a mod without one: off and on) |
 
-Changes take effect at once and are remembered. While the list is open the game ignores the controller, the same
+The game draws the list itself, the way it draws its own F1 menu, so it shows in fullscreen too. Changes take
+effect at once and are remembered. While the list is open the game ignores the controller, the same
 as with its own F1 menu. **F2** and **F3** still work with the list closed: F2 steps through the mods, F3 switches
 the one shown.
 
