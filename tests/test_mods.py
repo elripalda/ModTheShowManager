@@ -79,6 +79,44 @@ def test_restore_exe():
     assert not os.path.exists(os.path.join(root, 'mlb.original.exe'))
 
 
+def test_roster_mods_combine():
+    """Two mods that each carry the roster file are laid over the original in turn, not one over the other."""
+    d = tempfile.mkdtemp()
+    def put(name, data):
+        with open(os.path.join(d, name), 'wb') as f:
+            f.write(data)
+        return os.path.join(d, name)
+    orig = put('o', bytes(range(16)))
+    a = put('a', bytes([0, 1, 99, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]))
+    b = put('b', bytes([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 77, 12, 13, 14, 15]))
+    c = put('c', bytes([0, 1, 55, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]))
+    assert M.stack_files(orig, [a, b]) == bytes([0, 1, 99, 3, 4, 5, 6, 7, 8, 9, 10, 77, 12, 13, 14, 15])
+    assert M.stack_files(orig, [a, c])[2] == 55 and M.stack_files(orig, [c, a])[2] == 99       # the later one wins
+    assert M.stack_files(orig, [a, put('short', b'123')]) is None
+    assert M.STACKABLE.match('FRONTEND/STATS/PLAYERS_LIVE.BIN') and not M.STACKABLE.match('NSW/UI/X.TEX')
+    # and through a real Apply: both mods' changes land in the game's file, and restoring puts the original back
+    root = tempfile.mkdtemp()
+    rel = 'FRONTEND/STATS/PLAYERS.BIN'
+    p = os.path.join(root, 'game', 'romfs', *rel.split('/'))
+    os.makedirs(os.path.dirname(p))
+    with open(p, 'wb') as f:
+        f.write(bytes(range(16)))
+    with open(os.path.join(root, 'game', 'romfs_list.tsv'), 'w', newline='') as f:
+        f.write(f'16\t0\t/{rel}\n')
+    g = G.Game(root)
+    g.index()
+    lib = M.Library(g)
+    for name, src in (('Bats', a), ('Power', b)):
+        lib.add_file(lib.create(name), rel, src)
+    assert not lib.conflicts() and list(lib.stacks()) == [rel]
+    lib.apply(log=lambda *_: None)
+    with open(p, 'rb') as f:
+        assert f.read() == bytes([0, 1, 99, 3, 4, 5, 6, 7, 8, 9, 10, 77, 12, 13, 14, 15])
+    lib.restore(log=lambda *_: None)
+    with open(p, 'rb') as f:
+        assert f.read() == bytes(range(16))
+
+
 def test_drop_sets():
     text = 'set a A 0\nsite a main 10 1 2\nset b B 0\nsite b main 20 3 4\n'
     assert codemods.drop_sets(text, {'a'}) == 'set b B 0\nsite b main 20 3 4\n'
@@ -376,6 +414,7 @@ def test_sorted_saves_and_tidy():
 if __name__ == '__main__':
     test_apply_disable_restore()
     test_restore_exe()
+    test_roster_mods_combine()
     test_drop_sets()
     test_built_in_code_mods()
     test_dials()

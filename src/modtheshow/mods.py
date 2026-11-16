@@ -54,6 +54,28 @@ def trash(path):
     shutil.rmtree(path, ignore_errors=True)
 
 
+# Roster files are edited in place (every field has a fixed size), so two mods' copies of one can be combined: each
+# mod's changes against the original are laid over it in turn.
+STACKABLE = re.compile(r'^FRONTEND/STATS/(ROSTERS|PLAYERS)(_LIVE|_INJ)?\.BIN$')
+
+
+def stack_files(original, sources):
+    """The original file's bytes with what each source changed laid over it in order (a later source wins a byte two
+    of them changed). None when a source is a different size, which means it is not an in-place edit."""
+    import numpy as np
+    with open(original, 'rb') as f:
+        base = np.frombuffer(f.read(), dtype=np.uint8)
+    out = base.copy()
+    for src in sources:
+        with open(src, 'rb') as f:
+            b = np.frombuffer(f.read(), dtype=np.uint8)
+        if len(b) != len(base):
+            return None
+        changed = b != base
+        out[changed] = b[changed]
+    return out.tobytes()
+
+
 def _put(src, dst):
     if os.path.exists(dst):
         os.chmod(dst, 0o666)
@@ -343,12 +365,24 @@ class Library:
                 files[rel] = (m, src)
         return tex, files
 
+    def stacks(self):
+        """{file: [(mod, source)] in order} for the roster files more than one enabled mod carries: those are combined
+        when applied, not won by the last one."""
+        out = {}
+        for m in self.list():
+            if m.enabled:
+                for rel, src in m.files().items():
+                    if STACKABLE.match(rel):
+                        out.setdefault(rel, []).append((m, src))
+        return {rel: v for rel, v in out.items() if len(v) > 1}
+
     def conflicts(self):
         seen, out = {}, {}
         for m in self.list():
             if not m.enabled:
                 continue
-            keys = [(p, n) for p, ns in m.textures().items() for n in ns] + [(r, None) for r in m.files()]
+            keys = [(p, n) for p, ns in m.textures().items() for n in ns] + \
+                   [(r, None) for r in m.files() if not STACKABLE.match(r)]      # roster files combine
             for k in keys:
                 if k in seen:
                     out.setdefault(k, [seen[k]]).append(m.name)
@@ -438,6 +472,7 @@ class Library:
         t0 = time.time()
         self.restore(log=lambda *_: None)
         tex, files = self.winners()
+        stacks = self.stacks()
         total = len(files) + sum(len(v) for v in tex.values())
         done, problems, changed = 0, [], []
         for rel, (m, src) in files.items():
@@ -445,11 +480,19 @@ class Library:
                 problems.append(f'{m.name}: {rel} is not a game file')
                 continue
             self._back_up(rel)
-            _put(src, self.game.path(rel))
+            both = stack_files(self.game.original(rel), [s for _, s in stacks[rel]]) if rel in stacks else None
+            if both is not None:
+                os.chmod(self.game.path(rel), 0o666)
+                with open(self.game.path(rel), 'wb') as f:
+                    f.write(both)
+                who = ' + '.join(x.name for x, _ in stacks[rel])
+            else:
+                _put(src, self.game.path(rel))
+                who = m.name
             changed.append(rel)
             done += 1
             progress(done, total)
-            log(f'{rel}  ({m.name})')
+            log(f'{rel}  ({who})')
         for rel, names in tex.items():
             if not os.path.exists(self.game.path(rel)):
                 problems.append(f'{rel} is not a game file')
