@@ -83,7 +83,8 @@ def test_drop_sets():
     text = 'set a A 0\nsite a main 10 1 2\nset b B 0\nsite b main 20 3 4\n'
     assert codemods.drop_sets(text, {'a'}) == 'set b B 0\nsite b main 20 3 4\n'
     sets, _, bad = codemods.parse(codemods.ARCADE)
-    assert not bad and {'auto_pci', 'exit_velocity', 'air', 'perfect_perfect'} <= {s[0] for s in sets}
+    assert not bad and {'auto_pci', 'exit_velocity', 'air', 'perfect_perfect', 'pitch_speed', 'pitch_break',
+                        'power_bunts', 'bouncy_ball'} <= {s[0] for s in sets}
 
 
 def test_built_in_code_mods():
@@ -154,7 +155,12 @@ def test_dials():
         f.write('[lm 0] Actual Pitch Movement: 0.712, .0.287, (0.768 ft)\nAutoHit::m_fPowerMPH\t\t= 99.013588f;\n'
                 'AutoHit::m_fAirDensity\t= 0.302412f;\nAutoHit::m_fPowerMPH\t\t= 107.430801f;\n')
     assert codemods.last_game(root) == {'hits': 2, 'hardest': 107.430801, 'air': 0.302412, 'breaks': 1,
-                                        'biggest_break': 0.768}
+                                        'biggest_break': 0.768, 'usual_break': 0.768}
+    with open(os.path.join(root, 'logs', 'mlb.log'), 'a') as f:
+        f.write('[lm 0] Hit Type: BUNT\n[lm 0] AUTO WIND  x = 0.000 y = 0.000 z = 0.000\n[lm 0] Hit Direction: 3B LINE\n'
+                '[lm 0] AutoHit::m_fAzimuthAngle\t= 31.5f;\nAutoHit::m_fInclineAngle\t= -7.8f;\n'
+                'AutoHit::m_fPowerMPH\t\t= 88.5f;\n')
+    assert codemods.last_game(root)['hardest_bunt'] == 88.5 and codemods.last_game(root)['bunts'] == 1
 
 
 def test_switch_wiring():

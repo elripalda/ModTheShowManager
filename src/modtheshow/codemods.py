@@ -706,6 +706,15 @@ site perfect_perfect main 167a8d8 12000002 12000002 79417b49 51002529 4b0903ea 2
 set  unbreakable_bats MLB_MOD_NOBREAK 0
 site unbreakable_bats main 35acdc 1e2dcc2b 1e2041ab
 
+# A bunt is given its direction and its power (never more than 130 mph) and becomes hit type BUNT. This multiplies
+# the power right before it is stored, so the ball comes off the bat like a swing. The game's log shows it
+# (Hit Type: BUNT, AutoHit::m_fPowerMPH).
+#: power_bunts: A bunt comes off the bat this many times harder, like a real swing. 4 turns a soft bunt into a rocket through the infield.
+#tag power_bunts: Experimental
+#dial power_bunts 4 1 8 0.5 Bunt power x
+set  power_bunts MLB_MOD_POWERBUNTS 0
+site power_bunts main 1676838 bd004a61 $power_bunts:s2 1e220821 bd004a61
+
 #group Ball and Air
 
 # The game works out air density from the park's temperature and altitude; thinner air means less drag, so fly
@@ -716,6 +725,14 @@ site unbreakable_bats main 35acdc 1e2dcc2b 1e2041ab
 set  air MLB_MOD_AIR 0
 site air main 165ac78 1e210800 1e210800 $air:s1 1e210800
 
+# When the ball hits something, how much of its speed it keeps is the ball's own bounce times the surface's. This
+# multiplies that, for the ground and the walls alike.
+#: bouncy_ball: How much the ball bounces off the ground and the walls. 1.5 is a super ball; past 2 it may never settle down.
+#tag bouncy_ball: Experimental
+#dial bouncy_ball 1.5 0.25 2.5 0.25 Bounce x
+set  bouncy_ball MLB_MOD_BOUNCY 0
+site bouncy_ball main 1659528 1e210813 1e210813 $bouncy_ball:s1 1e210a73
+
 # A thrown ball's speed (mph to feet per second) x 1.25. Aim may be off.
 #: rocket_arms: Thrown balls travel 1.25x faster.
 #tag rocket_arms: Experimental
@@ -724,19 +741,23 @@ site rocket_arms main 1688088 72a7f768 72a7fd48
 
 #group Pitching
 
-# A pitch's speed is its base speed times a factor from 0.95 to 1.05 taken from the pitcher (pitch +0x110). These
-# scale that factor.
-#: heat: Every pitch comes in about 15% faster.
-#tag heat: Experimental
-set  heat MLB_MOD_HEAT 0
-site heat main 24ada4 72a7ee68 529ae148 72a7f168
-site heat main 24adb0 72a7f0c8 5291eb88 72a7f348
+# A pitch is launched from its speed in mph: times 1.4667 is feet per second, and the distance to the plate over
+# that is how long it is in the air. This multiplies the speed there. The number on screen is the pitch's own and
+# stays as it was.
+#: pitch_speed: How fast every pitch gets to the plate. 1.3 makes a 95 mph fastball play like 123; 0.6 is slow-pitch softball.
+#tag pitch_speed: Experimental
+#dial pitch_speed 1.3 0.4 2 0.05 Pitch speed x
+set  pitch_speed MLB_MOD_PITCHSPEED 0
+site pitch_speed main 1655b18 1e220802 1e220802 $pitch_speed:s0 1e200842
 
-#: soft_toss: Every pitch comes in about 15% slower.
-#tag soft_toss: Experimental
-set  soft_toss MLB_MOD_SOFTTOSS 0
-site soft_toss main 24ada4 72a7ee68 52970a48 72a7e9c8
-site soft_toss main 24adb0 72a7f0c8 528f5c28 72a7ec88
+# A spinning ball is pushed sideways by the air (spin crossed with its velocity, times a lift number, over the
+# ball's mass). That push is what makes a pitch break. This multiplies it, for every ball in the air, so hit balls
+# hook and slice more too. The game's log shows it (Actual Pitch Movement, in feet).
+#: pitch_break: How hard spin bends the ball. 2.5 is wiffle ball: sliders sweep across the whole plate. 0 and nothing moves at all.
+#tag pitch_break: Experimental
+#dial pitch_break 2.5 0 6 0.25 Break x
+set  pitch_break MLB_MOD_BREAK 0
+site pitch_break main 1657168 1e270120 1e270120 $pitch_break:s3 1e230800
 
 # Fatigue per pitch starts from 2.1; this makes it 0.525.
 #: iron_arms: Pitchers tire four times slower.
@@ -749,8 +770,8 @@ site iron_arms main 3c5710 72a800c8 72a7e0c8
 
 def last_game(game_root):
     """What the game's own log (logs/mlb.log) recorded in its last session, for checking a code mod did something:
-    {'hits': how many balls were put in play, 'hardest': mph, 'air': air density, 'breaks': how many pitches,
-    'biggest_break': feet}, with whatever was found."""
+    {'hits': how many balls were put in play, 'hardest': mph, 'bunts', 'hardest_bunt', 'air': air density,
+    'breaks': how many pitches, 'biggest_break': feet, 'usual_break': feet}, with whatever was found."""
     path = os.path.join(game_root, 'logs', 'mlb.log')
     try:
         size = os.path.getsize(path)
@@ -763,12 +784,16 @@ def last_game(game_root):
     mph = [float(x) for x in re.findall(r'AutoHit::m_fPowerMPH\s*= (-?[\d.]+)f', tail)]
     if mph:
         out['hits'], out['hardest'] = len(mph), max(mph)
+    bunts = [float(x) for x in re.findall(r'Hit Type: BUNT\b(?:.*\n){1,12}?.*AutoHit::m_fPowerMPH\s*= (-?[\d.]+)f', tail)]
+    if bunts:
+        out['bunts'], out['hardest_bunt'] = len(bunts), max(bunts)
     m = re.findall(r'AutoHit::m_fAirDensity\s*= (-?[\d.]+)f', tail)
     if m:
         out['air'] = float(m[-1])
     m = [float(x) for x in re.findall(r'Actual Pitch Movement: .*\((-?[\d.]+) ft\)', tail)]
     if m:
         out['breaks'], out['biggest_break'] = len(m), max(m)
+        out['usual_break'] = sorted(m)[len(m) // 2]
     return out
 
 

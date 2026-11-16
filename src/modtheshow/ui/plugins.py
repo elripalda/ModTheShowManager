@@ -293,8 +293,10 @@ class PluginsPage(QWidget):
             bits.append(f'{g["hits"]} ball{"s" if g["hits"] != 1 else ""} hit, the hardest at {g["hardest"]:.1f} mph.')
         if 'air' in g:
             bits.append(f'Air density {g["air"]:.3f} (about 0.075 untouched).')
+        if g.get('bunts'):
+            bits.append(f'Hardest bunt {g["hardest_bunt"]:.1f} mph.')
         if g.get('breaks'):
-            bits.append(f'Biggest pitch break {g["biggest_break"]:.2f} ft.')
+            bits.append(f'Pitches broke {g["usual_break"]:.2f} ft as a rule, {g["biggest_break"]:.2f} ft at most.')
         sw = codemods.last_swing(root)
         if 'error' in sw:
             bits.append(f'On the last swing the PCI was {sw["error"]:.2f} off the ball.')

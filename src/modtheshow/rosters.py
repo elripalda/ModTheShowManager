@@ -466,6 +466,11 @@ class Database:
             e[('app',)] = src.i
             for f, (off, _) in list(p.app.fields.items()):
                 p.app.fields[f] = (off, src.app.raw(f))
+        for f, v in kw.get('shape', {}).items():
+            # body proportions (HEAD_SCALE, NECK_SCALE and friends): a byte each, 127 or so is the usual build
+            if p.app is not None and f in p.app.fields:
+                e[('shape', f)] = max(0, min(255, int(v)))
+                p.app.fields[f] = (p.app.fields[f][0], int(e[('shape', f)]).to_bytes(len(p.app.raw(f)), 'little'))
         for f, v in kw.get('gear', {}).items():
             size = len(p.acc.raw(f)) if p.acc is not None and f in p.acc.fields else 1
             e[('acc', f)] = max(0, min((1 << (8 * size)) - 1, int(v)))
@@ -514,7 +519,7 @@ class Database:
             j = locate(i)
             if j is None:
                 continue
-            for key, v in e.items():
+            for key, v in sorted(e.items(), key=lambda kv: kv[0][0] == 'shape'):     # a copied look first, shapes on top
                 if key == ('app',):
                     k = locate(v)
                     if k is not None and j < len(apps) and k < len(apps):
@@ -531,6 +536,8 @@ class Database:
                     db.put(atts[j], key[1], v)
                 elif key[0] == 'acc' and j < len(accs) and key[1] in accs[j].fields:
                     db.put(accs[j], key[1], v)
+                elif key[0] == 'shape' and j < len(apps) and key[1] in apps[j].fields:
+                    db.put(apps[j], key[1], v)
 
     def write(self, sources, out):
         """sources: {rel: path to read}; out(rel, bytes) stores the result. Patches every variant that exists."""
