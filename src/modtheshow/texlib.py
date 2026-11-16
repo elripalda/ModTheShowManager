@@ -112,8 +112,7 @@ class Tex:
         return self.readable(e) and FORMATS[e['fmt']][3] and all(c.get('plan') for c in e['recs'])
 
     def raw(self, e):
-        return lz4.block.decompress(bytes(self.d[e['offset']:e['offset'] + e['psize']]),
-                                    uncompressed_size=e['usize'])
+        return unpack(bytes(self.d[e['offset']:e['offset'] + e['psize']]), e['usize'])
 
     def image(self, e):
         """The full-size level as a PIL image."""
@@ -213,8 +212,7 @@ class Tex:
                 data = encode_level(lv, e['fmt'])
                 out += data + bytes(size - len(data))
             out += bytes(c['usize'] - len(out))
-            packed.append((c, lz4.block.compress(bytes(out), mode='high_compression', compression=12,
-                                                 store_size=False)))
+            packed.append((c, pack(bytes(out))))
         while len(self.d) % 16:
             self.d.append(0)
         off = len(self.d)
@@ -231,6 +229,41 @@ class Tex:
         first = min(x['offset'] for x in self.entries)
         struct.pack_into('<I', self.d, 0x0C, len(self.d) - first)
         open(path, 'wb').write(self.d)
+
+
+BLOCK = 0x80000      # big chunks are 512 KiB LZ4 blocks, each after a u32 of its packed size
+SINGLE = 0x200000    # the largest chunk the game keeps as one block (4 MiB and up are in blocks)
+
+
+def unpack(data, usize):
+    """A chunk's bytes: one LZ4 block, or for big chunks 512 KiB blocks in a row, each led by its packed size and
+    allowed to reach back into the block before it."""
+    try:
+        return lz4.block.decompress(data, uncompressed_size=usize)
+    except lz4.block.LZ4BlockError:
+        if usize <= BLOCK:
+            raise
+    out, q = bytearray(), 0
+    while len(out) < usize:
+        n = struct.unpack_from('<I', data, q)[0]
+        want = min(BLOCK, usize - len(out))
+        out += lz4.block.decompress(data[q + 4:q + 4 + n], uncompressed_size=want,
+                                    dict=bytes(out[-65536:]) if out else b'')
+        q += 4 + n
+    return bytes(out)
+
+
+def pack(raw):
+    """The other way round, using the same split as the game. Blocks are packed on their own, which reads the same."""
+    def one(b):
+        return lz4.block.compress(b, mode='high_compression', compression=12, store_size=False)
+    if len(raw) <= SINGLE:
+        return one(raw)
+    out = bytearray()
+    for i in range(0, len(raw), BLOCK):
+        b = one(raw[i:i + BLOCK])
+        out += struct.pack('<I', len(b)) + b
+    return bytes(out)
 
 
 def encode_level(img, fmt):

@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout,
                                QListView, QListWidget, QListWidgetItem, QMessageBox, QSpinBox, QVBoxLayout, QWidget)
 
-from .. import uilayout, uirender
+from .. import fontlib, uilayout, uirender
 from . import theme
 from .common import button, label
 from .widgets import pil_to_qimage
@@ -249,6 +249,30 @@ class LayoutEditor(QWidget):
         self.tools_row.setLayout(tools)
         tools.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.tools_row)
+        # a text box: its font, size and colour, and bringing in a font of your own
+        trow = QHBoxLayout()
+        trow.setSpacing(8)
+        trow.setContentsMargins(0, 0, 0, 0)
+        self.t_font = QComboBox()
+        self.t_font.setIconSize(QSize(150, 22))
+        self.t_font.setToolTip('The game font this text box uses')
+        self.t_font.activated.connect(self._text_font)
+        self.t_size = self._spin(4, 200, 1)
+        self.t_size.setPrefix('Text size  ')
+        self.t_size.setSuffix(' px')
+        self.t_size.valueChanged.connect(self._text_size)
+        self.b_tcolor = button('Text Colour', on_click=self._text_color)
+        self.b_font_import = button('Import Font…', on_click=self._import_font)
+        self.b_font_import.setToolTip('Draw a font file of your own into the game, in place of the font this box uses')
+        trow.addWidget(self.t_font, 3)
+        trow.addWidget(self.t_size, 1)
+        trow.addWidget(self.b_tcolor, 1)
+        trow.addWidget(self.b_font_import, 1)
+        self.text_row = QWidget()
+        self.text_row.setLayout(trow)
+        self.text_row.hide()
+        lay.addWidget(self.text_row)
+        self._fonts = None             # (FontTable, sheet) as the active mod has them
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
         self.note = label(self.HINT, 'Sub', wrap=True)
@@ -279,6 +303,7 @@ class LayoutEditor(QWidget):
             self.which.blockSignals(False)
             return
         self._pack, self._table, self._pix_cache, self._img_cache = pack_rel, {}, {}, {}
+        self._fonts = None
         try:
             tex = self.main.tex(pack_rel)
             self._table = uilayout.Layout.texture_table([e['name'] for e in tex.entries]) if tex else {}
@@ -385,7 +410,7 @@ class LayoutEditor(QWidget):
         hidden = set()
         try:
             img, hits = uirender.render(self.layout, self.asset, self._tex_img, self._table, states=self.states,
-                                        effects=self.fx.isChecked(), hidden=hidden)
+                                        effects=self.fx.isChecked(), hidden=hidden, fonts=self._load_fonts())
         except Exception as x:
             self.note.setText(f'Could not draw the layout: {x}')
             return
@@ -535,6 +560,7 @@ class LayoutEditor(QWidget):
 
     def _choose(self, node, tex):
         self._chosen_node, self._chosen_tex = node, tex
+        self.text_row.setVisible(node is not None and node.kind == 0x22)
         pairs = self._targets()
         for w in self._tools:
             w.setEnabled(bool(pairs))
@@ -548,6 +574,7 @@ class LayoutEditor(QWidget):
             sp.setValue(v)
             sp.blockSignals(False)
         self.b_hide.setText('Show' if (n.color >> 24) == 0 else 'Hide')
+        self._fill_text_row()
 
     def _strip_picked(self, item, _old=None):
         name = item.data(Qt.UserRole) if item else None
@@ -642,6 +669,127 @@ class LayoutEditor(QWidget):
         self._img_cache.pop(name, None)
         self.main.changed(f'{name} saved to {mod.name}')
         self._fill_strip()
+        self._redraw()
+
+    # ------------------------------------------------------------------ text and fonts
+    def _load_fonts(self):
+        if self._fonts is not None:
+            return self._fonts or None
+        self._fonts = False
+        try:
+            if fontlib.FONTS not in self.main.game.file_set():
+                return None
+            table = fontlib.FontTable.open(self.main.current_file(fontlib.FONTS))
+            sheet = self._sheet_img()
+            self._fonts = (table, sheet)
+            self._fill_font_combo()
+        except Exception:
+            self._fonts = False
+        return self._fonts or None
+
+    def _sheet_img(self):
+        from PIL import Image
+        mod = self.main.active_mod()
+        own = self.main.lib.texture_path(mod, fontlib.SHEETS, 'english') if mod else None
+        hit = self.main.mod_png(fontlib.SHEETS, 'english')
+        if own and os.path.exists(own):
+            return Image.open(own).convert('RGBA')
+        if hit and os.path.exists(hit[1]):
+            return Image.open(hit[1]).convert('RGBA')
+        tex = self.main.tex(fontlib.SHEETS)
+        e = next(e for e in tex.entries if e['name'] == 'english')
+        return tex.image(e)
+
+    def _fill_font_combo(self):
+        table, sheet = self._fonts
+        self.t_font.blockSignals(True)
+        self.t_font.clear()
+        for f in table.fonts:
+            if f.sheet != 'english':
+                continue
+            icon = QIcon()
+            try:
+                c = QColor(theme.TEXT or '#e0e0e0')
+                img = fontlib.draw_text(f, sheet, 'NYY 3 BOT 7th', 16, (c.red(), c.green(), c.blue(), 255))
+                icon = QIcon(QPixmap.fromImage(pil_to_qimage(img)))
+            except Exception:
+                pass
+            self.t_font.addItem(icon, f'{f.index}', f.index)
+        self.t_font.blockSignals(False)
+
+    def _fill_text_row(self):
+        n = self._chosen_node
+        if n is None or n.kind != 0x22 or not self.layout:
+            return
+        self._load_fonts()
+        for w in (self.t_size, self.t_font):
+            w.blockSignals(True)
+        self.t_size.setValue(self.layout.text_size(n))
+        i = self.t_font.findData(self.layout.text_font(n))
+        self.t_font.setCurrentIndex(i)
+        for w in (self.t_size, self.t_font):
+            w.blockSignals(False)
+
+    def _text_targets(self):
+        n = self._chosen_node
+        return [n] if n is not None and n.kind == 0x22 else []
+
+    def _text_font(self, *_):
+        num = self.t_font.currentData()
+        if num is None:
+            return
+        for n in self._text_targets():
+            self.layout.set_text_font(n, num)
+        self._redraw()
+
+    def _text_size(self, v):
+        for n in self._text_targets():
+            self.layout.set_text_size(n, v)
+        self._redraw()
+
+    def _text_color(self):
+        t = self._text_targets()
+        if not t:
+            return
+        r, g, b, _ = self.layout.text_color(t[0])
+        c = QColorDialog.getColor(QColor(r, g, b), self, 'Text colour')
+        if c.isValid():
+            for n in t:
+                self.layout.set_text_color(n, rgb=(c.red(), c.green(), c.blue()))
+            self._redraw()
+
+    def _import_font(self):
+        t = self._text_targets()
+        fonts = self._load_fonts()
+        if not t or not fonts:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, 'Import a font', self.main.last_dir(), 'Fonts (*.ttf *.otf)')
+        if not path:
+            return
+        self.main.remember_dir(path)
+        mod = self.main.active_mod(ask=True)
+        if not mod:
+            return
+        slot = self.layout.text_font(t[0])
+        table, sheet = fonts
+        try:
+            sheet2, drawn = fontlib.import_font(table, sheet, slot, path)
+        except Exception as x:
+            QMessageBox.warning(self, 'Could Not Import', str(x))
+            return
+        data = table.bytes()
+
+        def write(p):
+            with open(p, 'wb') as f:
+                f.write(data)
+        self.main.lib.add_texture(mod, fontlib.SHEETS, 'english', sheet2)
+        self.main.save_file(fontlib.FONTS, write, f'{os.path.basename(path)} is now game font {slot} in {{mod}}. '
+                            'Apply, then check it in a game.')
+        self._fonts = (fontlib.FontTable(data), sheet2)
+        self._fill_font_combo()
+        self._fill_text_row()
+        self.note.setText(f'{drawn} letters from {os.path.basename(path)} replace game font {slot}. Every text box '
+                          'that uses that font, here and in the menus, changes with it.')
         self._redraw()
 
     # ------------------------------------------------------------------ placing the overlay

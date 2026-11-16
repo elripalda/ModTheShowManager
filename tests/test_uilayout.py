@@ -143,6 +143,28 @@ def test_repaint():
     assert dot.rgba()[3] == 0
 
 
+def test_text():
+    from modtheshow import fontlib
+    import numpy as np
+    L = uilayout.Layout(build())
+    # a text box is 0x80 bytes; give the asset one by reusing an image record's space is not possible, so build one
+    t = bytearray(node(0x22, 5, 5, 100, 30, size=0x80))
+    struct.pack_into('<H', t, 0x58, 24 * 16)
+    t[0x74] = (10 << 2) | 3
+    L2 = uilayout.Layout(bytes(L.d[:0x30]) + asset('T', group(0, 0, 1920, 1080, [bytes(t)])))
+    a = L2.assets[0]
+    n = next(x for x in a.nodes() if x.kind == 0x22)
+    assert L2.text_size(n) == 24 and L2.text_font(n) == 10
+    assert L2.retext(a, {'size': 'x1.5', 'font': 2, 'color': '#ff0000'}) == 1
+    assert L2.text_size(n) == 36 and L2.text_font(n) == 2 and L2.d[n.off + 0x74] & 3 == 3
+    assert L2.text_color(n)[:3] == (255, 0, 0)
+    assert fontlib.char_of(fontlib.code_of('Ñ')) == 'Ñ' and fontlib.char_of(0x41) == 'A'
+    m = np.zeros((20, 20), bool)
+    m[5:15, 5:15] = True
+    f = fontlib.distance_field(m, 4)
+    assert f[10, 10] == 255 and f[0, 0] == 0 and 100 < f[10, 5] < 160
+
+
 def test_hash():
     assert H('PBInterface\\ScoreBar') == 0xF3657054
     assert H('') == uilayout.NONE
@@ -154,4 +176,5 @@ if __name__ == '__main__':
     test_draw()
     test_edit()
     test_repaint()
+    test_text()
     print('ui layout ok')

@@ -69,6 +69,14 @@ lower-case letter in, set the top bit. It names each texture, each overlay and t
 them (`ACT_SCOREBAR_OFF`, `ACT_BATTER_BAR_IN`...).
 [Layouts](MODDING_GUIDE.md#ui-layouts-iff0assh)
 
+## Fonts
+
+Game fonts aren't font files. All 38 are drawn on one big sheet as distance fields (which is why text stays sharp at
+any size), with a table saying where each letter sits. That makes a custom font possible: draw a font file's letters
+the same way into the free part of the sheet and point one of the game's fonts at them. Text boxes pick their font,
+size and colour themselves, so each box can be restyled.
+[Fonts](MODDING_GUIDE.md#fonts-fontsnsw--fontstex)
+
 ## The code
 
 The recomp turns the game's code into C when it installs, so gameplay can't be patched in a running exe. Its

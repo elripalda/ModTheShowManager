@@ -236,6 +236,20 @@ def scorebug_brick(game, lib, current_file):
                            BRICK_SAND)
 
 
+def scorebug_text_test(game, lib, current_file):
+    if THEME not in game.file_set():
+        raise ValueError('This install has no scorebug layout (THEME1.NSW).')
+    mod = _mod(lib, 'Test: Scorebug Text', 'A check for the text settings: every scorebug text half again as big, '
+               'in red, in the wide font. Switch it off when you are done.')
+    folder = os.path.join(mod.path, 'layouts')
+    os.makedirs(folder, exist_ok=True)
+    import json
+    with open(os.path.join(folder, 'scorebug-text.json'), 'w', encoding='utf-8') as f:
+        json.dump([{'file': THEME, 'asset': 'Scorebar', 'text': {'size': 'x1.5', 'font': 2, 'color': '#ff2020'}}],
+                  f, indent=2)
+    return mod, 'Pick scorebug Theme 1, apply, start a game and send a screenshot of the scorebug.'
+
+
 def scorebug_flat(game, lib, current_file):
     return _scorebug_style(game, lib, 'Sample: Flat White Scorebug', 'Theme 1 flat and white: no gradients or '
                            'chevrons, black lines and scores.', FLAT_WHITE)
@@ -258,6 +272,8 @@ SAMPLES = [
      scorebug_corner),
     ('midnight', 'Sample: Midnight Scorebug', 'A scorebug style: navy, gold lines, white scores.', scorebug_midnight),
     ('brick', 'Sample: Brick & Sand Scorebug', 'A scorebug style: brick red with sand trim.', scorebug_brick),
+    ('texttest', 'Test: Scorebug Text', 'A check: scorebug text bigger, red and in another font.',
+     scorebug_text_test),
     ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',
      scorebug_flat),
     ('arcade', codemods.ARCADE_NAME, 'Code mods: Auto PCI, Perfect-Perfect, moonshots, juiced ball, thin air and more.',

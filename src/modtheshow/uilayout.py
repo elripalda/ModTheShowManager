@@ -324,6 +324,59 @@ class Layout:
                 changed += 1
         return changed
 
+    # ---- text boxes (kind 0x22): +0x40 text colour, +0x44 / +0x48 second and highlight colours, +0x4C the label
+    #      it shows (0 for live text the game fills in), +0x58 size in 1/16 px, +0x70 layout flags, +0x74 font
+    #      (font number in the top six bits)
+    def text_size(self, node):
+        return struct.unpack_from('<H', self.d, node.off + 0x58)[0] / 16
+
+    def set_text_size(self, node, px):
+        struct.pack_into('<H', self.d, node.off + 0x58, max(16, min(0xFFFF, int(round(px * 16)))))
+
+    def text_font(self, node):
+        return self.d[node.off + 0x74] >> 2
+
+    def set_text_font(self, node, number):
+        self.d[node.off + 0x74] = ((int(number) & 0x3F) << 2) | (self.d[node.off + 0x74] & 3)
+
+    def text_color(self, node):
+        return rgba(struct.unpack_from('<I', self.d, node.off + 0x40)[0])
+
+    def set_text_color(self, node, rgb=None, alpha=None):
+        r, g, b, a = self.text_color(node)
+        if rgb is not None:
+            r, g, b = rgb
+        if alpha is not None:
+            a = alpha
+        struct.pack_into('<I', self.d, node.off + 0x40, pack_rgba(r, g, b, a))
+
+    def text_label(self, node):
+        return struct.unpack_from('<I', self.d, node.off + 0x4C)[0]
+
+    def retext(self, asset, spec):
+        """Restyle every text box an overlay draws. spec: size (px, or 'x1.5' to scale), font (number), color
+        ('#rrggbb'); 'only_font' narrows it to boxes using that font now. Returns how many changed."""
+        n = 0
+        for a in self.family(asset):
+            for t in a.nodes():
+                if t.kind != 0x22:
+                    continue
+                if spec.get('only_font') is not None and self.text_font(t) != int(spec['only_font']):
+                    continue
+                size = spec.get('size')
+                if size is not None:
+                    if isinstance(size, str) and size.lower().startswith('x'):
+                        self.set_text_size(t, self.text_size(t) * float(size[1:]))
+                    else:
+                        self.set_text_size(t, float(size))
+                if spec.get('font') is not None:
+                    self.set_text_font(t, spec['font'])
+                if spec.get('color'):
+                    v = int(str(spec['color']).lstrip('#'), 16)
+                    self.set_text_color(t, rgb=((v >> 16) & 255, (v >> 8) & 255, v & 255))
+                n += 1
+        return n
+
     def family(self, asset):
         """The asset and every asset it draws, nearest first."""
         out, todo = [], [asset]

@@ -130,6 +130,9 @@ def apply_layouts(game, mods, problems):
                     if e.get('pieces'):
                         if not lay.restyle(asset, e['pieces']):
                             raise ValueError(f'none of the pieces named for {e["asset"]} are in {rel}')
+                    if e.get('text'):
+                        for spec in (e['text'] if isinstance(e['text'], list) else [e['text']]):
+                            lay.retext(asset, spec)
                     if e.get('colours'):
                         table = _texture_table(game, rel)
                         if not lay.repaint(asset, e['colours'], table):

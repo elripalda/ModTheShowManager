@@ -112,6 +112,13 @@ screen flips each one so you can see and edit every look. **Show animation layer
 the game fades in, which are hidden at rest. Text boxes show as dotted outlines, since their words come from the
 game. **Zoom in** fills the view with the overlay.
 
+Click a text box and a third row appears: **Font** (every game font, shown as a sample), **Text size** and
+**Text Colour**. Text boxes show sample words in the sandbox, since the real words come from the game.
+
+**Import Font…** draws a font file of your own (`.ttf` or `.otf`) into the game in place of the font the clicked
+box uses. It takes that font's cap height, so boxes keep their size, and it covers the accented letters. Every
+text box that uses the font changes with it, menus included. About five imported fonts fit at once.
+
 The same edits can go in a layout recipe, so a scorebug style can be shared without the layout file:
 
 ```json
@@ -132,6 +139,13 @@ shows too:
 ```
 
 The Midnight, Brick & Sand and Flat White samples are built this way.
+
+Text boxes can be restyled the same way, all at once or only the ones using one font:
+
+```json
+[{"file": "NSW/UI/GAME/THEME1.NSW", "asset": "Scorebar",
+  "text": {"size": "x1.2", "font": 10, "color": "#ffffff", "only_font": 9}}]
+```
 
 `use` in a piece draws another texture of the same pack in its place.
 
@@ -252,6 +266,9 @@ How the levels are split into chunks: each of the first two levels gets a chunk 
 more, and everything smaller shares the last one. A record with a slot above 0 that starts at level 0 is the small
 loading preview. Every texture in the game follows this, which is what lets a texture be made larger.
 
+Chunks up to 2 MiB are one LZ4 block. Bigger ones (the font sheet, a few card animations) are 512 KiB blocks in a
+row, each led by its packed size and allowed to reach back 64 KiB into the block before it.
+
 Pixel formats: `0x16` BC7, `0x07`/`0x06` BC3, `0x0D` BC1, `0x13` BC4, `0x02` RGBA8, `0x05` BC1 (UI normals),
 `0x59` ASTC 6×6. Chunks are LZ4 block compressed and Tegra X1 block-linear swizzled (GOB 64 bytes × 8 rows,
 block height from the height in blocks). Big textures split into chunks: mip 0, mip 1, the rest, then a small preview.
@@ -349,6 +366,19 @@ them packed between the end of its fields and its end, so groups clip what they 
 | 0x19 | flipbook: a list of textures | +u16[0x48] | |
 | 0x13, 0x1D, 0x21 | lists and tables | +[0x30] | +[0x38] |
 | 0x26, 0x11 | text field, button | +[0x58] | 0x68 |
+
+A text box (0x22) keeps its text colour at +0x40, two more colours at +0x44 and +0x48 (the gold highlight), the
+label it shows at +0x4C (0 when the game fills it in), its size at +0x58 (u16, 1/16 px), layout flags at +0x70 and
+its font at +0x74 (font number in the top six bits). The game blends +0x58 to +0x6A between looks in 1/16 px.
+
+## Fonts (FONTS.NSW + FONTS.TEX)
+
+`NSW/UI/ART/FONTS/FONTS.NSW` is one layout asset holding a font table: 0x30-byte font records from +0x40 of the
+body (39 fonts; +0x20 the letter sheet's name hash, +0x28 the glyph table). Each glyph table is 124 records of
+0x28 bytes: the character as its UTF-8 bytes (first byte lowest), u0 v0 u1 v1 on the sheet, width and height with
+4 px of padding, then bottom (up from the baseline), left and right bearing. The letters live on the 4096×4096
+"english" sheet in `FONTS.TEX` as signed distance fields in alpha, edge at 0.5. The bottom quarter of the sheet is
+free, which is where imported fonts go.
 
 Names are stored as a 32-bit hash: start at 0; for each character of the lower-cased name, rotate left 8 bits and
 XOR the character in; set the top bit at the end. In Python:

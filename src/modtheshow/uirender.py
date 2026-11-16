@@ -3,7 +3,8 @@
 Only the still picture: the node tree at rest, every States node on the state picked for it (the first one unless
 told otherwise), groups clipping what they hold. Pieces that the game fades in with an animation (flag 0x80) and
 additive glows (flag 0x20) are left out unless effects is on, since at rest they sit at full strength in the file.
-Text boxes are outlined, because their words come from the game while it runs.
+Text boxes are drawn with sample words in their own font, size and colour when the font table is given, since the
+real words come from the game while it runs.
 """
 import numpy as np
 from PIL import Image, ImageChops
@@ -28,9 +29,10 @@ def _tint(img, rgba):
 
 
 def render(layout, asset, texture, table, size=(1920, 1080), states=None, effects=False, hidden=(), background=None,
-           only=None):
+           only=None, fonts=None, sample=None):
     """Draw asset. texture(name) -> PIL RGBA image or None; table: {hash: texture name} for the layout's pack. states: {node offset: state index}. hidden: node offsets
-    to leave out. only: draw just this node (an offset) and what it holds. Returns (image, [Hit]) with hits in draw
+    to leave out. only: draw just this node (an offset) and what it holds. fonts: (FontTable, sheet) to draw text
+    boxes with; sample(node) -> the words to show in a text box. Returns (image, [Hit]) with hits in draw
     order, last on top."""
     states = states or {}
     canvas = Image.new('RGBA', size, background or (0, 0, 0, 0))
@@ -70,6 +72,27 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
             canvas.alpha_composite(part, (lx0, ly0))
         return True
 
+    def _text(n, ax, ay, c, clip):
+        from . import fontlib
+        table, sheet = fonts
+        num = layout.text_font(n)
+        if not (0 <= num < len(table.fonts)) or sheet is None:
+            return
+        px = layout.text_size(n)
+        words = sample(n) if sample else ('88' if not layout.text_label(n) else 'ABC')
+        if not words or px < 2:
+            return
+        r, g, b, a = layout.text_color(n)
+        col = (r * c[0], g * c[1], b * c[2], a * c[3])
+        try:
+            img = fontlib.draw_text(table.fonts[num], sheet, words, px * 0.7, tuple(int(v) for v in col))
+        except Exception:
+            return
+        x = ax + (n.w - img.width) / 2
+        y = ay + (n.h - img.height) / 2
+        box = (max(clip[0], ax), max(clip[1], ay), min(clip[2], ax + n.w), min(clip[3], ay + n.h))
+        blit(img, x, y, img.width, img.height, box, False)
+
     def draw(n, ox, oy, tint, clip, path, depth, on):
         if n.off in hidden:
             return
@@ -94,6 +117,8 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
             if blit(_tint(img, c), ax, ay, n.w, n.h, clip, bool(n.flags & 0x20)):
                 hits.append(Hit(n, (ax, ay, n.w, n.h), name, path, clip))
         elif on and n.kind == 0x22 and n.w >= 1 and n.h >= 1:
+            if fonts is not None:
+                _text(n, ax, ay, c, clip)
             hits.append(Hit(n, (ax, ay, n.w, n.h), None, path, clip))
         if n.kind == 0x1E:
             sub = layout.by_hash.get(n.ref)
