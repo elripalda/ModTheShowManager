@@ -59,8 +59,36 @@ def test_sadpcm_round_trip():
     assert 10 * np.log10((x ** 2).mean() / ((x - z) ** 2).mean()) > 30
 
 
+def test_build_tool_arguments():
+    """A recomp that tells game versions apart is told where the game's code is; an older one is not."""
+    import hashlib
+    import json
+    import tempfile
+    root = tempfile.mkdtemp()
+    os.makedirs(os.path.join(root, 'tools', 'data'))
+    exefs = os.path.join(root, 'exefs')
+    os.makedirs(exefs)
+    with open(os.path.join(exefs, 'main'), 'wb') as f:
+        f.write(b'game code')
+    tool = os.path.join(root, 'tools', 'build.py')
+    with open(tool, 'w') as f:
+        f.write("ap.add_argument('--gen')\n")
+    assert '--exefs' not in codemods.build_args(root, 'g', 'o', exefs)
+    with open(tool, 'w') as f:
+        f.write("ap.add_argument('--gen')\nap.add_argument('--exefs', type=Path)\n")
+    args = codemods.build_args(root, 'g', 'o', exefs)
+    assert args[0] == tool and args[args.index('--exefs') + 1] == exefs and '--portable' in args
+    assert codemods.game_version(root, exefs) is None
+    for version, data in (('1.0.15', b'game code'), ('1.0.20', b'newer code')):
+        with open(os.path.join(root, 'tools', 'data', f'expected-{version}.json'), 'w') as f:
+            json.dump({'display_version': version, 'exefs_sha256': {'main': hashlib.sha256(data).hexdigest()}}, f)
+    assert codemods.game_version(root, exefs) == '1.0.15'
+    assert codemods.game_version(root, os.path.join(root, 'nowhere')) is None
+
+
 if __name__ == '__main__':
     test_parse()
     test_adpcm_round_trip()
     test_sadpcm_round_trip()
+    test_build_tool_arguments()
     print('ok')

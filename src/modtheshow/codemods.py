@@ -368,6 +368,45 @@ def last_launch(game_root):
     return out
 
 
+def build_args(recomp, gen, out, exefs):
+    """The recomp's build tool and what it is handed. Newer recomps (0.1.4 on) know more than one game version and
+    tell them apart by the game's own code, so they are told where that code is; older ones do not take the
+    option."""
+    tool = os.path.join(recomp, 'tools', 'build.py')
+    args = [tool, '--toolchain', os.path.join(recomp, 'llvm'), '--deps', os.path.join(recomp, 'runtime', 'deps'),
+            '--ninja', os.path.join(recomp, 'bin', 'ninja.exe'),
+            '--runtime-lib', os.path.join(recomp, 'runtime', 'libmlbrt.a'), '--portable', '--gen', gen, '--out', out]
+    try:
+        with open(tool, encoding='utf-8', errors='replace') as f:
+            if "'--exefs'" in f.read():
+                args += ['--exefs', exefs]
+    except OSError:
+        pass
+    return args
+
+
+def game_version(recomp, exefs):
+    """The game version of the code in an ExeFS folder, as the recomp names it ('1.0.15'). None when the recomp
+    keeps no list of versions, or the code is not one it knows."""
+    import glob
+    import hashlib
+    import json
+    try:
+        with open(os.path.join(exefs, 'main'), 'rb') as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+    for path in sorted(glob.glob(os.path.join(recomp, 'tools', 'data', 'expected-*.json'))):
+        try:
+            with open(path, encoding='utf-8') as f:
+                known = json.load(f)
+            if known['exefs_sha256']['main'] == digest:
+                return str(known.get('display_version') or os.path.basename(path)[len('expected-'):-len('.json')])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return None
+
+
 def rebuild(recomp, game_root, patch_text, log=print):
     """Run the recomp's generator and build with the patch table, then swap mlb.exe (the old one is kept once as
     mlb.original.exe). Raises PatchError with the tool's last lines when a step fails."""
@@ -384,12 +423,10 @@ def rebuild(recomp, game_root, patch_text, log=print):
     steps = [('Translating the game code', [py, '-I', '-X', 'utf8', os.path.join(recomp, 'recomp', 'gen.py'),
                                            '--exefs', exefs, '--out', gen, '--modules', 'main,sdk'] +
               (['--patches', table] if signature(patch_text) else [])),
-             ('Compiling', [py, '-I', '-X', 'utf8', os.path.join(recomp, 'tools', 'build.py'),
-                            '--toolchain', os.path.join(recomp, 'llvm'),
-                            '--deps', os.path.join(recomp, 'runtime', 'deps'),
-                            '--ninja', os.path.join(recomp, 'bin', 'ninja.exe'),
-                            '--runtime-lib', os.path.join(recomp, 'runtime', 'libmlbrt.a'), '--portable',
-                            '--gen', gen, '--out', out])]
+             ('Compiling', [py, '-I', '-X', 'utf8'] + build_args(recomp, gen, out, exefs))]
+    version = game_version(recomp, exefs)
+    if version:
+        log(f'Game code: version {version}')
     for k, (title, cmd) in enumerate(steps):
         log(title + '...')
         p = subprocess.Popen(cmd, cwd=recomp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
