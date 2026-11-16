@@ -26,6 +26,7 @@ start the game. After that, ticking and unticking takes effect the next time the
 | Dead Ball | Balls leave the bat 20% slower. |
 | Thin Air | A quarter of the air density everywhere. Fly balls carry. |
 | Rocket Arms | Thrown balls travel 1.25x faster. Experimental. |
+| Heat, Soft Toss | Every pitch comes in about 15% faster, or 15% slower. Experimental. |
 | Unbreakable Bats | Bats never break. |
 | Iron Arms | Pitchers tire four times slower. Experimental. |
 

@@ -103,8 +103,19 @@ screen. Drag the box or type X and Y, then save. The layout file (`NSW/UI/GAME/T
 with only those numbers changed. Scale is there too, but not every theme honours it yet.
 
 Under the screen is a strip of every texture that overlay draws: the frame, the base diamonds, the sponsor logo.
-Pick one and **Replace This Piece** to repaint it, which is how a scorebug gets a new look without hunting through
-320 textures for the right ones.
+Pick one and the row below it changes that piece everywhere the overlay draws it: **Colour** tints it, **Opacity**
+fades it (0 hides it), **Move X / Y** shift it, **Size** scales it and **Replace PNG** repaints it. **Back to
+Default** undoes all of it.
+
+The same edits can go in a layout recipe, so a scorebug style can be shared without the layout file:
+
+```json
+[{"file": "NSW/UI/GAME/THEME1.NSW", "asset": "Scorebar", "x": 40, "y": 838,
+  "pieces": [{"texture": "esl", "opacity": 0},
+             {"texture": "circle_32x32", "color": "#ffb000", "size": 1.2, "dx": 2, "dy": 0}]}]
+```
+
+`use` in a piece draws another texture of the same pack in its place.
 
 ## Jersey builder
 

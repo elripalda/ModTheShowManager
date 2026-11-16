@@ -531,6 +531,18 @@ site perfect_perfect main 167a8d8 12000002 12000002 79417b49 51002529 4b0903ea 2
 set  unbreakable_bats MLB_MOD_NOBREAK 0
 site unbreakable_bats main 35acdc 1e2dcc2b 1e2041ab
 
+# A pitch's speed is its base speed times a factor from 0.95 to 1.05 taken from the pitcher (pitch +0x110). These
+# scale that factor.
+#: heat: Experimental. Every pitch comes in about 15% faster.
+set  heat MLB_MOD_HEAT 0
+site heat main 24ada4 72a7ee68 529ae148 72a7f168
+site heat main 24adb0 72a7f0c8 5291eb88 72a7f348
+
+#: soft_toss: Experimental. Every pitch comes in about 15% slower.
+set  soft_toss MLB_MOD_SOFTTOSS 0
+site soft_toss main 24ada4 72a7ee68 52970a48 72a7e9c8
+site soft_toss main 24adb0 72a7f0c8 528f5c28 72a7ec88
+
 # Fatigue per pitch starts from 2.1; this makes it 0.525.
 #: iron_arms: Experimental. Pitchers tire four times slower.
 set  iron_arms MLB_MOD_IRONARMS 0

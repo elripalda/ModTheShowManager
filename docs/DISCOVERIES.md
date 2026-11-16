@@ -82,6 +82,8 @@ The game still carries its debug text, which is how the interesting code gets fo
   the ball at that moment. The one you see is a separate thing: a spot the batting interface works out from the
   stick every frame, in zone units (0 is the middle, 1 the edge: 0.75 ft across, half the zone's height up) and in
   feet. Auto PCI Visual writes the pitch's spot there.
+- **Pitch speed** is a base speed times a factor of 0.95 to 1.05 that comes from the pitcher. Heat and Soft Toss
+  scale that factor.
 - **Perfect-Perfect** is two flags set in the hit code.
 - **Bat breaks** and **pitcher fatigue** each come down to one number.
 - The game tells a human hitter from a CPU one with a single value, which is how a mod can affect only you.
