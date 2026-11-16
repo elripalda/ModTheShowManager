@@ -12,7 +12,7 @@ SECTIONS = [
     ('Menus & Loading Screens', 'Front end art and fonts', 'Loading screens, menu art, headshots and fonts.'),
     ('3D Models', 'Look at and swap meshes', 'Open any model, export it, replace it with your own.'),
     ('Sounds', 'Crowd, bats and music', 'Listen to the game’s audio and export it.'),
-    ('Teams & Rosters', 'Names, cities and rosters', 'Rename custom teams and see who plays where.'),
+    ('Teams & Rosters', 'Players, gear and ratings', 'Edit any player, his gear and ratings, and move him between clubs.'),
 ]
 STEPS = [('1', 'Pick a mod', 'Choose where your changes go in Saving To, up top. New Mod makes one.'),
          ('2', 'Change things', 'Open a section below. Every change lands in your mod, never the game.'),
@@ -30,7 +30,7 @@ class Card(QFrame):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(20, 18, 20, 18)
         lay.setSpacing(6)
-        t = label(title.upper(), 'CardTitle')
+        t = label(title, 'CardTitle')
         lay.addWidget(t)
         g = label(tag, 'CardTag')
         lay.addWidget(g)
@@ -91,7 +91,7 @@ class HomePage(QWidget):
         top.setSpacing(12)
         col = QVBoxLayout()
         col.setSpacing(6)
-        col.addWidget(label('WELCOME BACK', 'H1'))
+        col.addWidget(label('Welcome back', 'H1'))
         self.summary = label('', 'Sub', wrap=True)
         col.addWidget(self.summary)
         top.addLayout(col, 1)
@@ -109,7 +109,24 @@ class HomePage(QWidget):
             steps.setColumnStretch(i, 1)
         lay.addLayout(steps)
 
-        lay.addWidget(label('WHAT DO YOU WANT TO CHANGE?', 'H2'))
+        feat = QFrame()
+        feat.setObjectName('Card')
+        fl = QHBoxLayout(feat)
+        fl.setContentsMargins(20, 16, 20, 16)
+        fl.setSpacing(16)
+        fc = QVBoxLayout()
+        fc.setSpacing(4)
+        fc.addWidget(label('Arcade mods', 'CardTitle'))
+        fc.addWidget(label('Moonshot home runs, a juiced ball, thin air, or everyone rated 125. Switch them on, '
+                           'rebuild once, and play.', 'Sub', wrap=True))
+        fl.addLayout(fc, 1)
+        b1 = button('Arcade Rosters', on_click=lambda: main.go('Teams & Rosters'))
+        b2 = button('Code Plugins', True, lambda: main.go('Code Plugins'))
+        for b in (b1, b2):
+            b.setMinimumWidth(170)
+            fl.addWidget(b)
+        lay.addWidget(feat)
+        lay.addWidget(label('What do you want to change?', 'H2'))
         grid = QGridLayout()
         grid.setSpacing(12)
         self.cards = []

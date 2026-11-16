@@ -21,7 +21,9 @@ drop in your own art and switch mods on and off.
 - **Uniform schedule** – choose what each team wears and when, rename uniforms, hide them from the picker.
 - **Teams & Rosters** – rename teams, edit players, ratings, numbers and gear, move players, swap face textures,
   and edit the custom team builder's names.
-- **Code Plugins** – build instruction patches from mods into the game and switch them per launch.
+- **Code Plugins** – build instruction patches from mods into the game and switch them per launch. Comes with
+  arcade samples: moonshot home runs, a juiced ball, thin air.
+- Dark, Light and OLED looks, text size, and an update check.
 - **Stadiums in 3D** – orbit a ballpark or fly through it.
 - Replaced textures keep the game's format: BC1, BC3, BC4 and BC7, with mip levels and loading previews rebuilt.
 
@@ -30,7 +32,8 @@ the file formats work.
 
 ## Get it
 
-Download `ModTheShowManager.exe` from Releases and run it. It looks for the game in `C:\Games\MLB The Show 26`
+Download `ModTheShowManager-Setup.exe` from Releases and run it (or the plain `ModTheShowManager.exe` if you'd
+rather not install). It looks for the game in `C:\Games\MLB The Show 26`
 and asks if it isn't there.
 
 ## Making a mod

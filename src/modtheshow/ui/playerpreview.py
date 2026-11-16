@@ -57,9 +57,9 @@ class PlayerPreview(QWidget):
         bar.addWidget(self.font)
         self.quality = QComboBox()
         self.quality.addItems(['Standard', 'High Quality'])
-        self.quality.setCurrentIndex(1 if main.settings.get('render_quality') == 'high' else 0)
+        self.quality.setCurrentIndex(1)
         self.quality.currentIndexChanged.connect(self._quality_changed)
-        bar.addWidget(self.quality)
+        self.quality.hide()
         self.note = label('', 'Sub')
         bar.addWidget(self.note, 1)
         bar.addWidget(button('Front', on_click=lambda: self._turn(0.0)))
@@ -69,7 +69,7 @@ class PlayerPreview(QWidget):
         self.gl = viewer3d.available()
         self._lay = lay
         if self.gl:
-            self.view = viewer3d.ModelView3D(main.settings.get('render_quality') == 'high')
+            self.view = viewer3d.ModelView3D(True)
             self.view.message = 'Loading the player…'
         else:
             self.view = label('This PC could not start the 3D preview (OpenGL).', 'Sub')

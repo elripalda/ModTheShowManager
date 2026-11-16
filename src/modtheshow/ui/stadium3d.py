@@ -66,6 +66,12 @@ class StadiumView(QWidget):
         self.b_fly.setChecked(on)
         if self.gl:
             self.view.set_walk(on)
+            if on:      # stand behind home plate (the park's origin), looking out at centre field
+                from PySide6.QtGui import QVector3D
+                c = self.view.center
+                self.view.pan = QVector3D(-float(c[0]), 6.0 - float(c[1]), 14.0 - float(c[2]))
+                self.view.yaw, self.view.pitch = 0.0, 0.04
+                self.view.update()
             self.view.setFocus()
 
     def _textured(self, on):
@@ -113,10 +119,25 @@ class StadiumView(QWidget):
             names.append(tex)
             meshes[-1].is_roof = 'roof' in low and 'sign' not in low
             meshes[-1].visible = not (self.roof.isChecked() and meshes[-1].is_roof)
+        self._separate_ground(meshes)
         self.view.set_meshes(meshes, 'This park has no meshes the manager can read.')
         self._frame_on_park()
         self._walk(self.b_fly.isChecked())
         self._load_textures(rel, names)
+
+    @staticmethod
+    def _separate_ground(meshes):
+        """The field is flat layers at the same height (grass, mow pattern, dirt, logos). Drawn as they are, they
+        flicker through each other; lift each a hair, smallest on top, the way the game's own draw order does."""
+        flat = []
+        for m in meshes:
+            if len(m.pos) and float(m.pos[:, 1].max() - m.pos[:, 1].min()) < 0.6 and abs(float(m.pos[:, 1].mean())) < 3:
+                ext = m.pos.max(0) - m.pos.min(0)
+                flat.append((float(ext[0] * ext[2]), m))
+        flat.sort(key=lambda t: -t[0])
+        for rank, (_, m) in enumerate(flat):
+            m.pos = m.pos.copy()
+            m.pos[:, 1] += 0.025 * min(rank, 60)
 
     def _frame_on_park(self):
         """Parks sit on a huge backdrop (the city around them); aim at the park itself."""

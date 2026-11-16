@@ -50,9 +50,9 @@ def header(title, sub, actions=()):
     lay.setSpacing(12)
     col = QVBoxLayout()
     col.setSpacing(6)
-    col.addWidget(label(title.upper(), 'H1'))
+    col.addWidget(label(title, 'H1'))
     s = label(sub, 'Sub', wrap=True)
-    s.setMaximumWidth(720)
+    s.setMinimumWidth(420)
     col.addWidget(s)
     lay.addLayout(col, 1)
     for a in actions:
@@ -79,7 +79,7 @@ class SectionTitle(QWidget):
         self.set(text, badges)
 
     def set(self, text, badges=()):
-        self.title.setText(text.upper())
+        self.title.setText(text)
         for i, b in enumerate(self.badges):
             if i < len(badges):
                 b.setText(badges[i])
@@ -93,7 +93,7 @@ def section_title(text, right=()):
     lay = QHBoxLayout(w)
     lay.setContentsMargins(0, 0, 0, 0)
     lay.setSpacing(8)
-    lay.addWidget(label(text.upper(), 'H2'))
+    lay.addWidget(label(text, 'H2'))
     lay.addStretch(1)
     for r in right:
         lay.addWidget(r)
@@ -122,7 +122,7 @@ def placeholder_icon(size=112):
     pm = QPixmap(size, size)
     pm.fill(QColor(theme.S1))
     p = QPainter(pm)
-    p.setPen(QColor('#24324f'))
+    p.setPen(QColor(theme.LINE_HI))
     p.drawRect(0, 0, size - 1, size - 1)
     p.end()
     return QIcon(pm)
@@ -131,12 +131,12 @@ def placeholder_icon(size=112):
 def framed_icon(qimage, size=112):
     """Thumbnail centred on a checkerboard tile so transparent art reads."""
     pm = QPixmap(size, size)
-    pm.fill(QColor('#141f37'))
+    pm.fill(QColor(theme.CHECK_A))
     p = QPainter(pm)
     for y in range(0, size, 8):
         for x in range(0, size, 8):
             if (x // 8 + y // 8) % 2:
-                p.fillRect(x, y, 8, 8, QColor('#1b2843'))
+                p.fillRect(x, y, 8, 8, QColor(theme.CHECK_B))
     if qimage is not None and not qimage.isNull():
         img = qimage.scaled(size - 8, size - 8, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         p.drawImage((size - img.width()) // 2, (size - img.height()) // 2, img)
@@ -365,7 +365,7 @@ class Inspector(QFrame):
         if self.bat_view is None:
             if not viewer3d.available():
                 return False
-            self.bat_view = viewer3d.ModelView3D(self.main.settings.get('render_quality') == 'high')
+            self.bat_view = viewer3d.ModelView3D(True)
             self.bat_view.setMinimumHeight(230)
             self.stack.addWidget(self.bat_view)
         if self._bat_model is None:

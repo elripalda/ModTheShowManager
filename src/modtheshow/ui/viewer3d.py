@@ -420,8 +420,7 @@ class ModelView3D(QOpenGLWidget):
         t = QOpenGLTexture(img)
         t.setMinMagFilters(QOpenGLTexture.LinearMipMapLinear, QOpenGLTexture.Linear)
         t.setWrapMode(QOpenGLTexture.Repeat)
-        if self.hq:
-            t.setMaximumAnisotropy(16.0)
+        t.setMaximumAnisotropy(16.0)
         return t
 
     def _upload(self, m):
@@ -562,7 +561,7 @@ class ModelView3D(QOpenGLWidget):
             f.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         proj = QMatrix4x4()
         proj.perspective(50 if self.walk else 32, max(self.width(), 1) / max(self.height(), 1),
-                         self.radius * (0.001 if self.walk else 0.02), self.radius * 50)
+                         self.radius * (0.002 if self.walk else 0.02), self.radius * (14 if self.walk else 50))
         view, eye = self._view()
         p = self.prog
         p.bind()

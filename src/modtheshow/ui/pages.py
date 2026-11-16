@@ -43,6 +43,7 @@ class CollectionPage(QWidget):
         self.list = QListWidget()
         self.list.setStyleSheet('QListWidget { border: none; padding: 0; background: transparent; }')
         self.list.currentItemChanged.connect(self._picked)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         ll.addWidget(self.list, 1)
         left.setMinimumWidth(220)
         left.setMaximumWidth(300)
@@ -63,7 +64,7 @@ class CollectionPage(QWidget):
         vscroll.setWidgetResizable(True)
         vscroll.setFixedHeight(46)
         vscroll.setFrameShape(QScrollArea.NoFrame)
-        vscroll.setStyleSheet('QScrollArea { background: transparent; } QWidget { background: transparent; }')
+        vscroll.setStyleSheet('QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }')
         self.vscroll = vscroll
         ml.addWidget(vscroll)
         self.filter = FilterBar('Filter textures by name')

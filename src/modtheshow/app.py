@@ -22,7 +22,10 @@ def main():
     app.setOrganizationName('Ripalda')
     app.setWindowIcon(QIcon(os.path.join(theme.ASSETS, 'icon.ico')))
     theme.load_fonts()
-    app.setStyleSheet(theme.QSS)
+    from . import game as gamemod
+    st = gamemod.load_settings()
+    theme.MOTION = st.get('motion', True)
+    theme.apply(app, st.get('theme', 'Dark'), st.get('text_scale', 1.0))
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

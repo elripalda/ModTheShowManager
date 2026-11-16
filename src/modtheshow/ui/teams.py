@@ -37,7 +37,8 @@ class TeamsPage(QWidget):
         self.b_save = button('Save to My Mod', True, self.save)
         outer.addWidget(header('Teams & Rosters', 'Rename any team, fix player names and ratings, or move a player to '
                                'another club. Saves go into your mod like everything else.',
-                               [button('Team Builder Names', on_click=self.team_builder), self.b_reset, self.b_save]))
+                               [button('Arcade Rosters', on_click=self.league_tools),
+                                button('Team Builder Names', on_click=self.team_builder), self.b_reset, self.b_save]))
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
         split.setHandleWidth(16)
@@ -55,6 +56,7 @@ class TeamsPage(QWidget):
         self.list = QListWidget()
         self.list.setStyleSheet('QListWidget { border: none; padding: 0; background: transparent; }')
         self.list.currentItemChanged.connect(self._team_picked)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         ll.addWidget(self.list, 1)
         left.setMinimumWidth(220)
         left.setMaximumWidth(300)
@@ -160,7 +162,7 @@ class TeamsPage(QWidget):
         from .widgets import RatingSlider
         self.spins = {}
         for field, text, _h, _p in R.RATINGS:
-            s = RatingSlider(text, 0, 99 if field not in ('RANK', 'POTENTIAL') else 99)
+            s = RatingSlider(text, 0, 125)
             s.valueChanged.connect(self._player_edited)
             self.spins[field] = s
         scroll.setWidget(rw)
@@ -199,6 +201,16 @@ class TeamsPage(QWidget):
         split.setStretchFactor(1, 1)
         split.setSizes([250, 640, 420])
         outer.addWidget(split, 1)
+
+    def league_tools(self):
+        if not self.db:
+            return
+        from .leaguetools import LeagueTools
+        dlg = LeagueTools(self)
+        if dlg.exec():
+            self._dirty(True)
+            self._fill_roster()
+            self.main.toast(f'{dlg.count} players changed. Save to My Mod to keep it.')
 
     def team_builder(self):
         from .teambuilder import NAMES, PLACES, TeamBuilderDialog
@@ -360,7 +372,7 @@ class TeamsPage(QWidget):
         shown = [f for f, _t, hit, pit in R.RATINGS if (pit if p.pitcher else hit)]
         for n, f in enumerate(shown):
             s = self.spins[f]
-            s.setValue(min(99, p.rating(f)))
+            s.setValue(min(125, p.rating(f)))
             s.show()
             self.rgrid.addWidget(s, n, 0)
         self.rgrid.setRowStretch(len(shown), 1)

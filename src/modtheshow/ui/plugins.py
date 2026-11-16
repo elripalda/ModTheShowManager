@@ -18,12 +18,13 @@ class PluginsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(28, 24, 28, 24)
         outer.setSpacing(18)
+        self.b_arcade = button('Add Arcade Samples', on_click=self.add_arcade)
         self.b_new = button('New Code Mod', on_click=self.new_patch)
         self.b_build = button('Rebuild Game', True, self.rebuild)
         outer.addWidget(header('Code Plugins', 'Mods that change how the game plays. A code mod is a list of '
                                'instruction patches; Rebuild Game bakes the ones that are switched on into mlb.exe '
                                '(about two minutes), and each can still be turned off per launch.',
-                               [self.b_new, self.b_build]))
+                               [self.b_arcade, self.b_new, self.b_build]))
         row = QHBoxLayout()
         row.setSpacing(20)
         left = panel()
@@ -35,8 +36,12 @@ class PluginsPage(QWidget):
         self.list.setStyleSheet('QListWidget { border: none; padding: 0; background: transparent; }')
         self.list.setSelectionMode(QListWidget.NoSelection)
         ll.addWidget(self.list, 1)
-        self.empty = label('No code mods yet. New Code Mod puts a starter file in your mod that explains the '
-                           'format. Sharing one is the same as any mod: zip the mod folder.', 'Soft', wrap=True)
+        self.empty = label('No code mods yet. Add Arcade Samples gives you ready-made ones (moonshots, juiced ball, '
+                           'thin air). New Code Mod puts a starter file in your mod that explains the format.',
+                           'Soft', wrap=True)
+        self.hint = label('Tick what you want, press Rebuild Game once, then launch from the manager. After that you '
+                          'can tick and untick without rebuilding.', 'Sub', wrap=True)
+        ll.addWidget(self.hint)
         ll.addWidget(self.empty)
         row.addWidget(left, 3)
         right = panel()
@@ -91,13 +96,17 @@ class PluginsPage(QWidget):
             chk.setChecked(sw.get(name, bool(default)))
             chk.setToolTip(f'Switch {env}. Takes effect the next time you launch from the manager.')
             chk.toggled.connect(lambda on, n=name: self._toggle(n, on))
-            hl.addWidget(chk, 1)
-            hl.addWidget(label(mod, 'Sub'))
+            chk.setMinimumWidth(170)
+            hl.addWidget(chk)
+            d = label(codemods.DESCRIPTIONS.get(name, mod), 'Sub', wrap=True)
+            hl.addWidget(d, 1)
             from PySide6.QtCore import QSize
-            it.setSizeHint(QSize(0, 44))
+            it.setSizeHint(QSize(0, 56))
             self.list.addItem(it)
             self.list.setItemWidget(it, w)
         self.empty.setVisible(not sets)
+        self.hint.setVisible(bool(sets))
+        self.b_arcade.setEnabled(not any(m.name == codemods.ARCADE_NAME for m in self.main.lib.list()))
         self.list.setVisible(bool(sets))
         r = self.recomp()
         self.recomp_label.setText(f'Recomp folder: {r}' if r else
@@ -130,6 +139,20 @@ class PluginsPage(QWidget):
             return
         self.main.settings['recomp'] = path
         self.main.save_settings()
+        self.refresh()
+
+    def add_arcade(self):
+        lib = self.main.lib
+        mod = next((m for m in lib.list() if m.name == codemods.ARCADE_NAME), None)
+        if mod is None:
+            mod = lib.create(codemods.ARCADE_NAME, 'Ripalda')
+        folder = os.path.join(mod.path, 'code')
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, 'arcade.patch'), 'w', encoding='utf-8') as f:
+            f.write(codemods.ARCADE)
+        if not mod.enabled:
+            lib.set_enabled(mod, True)
+        self.main.changed('Arcade samples added. Tick the ones you want, then Rebuild Game.')
         self.refresh()
 
     def new_patch(self):

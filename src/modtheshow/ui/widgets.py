@@ -48,7 +48,7 @@ class Toggle(QAbstractButton):
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        off, on = QColor('#2a3756'), QColor(theme.RED)
+        off, on = QColor(theme.LINE_HI), QColor(theme.RED)
         c = QColor(int(off.red() + (on.red() - off.red()) * self._pos),
                    int(off.green() + (on.green() - off.green()) * self._pos),
                    int(off.blue() + (on.blue() - off.blue()) * self._pos))
@@ -73,10 +73,10 @@ class ImageView(QWidget):
         self._drag = None
         self.message = 'Pick a texture'
         tile = QPixmap(16, 16)
-        tile.fill(QColor('#1a2338'))
+        tile.fill(QColor(theme.CHECK_A))
         tp = QPainter(tile)
-        tp.fillRect(0, 0, 8, 8, QColor('#222c45'))
-        tp.fillRect(8, 8, 8, 8, QColor('#222c45'))
+        tp.fillRect(0, 0, 8, 8, QColor(theme.CHECK_B))
+        tp.fillRect(8, 8, 8, 8, QColor(theme.CHECK_B))
         tp.end()
         self.checker = QBrush(tile)
 

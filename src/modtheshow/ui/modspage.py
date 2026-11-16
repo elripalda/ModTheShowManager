@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayo
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
                                QProgressBar, QPushButton, QVBoxLayout, QWidget)
 
-from . import workers
+from . import theme, workers
 from .common import badge, button, header, label, panel, section_title
 from .widgets import Toggle
 
@@ -85,7 +85,7 @@ class ModRow(QWidget):
         cover = QLabel()
         cover.setFixedSize(96, 60)
         cover.setAlignment(Qt.AlignCenter)
-        cover.setStyleSheet('background: #0a1324; border: 1px solid #1f2d4a; border-radius: 8px;')
+        cover.setStyleSheet(f'background: {theme.S2}; border: none; border-radius: 10px;')
         pm = mod_cover(mod)
         if pm:
             cover.setPixmap(pm)
@@ -202,7 +202,7 @@ class ModsPage(QWidget):
         bl = QHBoxLayout(self.banner)
         bl.setContentsMargins(16, 12, 16, 12)
         self.banner_title = label('')
-        self.banner_title.setStyleSheet('color: #f0b44c; font-weight: 600;')
+        self.banner_title.setStyleSheet(f'color: {theme.AMBER}; font-weight: 500;')
         bl.addWidget(self.banner_title)
         self.banner_text = label('Apply to put them in the game.', 'Soft')
         bl.addWidget(self.banner_text, 1)

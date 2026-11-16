@@ -116,7 +116,8 @@ same name get a letter on the end (`BELL_JOSHE`). Young players without a scan u
 Each player also has a **Gear** tab (bat, grip, batting gloves, glove, cleats, guards, sleeve, eyewear, catcher
 gear) and his jersey number, height and handedness. Moving a player takes him out of his old team's rotation and
 lineups and puts him on the new team's bench or in its bullpen. **Team Builder Names** edits the names and cities
-the game's custom team builder offers.
+the game's custom team builder offers. **Arcade Rosters** sets ratings for a whole league at once (99 is the normal
+top, 125 the boosted one).
 
 ## Code mods
 
@@ -127,6 +128,10 @@ the game's custom team builder offers.
 set  <name> <SWITCH> <default 0/1>
 site <set> <main|sdk> <offset hex> <original word hex> <replacement word hex> ...
 ```
+
+**Add Arcade Samples** gives you working examples: the hit ones change the number the game uses to turn a hit's
+power (mph) into the ball's speed off the bat (`main+167d0b4`), and Thin Air scales the air density the game works
+out from a park's temperature and altitude (`main+165ac78`). The file is commented; read it before writing your own.
 
 Rebuild Game runs the recomp's generator and build (about two minutes) and keeps your old exe as
 `mlb.original.exe`. Each set stays switchable when you launch from the manager. Finding what to patch is the hard

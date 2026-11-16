@@ -18,13 +18,14 @@ from .sounds import SoundsPage
 from .teams import TeamsPage
 from .modspage import ModsPage
 from .plugins import PluginsPage
+from .settingspage import SettingsPage
 from .pages import BatsPage, MenusPage, ScoreboardsPage, StadiumsPage, UniformsPage
 
 NAV = [('START', [('Home', HomePage), ('Mods', ModsPage)]),
        ('CREATE', [('Uniforms', UniformsPage), ('Bats', BatsPage), ('Stadiums', StadiumsPage),
                    ('Scoreboards', ScoreboardsPage), ('Menus & Loading Screens', MenusPage), ('3D Models', ModelsPage),
                    ('Sounds', SoundsPage), ('Teams & Rosters', TeamsPage)]),
-       ('TOOLS', [('Game Files', GameFilesPage), ('Code Plugins', PluginsPage)])]
+       ('TOOLS', [('Game Files', GameFilesPage), ('Code Plugins', PluginsPage), ('Settings', SettingsPage)])]
 
 
 class Setup(QWidget):
@@ -38,15 +39,28 @@ class Setup(QWidget):
         lay.setAlignment(Qt.AlignCenter)
         lay.setSpacing(18)
         logo = QLabel()
-        pm = QPixmap(os.path.join(theme.ASSETS, 'logo.png'))
-        logo.setPixmap(pm.scaledToWidth(420, Qt.SmoothTransformation))
+        logo.setPixmap(MainWindow.logo(360))
         logo.setAlignment(Qt.AlignCenter)
         lay.addWidget(logo)
-        t = label('Point Mod the Show Manager at your MLB The Show 26 PC install: the folder with mlb.exe in it.',
-                  'Soft', wrap=True)
+        t = label('Mods for the MLB The Show 26 PC port', 'H2')
         t.setAlignment(Qt.AlignCenter)
-        t.setMaximumWidth(520)
         lay.addWidget(t, 0, Qt.AlignCenter)
+        steps = QHBoxLayout()
+        steps.setSpacing(12)
+        from .home import Step
+        for num, title, text in (
+                ('1', 'Install the game', 'Run MLBTS-Setup.exe from the mlbts-native project. It builds the PC port '
+                                          'from your own copy of the game.'),
+                ('2', 'Point to it', 'Pick the folder the setup installed to. It is the one with mlb.exe and a game '
+                                     'folder in it.'),
+                ('3', 'Start modding', 'Your mods go in a mods folder there. The manager backs up every file before '
+                                       'a mod touches it.')):
+            st = Step(num, title, text)
+            st.setFixedWidth(300)
+            steps.addWidget(st)
+        box = QWidget()
+        box.setLayout(steps)
+        lay.addWidget(box, 0, Qt.AlignCenter)
         b = button('Find My Game Folder', True, self.pick)
         b.setMinimumWidth(240)
         lay.addWidget(b, 0, Qt.AlignCenter)
@@ -75,6 +89,7 @@ class MainWindow(QMainWindow):
         self._tex = OrderedDict()
         self._winners = None
         self.pages = {}
+        self.update_info = None
         root = QWidget()
         root.setObjectName('Root')
         self.setCentralWidget(root)
@@ -87,8 +102,43 @@ class MainWindow(QMainWindow):
         else:
             self.root_lay.addWidget(Setup(self))
 
+    @staticmethod
+    def logo(width):
+        """The logo, recoloured dark on the light theme (the art is white)."""
+        pm = QPixmap(os.path.join(theme.ASSETS, 'logo.png')).scaledToWidth(width, Qt.SmoothTransformation)
+        if theme.is_light():
+            from PySide6.QtGui import QColor, QPainter
+            qp = QPainter(pm)
+            qp.setCompositionMode(QPainter.CompositionMode_SourceIn)
+            qp.fillRect(pm.rect(), QColor(theme.TEXT))
+            qp.end()
+        return pm
+
+    def retheme(self):
+        """Theme or text size changed: restyle and rebuild the window where it was."""
+        from PySide6.QtWidgets import QApplication
+        theme.apply(QApplication.instance(), self.settings.get('theme', 'Dark'), self.settings.get('text_scale', 1.0))
+        if self.game:
+            self.cache_clear()
+            self.open_game(self.game.root, show='Settings')
+
+    def check_updates(self):
+        if not self.settings.get('auto_update', True) or self.update_info is not None:
+            return
+        from .. import updater
+        job = workers.Job(lambda j: updater.check(__version__))
+
+        def done(info):
+            if info:
+                self.update_info = info
+                self.toast(f'Version {info["version"]} is out. Settings has the update.')
+        job.sig.done.connect(done)
+        job.sig.failed.connect(lambda tb: None)
+        self._upd_job = job
+        workers.start(job)
+
     # ---- building
-    def open_game(self, path):
+    def open_game(self, path, show='Home'):
         while self.root_lay.count():
             w = self.root_lay.takeAt(0).widget()
             if w:
@@ -122,7 +172,8 @@ class MainWindow(QMainWindow):
         self.toast_box.setAlignment(Qt.AlignCenter)
         self.toast_box.hide()
         self.update_strip()
-        self.go('Home')
+        self.go(show)
+        QTimer.singleShot(1500, self.check_updates)
 
     def _sidebar(self):
         side = QWidget()
@@ -132,7 +183,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(16, 26, 16, 18)
         lay.setSpacing(4)
         logo = QLabel()
-        logo.setPixmap(QPixmap(os.path.join(theme.ASSETS, 'logo.png')).scaledToWidth(150, Qt.SmoothTransformation))
+        logo.setPixmap(self.logo(150))
         logo.setContentsMargins(6, 0, 0, 18)
         lay.addWidget(logo)
         self.nav = QButtonGroup(self)
@@ -151,7 +202,7 @@ class MainWindow(QMainWindow):
                     b.setEnabled(False)
                     b.setToolTip('Coming once the game\'s formats are cracked')
                     soon = QLabel('Soon', b)
-                    soon.setStyleSheet('color: #8693b3; font-size: 11px; background: transparent;')
+                    soon.setStyleSheet(f'color: {theme.MUTED}; font-size: 11px; background: transparent;')
                     bl = QHBoxLayout(b)
                     bl.setContentsMargins(0, 0, 10, 0)
                     bl.addStretch(1)
@@ -162,19 +213,7 @@ class MainWindow(QMainWindow):
                 self.nav_buttons[name] = b
                 lay.addWidget(b)
         lay.addStretch(1)
-        b = QPushButton('Change Game Folder')
-        b.setObjectName('Nav')
-        b.clicked.connect(self.change_game)
-        lay.addWidget(b)
-        line = QFrame()
-        line.setFixedHeight(1)
-        line.setStyleSheet(f'background: {theme.LINE};')
-        lay.addWidget(line)
-        info = label(f'MLB The Show 26\n{self.game.root}', 'Sub', wrap=True)
-        info.setContentsMargins(10, 10, 4, 0)
-        info.setToolTip(self.game.root)
-        lay.addWidget(info)
-        ver = label(f'Mod the Show Manager {__version__} · Ripalda', 'Sub')
+        ver = label(f'Version {__version__} · Ripalda', 'Sub')
         ver.setContentsMargins(10, 4, 4, 0)
         ver.setStyleSheet('font-size: 11px;')
         lay.addWidget(ver)
@@ -229,8 +268,18 @@ class MainWindow(QMainWindow):
     # ---- navigation
     def go(self, name):
         page = self.pages[name]
+        changed = self.stack.currentWidget() is not page
         self.stack.setCurrentWidget(page)
         self.nav_buttons[name].setChecked(True)
+        if changed and theme.MOTION:
+            from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation
+            a = QPropertyAnimation(page, b'pos', self)
+            a.setDuration(170)
+            a.setStartValue(QPoint(0, 14))
+            a.setEndValue(QPoint(0, 0))
+            a.setEasingCurve(QEasingCurve.OutCubic)
+            a.start(QPropertyAnimation.DeleteWhenStopped)
+            self._page_anim = a
         if hasattr(page, 'activate'):
             QTimer.singleShot(0, page.activate)
 

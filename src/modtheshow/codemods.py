@@ -16,6 +16,7 @@ import shutil
 import subprocess
 
 HEX = re.compile(r'^[0-9a-fA-F]{1,8}$')
+DESCRIPTIONS = {}     # set name -> one line shown in the manager (from '#: name: text' lines)
 
 
 class PatchError(ValueError):
@@ -42,6 +43,8 @@ def parse(text, where=''):
     """[(name, env, default)], [site line], problems."""
     sets, lines, bad = [], [], []
     names = set()
+    DESCRIPTIONS.update({m.group(1): m.group(2).strip() for m in
+                         re.finditer(r'^#:\s*(\w+)\s*[:=-]\s*(.+)$', text, re.M)})
     for no, raw in enumerate(text.splitlines(), 1):
         f = raw.split('#', 1)[0].split()
         if not f:
@@ -175,4 +178,47 @@ TEMPLATE = '''# A code mod for MLB The Show 26 (PC recomp). Lines starting with 
 # Example (not a real patch):
 # set  example MLB_MOD_EXAMPLE 1
 # site example main 123456 1e202008 1e204008
+'''
+
+
+ARCADE_NAME = 'Arcade Code Mods'
+ARCADE = '''# Arcade code mods for MLB The Show 26 (PC recomp), game version 1.0.15.
+# Made with Mod the Show Manager. Every patch only swaps a number the game uses, so a set that misbehaves can be
+# switched off before the next launch.
+#
+# How the hit ones work: when the bat meets the ball the game has the hit's power in mph and a direction. It turns
+# mph into feet per second (x 1.4667) and that becomes the ball's speed off the bat. These sets change that one
+# number, so every ball leaves the bat faster. If several are on, the first one below wins.
+
+#: orbit_shots: Balls leave the bat 3x faster. Everything is gone.
+set  orbit_shots MLB_MOD_ORBIT 0
+site orbit_shots main 167d0b4 72a7f769 72a81189
+
+#: god_power: Balls leave the bat 2x faster.
+set  god_power MLB_MOD_GODPOWER 0
+site god_power main 167d0b4 72a7f769 72a80769
+
+#: moonshot: Balls leave the bat 1.5x faster. Warning track fly balls become upper deck shots.
+set  moonshot MLB_MOD_MOONSHOT 0
+site moonshot main 167d0b4 72a7f769 72a80189
+
+#: juiced_ball: Balls leave the bat 1.25x faster. A lively ball without getting silly.
+set  juiced_ball MLB_MOD_JUICED 0
+site juiced_ball main 167d0b4 72a7f769 72a7fd49
+
+#: dead_ball: Balls leave the bat 20% slower. 1910s baseball.
+set  dead_ball MLB_MOD_DEADBALL 0
+site dead_ball main 167d0b4 72a7f769 72a7f2c9
+
+# The game works out air density from the park's temperature and altitude; thinner air means less drag, so fly
+# balls carry (it is why Coors Field plays the way it does). This quarters the result everywhere. Pitches may break
+# less too, since the same air moves them.
+#: thin_air: Every park plays like it is four times higher than Coors Field. Fly balls carry forever.
+set  thin_air MLB_MOD_THINAIR 0
+site thin_air main 165ac78 1e210800 1e210800 1e2a1001 1e210800
+
+# Experimental: a thrown ball's speed (mph to feet per second) x 1.25. Aim may be off.
+#: rocket_arms: Experimental. Thrown balls travel 1.25x faster.
+set  rocket_arms MLB_MOD_ROCKETARMS 0
+site rocket_arms main 1688088 72a7f768 72a7fd48
 '''

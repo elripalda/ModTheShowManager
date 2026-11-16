@@ -85,7 +85,7 @@ class ModelView(QWidget):
         qp = QPainter(self)
         qp.fillRect(self.rect(), QColor(theme.BG))
         # checker floor dots for a sense of scale
-        qp.setPen(QColor('#16233d'))
+        qp.setPen(QColor(theme.LINE))
         for x in range(0, self.width(), 24):
             for y in range(0, self.height(), 24):
                 qp.drawPoint(x, y)
@@ -205,9 +205,9 @@ class ModelsPage(QWidget):
         self.quality.addItems(['Standard', 'High Quality'])
         self.quality.setToolTip('High Quality adds normal and roughness maps, real shadows, filmic lighting, '
                                 'full-size textures and 8x anti-aliasing. Best on a strong GPU.')
-        self.quality.setCurrentIndex(1 if main.settings.get('render_quality') == 'high' else 0)
+        self.quality.setCurrentIndex(1)
         self.quality.currentIndexChanged.connect(self._quality_changed)
-        tools.addWidget(self.quality)
+        self.quality.hide()
         self.b_shot = button('Save Image', on_click=self.save_image)
         tools.addWidget(self.b_shot)
         ml.addLayout(tools)
@@ -215,7 +215,6 @@ class ModelsPage(QWidget):
         self._mid = ml
         self.view = viewer3d.ModelView3D(self._hq()) if self.gl else ModelView()
         ml.addWidget(self.view, 1)
-        self.quality.setVisible(self.gl)
         self.finder = TextureFinder(main.game, self._override)
         self._token = 0
         split.addWidget(mid)
@@ -559,7 +558,7 @@ class ModelsPage(QWidget):
         start(job)
 
     def _hq(self):
-        return self.main.settings.get('render_quality') == 'high'
+        return True
 
     def _quality_changed(self, i):
         self.main.settings['render_quality'] = 'high' if i == 1 else 'standard'
