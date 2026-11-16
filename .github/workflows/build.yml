@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Make a draft release with this tag (e.g. v0.10). Leave empty for a plain build.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -62,11 +67,27 @@ jobs:
             dist/ModTheShowManager.exe
             dist/ModTheShowManager-source.zip
 
+      - name: Patch notes for the draft
+        id: notes
+        shell: pwsh
+        run: |
+          $v = (python -c "import sys; sys.path.insert(0, 'src'); import modtheshow; print(modtheshow.__version__)")
+          $f = "docs/PATCH-NOTES-$v.md"
+          if (Test-Path $f) {
+            # the title line is the release's name already
+            (Get-Content $f | Select-Object -Skip 1) | Set-Content release-notes.md -Encoding utf8
+          } else { Set-Content release-notes.md "" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
       - name: Release draft
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.draft != ''
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          tag_name: ${{ inputs.draft != '' && inputs.draft || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Mod the Show Manager ${{ steps.notes.outputs.version }}
+          body_path: release-notes.md
           files: |
             dist/ModTheShowManager-Setup.exe
             dist/ModTheShowManager.exe
