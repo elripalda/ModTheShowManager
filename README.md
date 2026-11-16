@@ -15,8 +15,12 @@ drop in your own art and switch mods on and off.
   textures. Export OBJ for Blender, bring an OBJ back in to replace a mesh on bats, balls and props, scale or
   hide meshes. Bat Shapes turns every bat in the game into a wiffle bat, a big barrel toy bat or a fungo.
 - **Uniforms on a player** – flip the Uniforms page to *On a Player* and see the uniform you're editing on a
-  mannequin, your replaced PNGs included.
+  mannequin with the cap, name and number, your replaced PNGs included.
 - **Sounds** – every sound file in the game. Sound banks and AT9 clips play and export as WAV.
+- **Scorebug layout** – move the scorebug and other overlays anywhere on screen.
+- **Uniform schedule** – choose what each team wears and when, rename uniforms, hide them from the picker.
+- **Teams & Rosters** – rename teams, edit players and ratings, move players, swap face textures.
+- **Stadiums in 3D** – orbit a ballpark or fly through it.
 - Replaced textures keep the game's format: BC1, BC3, BC4 and BC7, with mip levels and loading previews rebuilt.
 
 See the **[modding guide](docs/MODDING_GUIDE.md)** for where everything lives, how to find what you want and how

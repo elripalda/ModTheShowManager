@@ -92,12 +92,39 @@ and carry progressive LODs and cloth data that a swap has to rebuild.
 crowd and reaction streams (`.XVAG`) use a Switch-only codec (0x0E) nobody decodes yet, and the commentary,
 PA and music `.SKX` archives are listed by name only (their `.KEY` files name every sample).
 
+## Scorebug layout
+
+**Scoreboards › Layout** shows a theme's overlays (the scorebug, the bottom ticker, transitions) on a 1080p
+screen. Drag the box or type X and Y, then save. The layout file (`NSW/UI/GAME/THEMEn.NSW`) goes into your mod
+with only those numbers changed. Scale is there too, but not every theme honours it yet.
+
+## Uniform schedule
+
+**Uniforms › Schedule** is the game's own list of when a team wears what (`FRONTEND/UNIFORMS/MLBUNIRULES.JSON`):
+home or road, jersey, pants and cap, which days, day or night, a date window and a chance. **Uniform List** edits
+`MLBUNIS.JSON`: names, and whether a uniform shows up in the picker.
+
+## Teams, players and faces
+
+**Teams & Rosters** reads `FRONTEND/STATS/ROSTERS.BIN` (teams) and `PLAYERS.BIN` (players and ratings). Rename a
+team, fix a player's name, position or ratings, or move him to another club. Saves patch the `_LIVE` and `_INJ`
+copies too. Moving players is in beta: rotations and lineups aren't rebuilt, so set them in the game afterwards.
+
+The **Face** tab shows the player's face texture from `NSW/CHARACTERS/HEADS/<LAST_FIRST>/`. Players with the
+same name get a letter on the end (`BELL_JOSHE`). Young players without a scan use the generic creator faces.
+
+## Stadiums in 3D
+
+**Stadiums › 3D View** draws the park's `SCENE.MOD` with its textures. Orbit around it, or switch to Fly Through
+and walk around with W A S D (Q and E for down and up). Hide Roof opens up covered parks.
+
 ## Not cracked yet
 
-- The `.XVAG` 0x0E codec and the `.SKX` archive layout. Cracking these comes before sound replacement.
-- UI layouts (`.NSW` files, `IFF0ASSH`). These decide where scorebug pieces sit. Retexturing works now; moving
-  pieces needs this.
-- Player heads. The Switch build has no head meshes in `HEADS`; faces are built at runtime.
+- The `.XVAG` 0x0E codec and the `.SKX` archive layout. Cracking these comes before sound replacement. What's
+  known about 0x0E is in the format reference below.
+- Texture names inside UI layouts. They use a hash nobody has matched yet, so the Layout view draws boxes.
+- Head meshes. The `HEADS` folders hold hair and eyebrow models plus the face textures; the head shape is built at
+  runtime.
 - Gameplay. The recomp's build can bake instruction patches into `mlb.exe` (`recomp/patches.py` in mlbts-native),
   each switchable at run time. That's the road to gameplay mods like metal-bat exit velocity. The work left is
   finding the right code.
@@ -161,5 +188,22 @@ tangents), `kFP_0_0_8` (unorm8), `kUInt_8` (bone indices). The bat stores its le
 
 - `.AT9`: RIFF WAVE, ATRAC9 (GUID `d242e147-ba36-8d4d-88fc-61654f8c836c`), 48 kHz.
 - `.XVAG`: `XVAG` header with an `fmat` chunk: channels, codec, samples, …, sample rate at +0x1C. Codec 0x0E on Switch.
+  Its data is 96-byte frames: four 4-byte group headers, then 80 bytes of 4-bit codes. Each header packs two
+  12-bit history samples (bits 0–11 and 12–23) and a byte whose low nibble looks like a filter index (0–4) and
+  high nibble a scale. 42 samples per group. The filter table and scale rule are still unknown.
+
+## Stats databases (LE90)
+
+`ROSTERS.BIN`, `PLAYERS.BIN`, `STATS.BIN` and friends start with `LE90`, then `[DESC]`: table name (16 bytes),
+u32 size, u32 field count, then 32-byte fields (name 22 bytes, id, type, count, byte size, pad). `[DATA]` follows:
+table name, u32 record count, records in DESC field order. A record can own child tables (a player owns his
+contract, animations, audio, flags, quirks and stance). In `PLAYERS.BIN`, byte 0 of `SIGNED_PACK` is the team
+index from `ROSTERS.BIN` (255 = free agent), and `PLR_ATT` holds ratings in the same player order. `STATS.BIN`
+keeps 28 career rows per player.
+
+## UI layouts (IFF0ASSH)
+
+A table of (hash, offset) pairs, then one `VOIDASS0` chunk per asset. Nodes nest by subtree size. Node fields: +0
+size, +4 type, +8 ARGB colour, +0xC x, y, z, width, height (floats, 1920×1080 space), +0x2A scale x/y (0x80 = 1.0).
 - `.BNK`: Sony Scream bank, `SBlk` at 0x20, bank name at 0x40.
 - `.SKX` with `.CTL` (`SCTL`), `.TBL` (`STBL`) and `.KEY` (XML sample list).
