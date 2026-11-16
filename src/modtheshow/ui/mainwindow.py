@@ -456,4 +456,10 @@ class MainWindow(QMainWindow):
             g = getattr(p, 'grid', None)
             if g is not None:
                 g.stop()
+        from .viewer3d import ModelView3D
+        for v in self.findChildren(ModelView3D):      # free GPU textures while their context still exists
+            try:
+                v.set_meshes([])
+            except Exception:
+                pass
         super().closeEvent(e)
