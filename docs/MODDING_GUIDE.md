@@ -114,13 +114,17 @@ Click any piece on the screen to edit just that piece, or pick a texture in the 
 place the overlay draws it. **Colour** tints, **Opacity** fades, **Move X / Y** shift, **Size** scales, **Hide**
 takes it off and **Replace PNG** repaints it. **Back to Default** undoes all of it.
 
-Parts of a scorebug switch between looks while you play (bases, banners, the count). The switch list above the
-screen flips each one so you can see and edit every look. **Show animation layers** adds the glows and the pieces
-the game fades in, which are hidden at rest. Text boxes show as dotted outlines, since their words come from the
-game. **Zoom in** fills the view with the overlay.
+The **Game** row is a pretend moment of a game: teams, score, inning, count, outs, runners. Change it and the
+overlay redraws the way the game would show it, because the manager reads the same rules the game does (below).
+**In play / Scene** picks which big piece is up (the scorebug, or the team panels the game shows between innings),
+and the pop-up list fades in the panels that come and go: the batter bar, a home run, a strikeout. The switch list
+under it still lets you force any single part to any look; **Follow the Game** hands them back.
 
-Click a text box and a third row appears: **Font** (every game font, shown as a sample), **Text size** and
-**Text Colour**. Text boxes show sample words in the sandbox, since the real words come from the game.
+**Show animation layers** adds the glows the game flashes in. **Zoom in** fills the view with the overlay. Theme 1
+is checked against the game; themes 2 to 4 draw but still have rough spots.
+
+Click a text box and a third row appears: **Font** (every game font, shown as a sample), **Text size**, **Left /
+Centre / Right** and **Outline Colour**. The letters themselves take the normal **Colour** button.
 
 **Import Font…** draws a font file of your own (`.ttf` or `.otf`) into the game in place of the font the clicked
 box uses. It takes that font's cap height, so boxes keep their size, and it covers the accented letters. Every
@@ -236,8 +240,10 @@ and walk around with W A S D (Q and E for down and up). Hide Roof opens up cover
 
 ## Not cracked yet
 
-- Layout animations and what picks each look of a switch. The tree, the looks and the textures are read; the
-  keyframes and the conditions (stored as hashed words like `[ ... ]`) aren't yet.
+- Layout animations. The tree, the looks, the rules that pick them and the text are read; the keyframes aren't,
+  so which pop-up is up at a given moment is picked by hand in the sandbox.
+- Team colours and logos in overlays: the game paints them in from the team while it runs. The sandbox stands in
+  a flat colour and leaves logo slots empty.
 - Head meshes. The `HEADS` folders hold hair and eyebrow models plus the face textures; the head shape is built at
   runtime.
 - Saves. A fresh profile only holds settings (`profile/save/<id>/SETT...`) and a marker (`PLYA...`); franchise and
@@ -374,9 +380,43 @@ them packed between the end of its fields and its end, so groups clip what they 
 | 0x13, 0x1D, 0x21 | lists and tables | +[0x30] | +[0x38] |
 | 0x26, 0x11 | text field, button | +[0x58] | 0x68 |
 
-A text box (0x22) keeps its text colour at +0x40, two more colours at +0x44 and +0x48 (the gold highlight), the
-label it shows at +0x4C (0 when the game fills it in), its size at +0x58 (u16, 1/16 px), layout flags at +0x70 and
-its font at +0x74 (font number in the top six bits). The game blends +0x58 to +0x6A between looks in 1/16 px.
+A group clips what it holds when bit 0x100 of its child count (+0x4C) is set. A switch (0x1C) draws the children
+none of its looks name all the time, plus the one look that is picked.
+
+Anchors (+0x1E) say what a piece does when its parent isn't the size it was designed at, which is how one reused
+overlay fits Instances of different sizes: bits 0-1 up/down (1 top, 2 bottom, 3 stretch), bits 2-3 across (4 left,
+8 right, 0xC stretch), 0xF0 scale in proportion, 0x100 / 0x200 stay centred.
+
+A text box (0x22): the node colour fills the letters and +0x40 is the outline; +0x4C is the id of its words in the
+`.LANG` file (0 when code fills it in); +0x58 is its base size and +0x60 the size it is drawn at (u16, 1/16 px,
++0x60 wins when set); +0x70 holds the font number in its low six bits and left / centre / right in bits 18-19. An
+image with byte +0x4A set to 1 is a slot the game fills while it runs (a team logo).
+
+## Layout logic: queries
+
+What picks a switch's look, what a reused overlay is handed, and what fills a live text are all the same thing: a
+list of tokens, each a name hash or a small number, stored last word first. Read backwards they are bracketed
+queries in the game's own words:
+
+```
+[ SCOREBAR OUT_TAB ]                       outs, picks the look of the outs lights
+[ SCOREBAR 1ST_BASE_TAB ]                  runner on first
+[ IG BALLS ]  [ IG STRIKES ]  [ IG IS_BOTTOM ]
+[ SCORER AWAY_SCORE ]  [ AWAY_TEAM TEAM_PROF SHORT_NAME ]
+[ SCOREBAR SPEED ]  [ PITCH_BAT_STATS PITCH_COUNT ]
+[ UI TEMPLATE_QUERY_INX [ 2 ] ]            the third thing this copy of the overlay was handed
+[ IF_Q_ELSE_INT [ QCOMP [ a , == , 6 ] , x , y ] ]
+```
+
+A switch keeps the offset of its query at +0x30; an Instance (0x1E) lists one per argument after +0x58 (count at
++0x52). Both point at (offset, token count) pairs in the asset body. `src/modtheshow/assets/querynames.txt` lists
+the 1,500 words layouts use; `uiquery.py` reads, writes and answers them.
+
+## Layout text (.LANG_EN)
+
+Beside each layout. Two tables: fixed words (id, string) and live text (id, string, bindings). Live strings carry
+`^d0^ ^d1^` slots, each bound in order to a query, plus marks: `^n^` new line, `^sNN^` size, `^fNN^` font, `^cN^`
+colour, `^bN^` a button picture. The count is `^d0^-^d1^` bound to `[ IG BALLS ]` and `[ IG STRIKES ]`.
 
 ## Fonts (FONTS.NSW + FONTS.TEX)
 

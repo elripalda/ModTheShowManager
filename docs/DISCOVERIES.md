@@ -69,6 +69,15 @@ lower-case letter in, set the top bit. It names each texture, each overlay and t
 them (`ACT_SCOREBAR_OFF`, `ACT_BATTER_BAR_IN`...).
 [Layouts](MODDING_GUIDE.md#ui-layouts-iff0assh)
 
+## How a scorebug knows the score
+
+Overlays read the game through small bracketed queries written in the game's own words: `[ SCOREBAR OUT_TAB ]` picks
+the outs lights, `[ IG BALLS ]` and `[ IG STRIKES ]` fill the count, `[ AWAY_TEAM TEAM_PROF SHORT_NAME ]` the
+abbreviation, `[ SCOREBAR SPEED ]` the pitch speed. They are stored as hashed words, and nearly all of them could
+be named from the game's debug text. That is what lets the manager draw a scorebug for any moment of a game, and
+it is the hook for custom pieces that still show live data.
+[Queries](MODDING_GUIDE.md#layout-logic-queries)
+
 ## Fonts
 
 Game fonts aren't font files. All 38 are drawn on one big sheet as distance fields (which is why text stays sharp at
@@ -101,7 +110,7 @@ The game still carries its debug text, which is how the interesting code gets fo
 
 ## Still open
 
-- Layout animations, and what decides which look a scorebug switch shows.
+- Layout animations (the rules that pick each look are solved; the keyframes aren't).
 - What ties a scanned player to his head folder.
 - Head meshes and player body meshes.
 - Franchise and Road to the Show saves.

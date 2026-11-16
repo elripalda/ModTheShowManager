@@ -6,9 +6,10 @@ import os
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout,
-                               QListView, QListWidget, QListWidgetItem, QMessageBox, QSpinBox, QVBoxLayout, QWidget)
+                               QLineEdit, QListView, QListWidget, QListWidgetItem, QMessageBox, QSpinBox,
+                               QVBoxLayout, QWidget)
 
-from .. import fontlib, uilayout, uirender
+from .. import fontlib, uilang, uilayout, uiquery, uirender
 from . import theme
 from .common import button, label
 from .widgets import pil_to_qimage
@@ -136,8 +137,8 @@ class Canvas(QWidget):
 
 class LayoutEditor(QWidget):
     """The scoreboard sandbox. One .NSW layout per scorebug theme."""
-    HINT = ('Drag the red box to place the overlay. Click a piece to edit just that piece, or pick a texture in '
-            'the strip to change every place it is drawn. Save writes the layout into your mod.')
+    HINT = ('Set the Game row and the overlay redraws the way it looks in play. Drag the red box to place it, click a '
+            'piece to edit just that piece. Save writes the layout into your mod.')
 
     def __init__(self, main):
         super().__init__()
@@ -181,6 +182,65 @@ class LayoutEditor(QWidget):
         self.sscale.valueChanged.connect(self._spins)
         row.addWidget(self.sscale, 1)
         lay.addLayout(row)
+        # the game: a pretend moment (teams, score, inning, count, runners) the overlay is drawn for
+        self.sit = uiquery.Situation()
+        self.lang = None
+        self._scene = 0
+        self._reveal = set()
+        grow = QHBoxLayout()
+        grow.setSpacing(6)
+
+        def small(value, lo, hi, tip, attr):
+            sp = QSpinBox()
+            sp.setRange(lo, hi)
+            sp.setValue(value)
+            sp.setToolTip(tip)
+            sp.setMinimumWidth(52)
+            sp.valueChanged.connect(lambda v, a=attr: self._sit_set(a, v))
+            return sp
+
+        def word(value, tip, attr):
+            e = QLineEdit(value)
+            e.setMaxLength(4)
+            e.setFixedWidth(58)
+            e.setToolTip(tip)
+            e.textEdited.connect(lambda v, a=attr: self._sit_set(a, v.upper()))
+            return e
+        grow.addWidget(label('Game', 'Sub'))
+        grow.addWidget(word(self.sit.away, 'Away team', 'away'))
+        grow.addWidget(small(0, 0, 99, 'Away score', 'away_score'))
+        grow.addWidget(word(self.sit.home, 'Home team', 'home'))
+        grow.addWidget(small(0, 0, 99, 'Home score', 'home_score'))
+        self.g_half = QComboBox()
+        self.g_half.addItems(['Top', 'Bottom'])
+        self.g_half.currentIndexChanged.connect(lambda i: self._sit_set('bottom', bool(i)))
+        grow.addWidget(self.g_half)
+        sp = small(1, 1, 30, 'Inning', 'inning')
+        sp.setPrefix('Inn  ')
+        sp.setMinimumWidth(78)
+        grow.addWidget(sp)
+        for pre, hi, attr in (('B  ', 3, 'balls'), ('S  ', 2, 'strikes'), ('Out  ', 3, 'outs')):
+            sp = small(0, 0, hi, attr.title(), attr)
+            sp.setPrefix(pre)
+            sp.setMinimumWidth(70)
+            grow.addWidget(sp)
+        for text, attr in (('1st', 'first'), ('2nd', 'second'), ('3rd', 'third')):
+            c = QCheckBox(text)
+            c.setToolTip(f'Runner on {text}')
+            c.toggled.connect(lambda on, a=attr: self._sit_set(a, on))
+            grow.addWidget(c)
+        self.scene = QComboBox()
+        self.scene.setToolTip('The game shows one of these at a time: the scorebug in play, or the team panels')
+        self.scene.currentIndexChanged.connect(self._scene_changed)
+        grow.addWidget(self.scene, 1)
+        self.popup = QComboBox()
+        self.popup.setToolTip('Panels the game fades in on top: the batter bar, a home run, a strikeout')
+        self.popup.currentIndexChanged.connect(self._popup_changed)
+        grow.addWidget(self.popup, 1)
+        self.game_row = QWidget()
+        self.game_row.setLayout(grow)
+        grow.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.game_row)
         # states: the layout's switches (bases, counts, banners) and which look each shows
         srow = QHBoxLayout()
         srow.setSpacing(8)
@@ -193,7 +253,8 @@ class LayoutEditor(QWidget):
         self.state_pick.setMinimumWidth(90)
         self.state_pick.valueChanged.connect(self._state_picked)
         srow.addWidget(self.state_pick, 1)
-        self.b_states_reset = button('All Looks to First', on_click=self._states_reset)
+        self.b_states_reset = button('Follow the Game', on_click=self._states_reset)
+        self.b_states_reset.setToolTip('Drop the looks you picked by hand; every switch follows the Game row again')
         srow.addWidget(self.b_states_reset, 1)
         self.fx = QCheckBox('Show animation layers')
         self.fx.setToolTip('Glows and pieces the game fades in with an animation. At rest they are hidden.')
@@ -261,11 +322,16 @@ class LayoutEditor(QWidget):
         self.t_size.setPrefix('Text size  ')
         self.t_size.setSuffix(' px')
         self.t_size.valueChanged.connect(self._text_size)
-        self.b_tcolor = button('Text Colour', on_click=self._text_color)
+        self.b_tcolor = button('Outline Colour', on_click=self._text_color)
+        self.b_tcolor.setToolTip('The letters themselves take the Colour button above; this is their outline')
+        self.t_align = QComboBox()
+        self.t_align.addItems(['Left', 'Centre', 'Right'])
+        self.t_align.activated.connect(self._text_align)
         self.b_font_import = button('Import Font…', on_click=self._import_font)
         self.b_font_import.setToolTip('Draw a font file of your own into the game, in place of the font this box uses')
         trow.addWidget(self.t_font, 3)
         trow.addWidget(self.t_size, 1)
+        trow.addWidget(self.t_align, 1)
         trow.addWidget(self.b_tcolor, 1)
         trow.addWidget(self.b_font_import, 1)
         self.text_row = QWidget()
@@ -309,6 +375,13 @@ class LayoutEditor(QWidget):
             self._table = uilayout.Layout.texture_table([e['name'] for e in tex.entries]) if tex else {}
         except Exception:
             self._table = {}
+        self.lang = None
+        try:
+            lrel = pack_rel[:-4] + '.LANG_EN'
+            if lrel in self.main.game.file_set():
+                self.lang = uilang.Lang.open(self.main.current_file(lrel))
+        except Exception:
+            self.lang = None
         try:
             self.layout = uilayout.Layout.open(self.main.current_file(rel))
             self._orig = uilayout.Layout.open(self.main.game.original(rel))
@@ -349,7 +422,7 @@ class LayoutEditor(QWidget):
 
     def _enable(self, on):
         for w in (self.which, self.preset, self.sx, self.sy, self.sscale, self.b_reset, self.b_save,
-                  self.state_node, self.state_pick, self.b_states_reset, self.fx, self.zoom):
+                  self.state_node, self.state_pick, self.b_states_reset, self.fx, self.zoom, self.game_row):
             w.setEnabled(on)
 
     def _asset_changed(self, *_):
@@ -373,6 +446,7 @@ class LayoutEditor(QWidget):
         for s in (self.sx, self.sy, self.sscale):
             s.blockSignals(False)
         self._scale0 = self.sscale.value()
+        self._fill_scenes()
         self._fill_states()
         self._fill_strip()
         self.note.setText(self.HINT)
@@ -407,10 +481,12 @@ class LayoutEditor(QWidget):
     def _redraw(self):
         if not (self.layout and self.asset):
             return
-        hidden = set()
+        sc = uirender.scenes(self.asset)
+        hidden = {k.off for i, k in enumerate(sc) if i != self._scene} if len(sc) > 1 else set()
         try:
             img, hits = uirender.render(self.layout, self.asset, self._tex_img, self._table, states=self.states,
-                                        effects=self.fx.isChecked(), hidden=hidden, fonts=self._load_fonts())
+                                        effects=self.fx.isChecked(), hidden=hidden, fonts=self._load_fonts(),
+                                        situation=self.sit, lang=self.lang, reveal=self._reveal)
         except Exception as x:
             self.note.setText(f'Could not draw the layout: {x}')
             return
@@ -445,6 +521,44 @@ class LayoutEditor(QWidget):
         h = uilayout.name_hash(self._chosen_tex) if self._chosen_tex and not self._chosen_node else None
         self.canvas.marks = [x.rect for x in self._hits if h is not None and x.node.ref == h]
 
+    # ------------------------------------------------------------------ the game
+    def _sit_set(self, attr, value):
+        setattr(self.sit, attr, value)
+        self._redraw()
+
+    def _fill_scenes(self):
+        self._scene, self._reveal = 0, set()
+        sc = uirender.scenes(self.asset) if self.asset else []
+        self.scene.blockSignals(True)
+        self.scene.clear()
+        for i, k in enumerate(sc):
+            self.scene.addItem('In play' if i == 0 else f'Scene {i + 1}  ({round(k.w)}×{round(k.h)})')
+        self.scene.setEnabled(len(sc) > 1)
+        self.scene.blockSignals(False)
+        self._fill_popups()
+
+    def _fill_popups(self):
+        sc = uirender.scenes(self.asset) if self.asset else []
+        self._popups = uirender.popups(self.layout, self.asset, sc[self._scene]) if sc else []
+        self.popup.blockSignals(True)
+        self.popup.clear()
+        self.popup.addItem('No pop-up')
+        for _n, name in self._popups:
+            self.popup.addItem(name)
+        self.popup.setEnabled(bool(self._popups))
+        self.popup.blockSignals(False)
+
+    def _scene_changed(self, i):
+        if i < 0:
+            return
+        self._scene, self._reveal = i, set()
+        self._fill_popups()
+        self._redraw()
+
+    def _popup_changed(self, i):
+        self._reveal = {self._popups[i - 1][0].off} if 0 < i <= len(self._popups) else set()
+        self._redraw()
+
     # ------------------------------------------------------------------ states
     def _fill_states(self):
         self.state_node.blockSignals(True)
@@ -453,7 +567,9 @@ class LayoutEditor(QWidget):
         counts = {}
         for a, n in self._state_nodes:
             counts[a.name] = counts.get(a.name, 0) + 1
-            self.state_node.addItem(f'{a.name} · switch {counts[a.name]} · {len(n.states)} looks')
+            q = uiquery.text(self.layout.selector(n)).strip('[] ')
+            what = q if q and len(q) < 40 else ('set by the game' if not q else f'switch {counts[a.name]}')
+            self.state_node.addItem(f'{a.name} · {what} · {len(n.states)} looks')
         self.state_node.blockSignals(False)
         has = bool(self._state_nodes)
         for w in (self.state_node, self.state_pick, self.b_states_reset):
@@ -468,7 +584,7 @@ class LayoutEditor(QWidget):
         if 0 <= i < len(getattr(self, '_state_nodes', [])):
             n = self._state_nodes[i][1]
             self.state_pick.setRange(1, len(n.states))
-            self.state_pick.setValue(self.states.get(n.off, 0) + 1)
+            self.state_pick.setValue(self.states.get(n.off, getattr(uirender.render, 'picks', {}).get(n.off, 0)) + 1)
         else:
             self.state_pick.setRange(1, 1)
         self.state_pick.blockSignals(False)
@@ -727,6 +843,7 @@ class LayoutEditor(QWidget):
         self.t_size.setValue(self.layout.text_size(n))
         i = self.t_font.findData(self.layout.text_font(n))
         self.t_font.setCurrentIndex(i)
+        self.t_align.setCurrentIndex(min(2, self.layout.text_align(n)))
         for w in (self.t_size, self.t_font):
             w.blockSignals(False)
 
@@ -742,6 +859,11 @@ class LayoutEditor(QWidget):
             self.layout.set_text_font(n, num)
         self._redraw()
 
+    def _text_align(self, i):
+        for n in self._text_targets():
+            self.layout.set_text_align(n, i)
+        self._redraw()
+
     def _text_size(self, v):
         for n in self._text_targets():
             self.layout.set_text_size(n, v)
@@ -752,7 +874,7 @@ class LayoutEditor(QWidget):
         if not t:
             return
         r, g, b, _ = self.layout.text_color(t[0])
-        c = QColorDialog.getColor(QColor(r, g, b), self, 'Text colour')
+        c = QColorDialog.getColor(QColor(r, g, b), self, 'Outline colour')
         if c.isValid():
             for n in t:
                 self.layout.set_text_color(n, rgb=(c.red(), c.green(), c.blue()))

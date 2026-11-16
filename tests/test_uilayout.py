@@ -149,20 +149,69 @@ def test_text():
     L = uilayout.Layout(build())
     # a text box is 0x80 bytes; give the asset one by reusing an image record's space is not possible, so build one
     t = bytearray(node(0x22, 5, 5, 100, 30, size=0x80))
-    struct.pack_into('<H', t, 0x58, 24 * 16)
-    t[0x74] = (10 << 2) | 3
+    struct.pack_into('<H', t, 0x58, 14 * 16)
+    struct.pack_into('<H', t, 0x60, 24 * 16)
+    struct.pack_into('<I', t, 0x70, 0x00148000 | 0x40 | 10)
     L2 = uilayout.Layout(bytes(L.d[:0x30]) + asset('T', group(0, 0, 1920, 1080, [bytes(t)])))
     a = L2.assets[0]
     n = next(x for x in a.nodes() if x.kind == 0x22)
     assert L2.text_size(n) == 24 and L2.text_font(n) == 10
     assert L2.retext(a, {'size': 'x1.5', 'font': 2, 'color': '#ff0000'}) == 1
-    assert L2.text_size(n) == 36 and L2.text_font(n) == 2 and L2.d[n.off + 0x74] & 3 == 3
-    assert L2.text_color(n)[:3] == (255, 0, 0)
+    assert L2.text_size(n) == 36 and L2.text_font(n) == 2 and L2.d[n.off + 0x70] & 0xC0 == 0x40
+    assert L2.text_align(n) == 1
+    L2.set_text_align(n, 2)
+    assert L2.text_align(n) == 2 and L2.text_font(n) == 2
+    assert n.rgba()[:3] == (255, 0, 0)
     assert fontlib.char_of(fontlib.code_of('Ñ')) == 'Ñ' and fontlib.char_of(0x41) == 'A'
     m = np.zeros((20, 20), bool)
     m[5:15, 5:15] = True
     f = fontlib.distance_field(m, 4)
     assert f[10, 10] == 255 and f[0, 0] == 0 and 100 < f[10, 5] < 160
+
+
+def test_queries():
+    from modtheshow import uiquery as Q
+    t = Q.tokens('[ IF_Q_ELSE_INT [ QCOMP [ UI TEMPLATE_QUERY_INX [ 3 ] , <= , 5 ] , UI TEMPLATE_QUERY_INX [ 3 ] , 9 ] ]')
+    assert Q.text(t).startswith('[ IF_Q_ELSE_INT [ QCOMP')
+    c = Q.Context(Q.Situation(outs=2, bottom=True), [0, 0, 0, 4])
+    assert c.number(t) == 4 and Q.Context(Q.Situation(), [0, 0, 0, 7]).number(t) == 9
+    assert c.number(Q.tokens('[ SCOREBAR OUT_TAB ]')) == 2
+    assert c.value(Q.parse(Q.tokens('[ TEAM_UI SHORT_NAME [ OFF_TEAM_ID ] ]'))) == 'AZ'
+    assert Q.word(Q.tokens('[ -1 ]')[1]) == -1
+
+
+def test_lang_and_place():
+    from modtheshow import uilang, uiquery as Q
+    words = b'OUT\0' + b'^d0^-^d1^\0'
+    q1, q2 = Q.tokens('[ IG BALLS ]'), Q.tokens('[ IG STRIKES ]')
+    head = 0x20
+    t1 = head                       # one fixed word
+    t2 = t1 + 16                    # one live text
+    binds = t2 + 24
+    toks = binds + 32
+    strs = toks + 4 * (len(q1) + len(q2))
+    b = bytearray(strs + len(words))
+    struct.pack_into('<8I', b, 0, t1, 0, t2, 0, 1, 1, len(b), 2)
+    struct.pack_into('<QQ', b, t1, 0x11, strs)
+    struct.pack_into('<QQQ', b, t2, 0x22, strs + 4, binds)
+    struct.pack_into('<QQQQ', b, binds, toks, 0x10000 | len(q1), toks + 4 * len(q1), len(q2))
+    struct.pack_into(f'<{len(q1) + len(q2)}I', b, toks, *(q1 + q2))
+    b[strs:] = words
+    lg = uilang.Lang(b)
+    assert lg.static[0x11] == 'OUT'
+    fmt, bd = lg.live[0x22]
+    ctx = Q.Context(Q.Situation(balls=3, strikes=2))
+    assert fmt == '^d0^-^d1^' and [ctx.value(Q.parse(bd[i])) for i in (0, 1)] == [3, 2]
+    assert uilang.plain('P: ^f21^^s20^^c3^^d0^') == 'P: ^d0^'
+
+    class N:
+        x, y, w, h = 10.0, 5.0, 100.0, 20.0
+    # parent grew 50 x 10: 0x5 top-left stays, 0xF stretches, 0x6 bottom-left drops, 0xE bottom + stretch across,
+    # 0x300 stays centred
+    for anchor, want in ((0x5, (10, 5, 100, 20)), (0xF, (10, 5, 150, 30)), (0x6, (10, 15, 100, 20)),
+                         (0xE, (10, 15, 150, 20)), (0x300, (35, 10, 100, 20))):
+        N.anchor = anchor
+        assert uilayout.place(N, 50, 10, 200, 40) == want, hex(anchor)
 
 
 def test_hash():
@@ -177,4 +226,6 @@ if __name__ == '__main__':
     test_edit()
     test_repaint()
     test_text()
+    test_queries()
+    test_lang_and_place()
     print('ui layout ok')

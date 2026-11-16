@@ -7,7 +7,10 @@ is the asset's node tree. Every node starts with the same 0x2C bytes:
   +0x04 f32   x, relative to the parent        +0x08 f32 y        +0x0C f32 z
   +0x10 f32   width                            +0x14 f32 height   (1920x1080 space)
   +0x1C s16   rotation
-  +0x1E u16   anchor flags (+0x20 a second set used in another screen mode)
+  +0x1E u16   anchors, for when the parent is a different size than it was designed at (a reused overlay is
+              stretched to the size of the Instance that shows it): bits 0-1 up/down (1 top, 2 bottom, 3 stretch),
+              bits 2-3 across (4 left, 8 right, 0xC stretch), 0xF0 scale in proportion, 0x100 / 0x200 keep centred.
+              +0x20 holds a second set used in another screen mode
   +0x22 u16   scale x, 0x80 = 1.0              +0x24 u16 scale y
   +0x26 u8    kind (low 6 bits; the top two are flip flags)
   +0x27 u8    flags (0x20 additive, 0x80 starts hidden and is shown by an animation)
@@ -16,11 +19,12 @@ What follows depends on the kind. Where a node ends is fixed per kind, the same 
 (KIND_END); a node that holds other nodes keeps them packed between the end of its own fields and its end.
 Kinds that matter most:
 
-  0x0F group       children from +[0x38] to +[0x48]
+  0x0F group       children from +[0x38] to +[0x48]; +0x4C child count | 0x8000, | 0x100 when it clips them
   0x18 image       texture hash at +0x30, a second texture (mask) at +0x38
   0x01 sprite      texture hash at +0x30
   0x1E instance    draws another asset of the same file, its hash at +0x30
-  0x1C states      a switch: +0x70 state count, +0x78 one u64 offset per state (0 = empty), children from +[0x48]
+  0x1C states      a switch: +0x70 state count, +0x78 one u64 offset per state (0 = empty), children from +[0x48];
+                   +0x30 points at the query that picks the look; children no state names are always drawn
   0x22 text        a text box
   0x0C clip        children from +[0x30] to +[0x48]
 
@@ -63,6 +67,35 @@ def name_hash(name):
     return h | 0x80000000
 
 
+def place(node, dw, dh, pw, ph):
+    """Where a node sits when its parent is dw x dh bigger than designed (pw x ph): (x, y, w, h)."""
+    a = node.anchor
+    x, y, w, h = node.x, node.y, node.w, node.h
+    if dw:
+        mode = (a >> 2) & 3
+        if a & 0x100:
+            x += dw / 2
+        elif mode == 2:
+            x += dw
+        elif mode == 3:
+            w += dw
+        elif mode == 0 and a & 0xC0 and pw > 0:
+            k = (pw + dw) / pw
+            x, w = x * k, w * k
+    if dh:
+        mode = a & 3
+        if a & 0x200:
+            y += dh / 2
+        elif mode == 2:
+            y += dh
+        elif mode == 3:
+            h += dh
+        elif mode == 0 and a & 0x30 and ph > 0:
+            k = (ph + dh) / ph
+            y, h = y * k, h * k
+    return x, y, max(0.0, w), max(0.0, h)
+
+
 def rgba(v):
     """A node colour (u32 as stored) as (r, g, b, a)."""
     return v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >> 24) & 255
@@ -74,7 +107,7 @@ def pack_rgba(r, g, b, a):
 
 class Node:
     __slots__ = ('off', 'size', 'kind', 'kflip', 'flags', 'color', 'x', 'y', 'z', 'w', 'h', 'sx', 'sy', 'rot',
-                 'anchor', 'ref', 'ref2', 'children', 'parent', 'states', 'asset')
+                 'anchor', 'ref', 'ref2', 'children', 'parent', 'states', 'asset', 'clips')
 
     @property
     def type(self):                      # older name for kind
@@ -205,6 +238,8 @@ class Layout:
         n.rot, n.anchor, _a2, n.sx, n.sy = struct.unpack_from('<hHHHH', d, p + 0x1C)
         n.kind, n.kflip, n.flags = d[p + 0x26] & 0x3F, d[p + 0x26] >> 6, d[p + 0x27]
         n.ref, n.ref2 = struct.unpack_from('<I4xI', d, p + 0x30) if p + 0x3C <= len(d) else (NONE, NONE)
+        # a group hides what falls outside it when bit 0x100 of its child count is set; a Clip node always does
+        n.clips = n.kind == 0x0C or (n.kind == 0x0F and p + 0x50 <= len(d) and bool(d[p + 0x4D] & 1))
         size = self._end(p, n.kind)
         if not size or size < 0x40 or p + size > end:
             # an unknown or damaged node: it runs to the next node that looks right
@@ -324,20 +359,36 @@ class Layout:
                 changed += 1
         return changed
 
-    # ---- text boxes (kind 0x22): +0x40 text colour, +0x44 / +0x48 second and highlight colours, +0x4C the label
-    #      it shows (0 for live text the game fills in), +0x58 size in 1/16 px, +0x70 layout flags, +0x74 font
-    #      (font number in the top six bits)
+    # ---- text boxes (kind 0x22): the node colour fills the letters; +0x40 outline colour, +0x44 / +0x48 second and
+    #      highlight colours, +0x4C the id of
+    #      its words in the .LANG file (0 when code fills it in), +0x58 base size and +0x60 the size it is drawn at
+    #      (both u16 in 1/16 px; +0x60 wins when set), +0x70 flags: the font number in the low six bits, bits 18-19
+    #      left / centre / right
     def text_size(self, node):
-        return struct.unpack_from('<H', self.d, node.off + 0x58)[0] / 16
+        base, _a, _b, _c, size = struct.unpack_from('<5H', self.d, node.off + 0x58)
+        return (size or base) / 16
 
     def set_text_size(self, node, px):
-        struct.pack_into('<H', self.d, node.off + 0x58, max(16, min(0xFFFF, int(round(px * 16)))))
+        v = max(16, min(0xFFFF, int(round(px * 16))))
+        base, _a, _b, _c, size = struct.unpack_from('<5H', self.d, node.off + 0x58)
+        struct.pack_into('<H', self.d, node.off + (0x60 if size else 0x58), v)
 
     def text_font(self, node):
-        return self.d[node.off + 0x74] >> 2
+        return self.d[node.off + 0x70] & 0x3F
 
     def set_text_font(self, node, number):
-        self.d[node.off + 0x74] = ((int(number) & 0x3F) << 2) | (self.d[node.off + 0x74] & 3)
+        self.d[node.off + 0x70] = (self.d[node.off + 0x70] & 0xC0) | (int(number) & 0x3F)
+
+    def text_align(self, node):
+        """0 left, 1 centre, 2 right."""
+        return (self.d[node.off + 0x72] >> 2) & 3
+
+    def set_text_align(self, node, align):
+        self.d[node.off + 0x72] = (self.d[node.off + 0x72] & ~0x0C) | ((int(align) & 3) << 2)
+
+    def is_slot(self, node):
+        """An image the game fills in while it runs (a team logo)."""
+        return node.kind == 0x18 and self.d[node.off + 0x4A] == 1
 
     def text_color(self, node):
         return rgba(struct.unpack_from('<I', self.d, node.off + 0x40)[0])
@@ -354,8 +405,9 @@ class Layout:
         return struct.unpack_from('<I', self.d, node.off + 0x4C)[0]
 
     def retext(self, asset, spec):
-        """Restyle every text box an overlay draws. spec: size (px, or 'x1.5' to scale), font (number), color
-        ('#rrggbb'); 'only_font' narrows it to boxes using that font now. Returns how many changed."""
+        """Restyle every text box an overlay draws. spec: size (px, or 'x1.5' to scale), font (number), color and
+        outline ('#rrggbb'), align (left / centre / right); 'only_font' narrows it to boxes using that font now.
+        Returns how many changed."""
         n = 0
         for a in self.family(asset):
             for t in a.nodes():
@@ -373,9 +425,36 @@ class Layout:
                     self.set_text_font(t, spec['font'])
                 if spec.get('color'):
                     v = int(str(spec['color']).lstrip('#'), 16)
+                    self.recolor(t, rgb=((v >> 16) & 255, (v >> 8) & 255, v & 255))
+                if spec.get('outline'):
+                    v = int(str(spec['outline']).lstrip('#'), 16)
                     self.set_text_color(t, rgb=((v >> 16) & 255, (v >> 8) & 255, v & 255))
+                if spec.get('align') in ('left', 'centre', 'center', 'right'):
+                    self.set_text_align(t, {'left': 0, 'right': 2}.get(spec['align'], 1))
                 n += 1
         return n
+
+    # ---- queries: what picks a States node's look, and what a copy of an overlay is handed (see uiquery)
+    def _query_at(self, asset, v):
+        d = self.d
+        if not v or asset.body + v + 16 > len(d):
+            return []
+        off, cnt = struct.unpack_from('<QQ', d, asset.body + v)
+        if cnt > 256 or asset.body + off + 4 * cnt > len(d):
+            return []
+        return list(struct.unpack_from(f'<{cnt}I', d, asset.body + off))
+
+    def selector(self, node):
+        """The query that picks a States node's look, as tokens ([] when the game's code picks it)."""
+        return self._query_at(node.asset, struct.unpack_from('<I', self.d, node.off + 0x30)[0])
+
+    def instance_args(self, node):
+        """The queries an Instance node hands to the overlay it shows, one token list per argument."""
+        size, cnt = struct.unpack_from('<HH', self.d, node.off + 0x50)
+        if not cnt or 0x58 + 8 * cnt > size:
+            return []
+        return [self._query_at(node.asset, struct.unpack_from('<Q', self.d, node.off + 0x58 + 8 * i)[0])
+                for i in range(cnt)]
 
     def family(self, asset):
         """The asset and every asset it draws, nearest first."""
