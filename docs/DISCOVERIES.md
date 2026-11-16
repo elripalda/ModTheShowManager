@@ -138,25 +138,53 @@ builder accepts a table of instruction patches instead, and that's what code mod
 
 The game still carries its debug text, which is how the interesting code gets found. So far:
 
-- **Exit velocity** is the hit's power in mph times 1.4667. Changing that one number is the moonshot mods.
+- **Exit velocity** is the hit's power in mph, kept on the hit, times 1.4667. The number on screen is read from
+  the same place, so the Exit Velocity mod raises both.
 - **Air density** is worked out from each park's temperature and altitude. That's the Coors Field effect, and
-  the Thin Air mod.
+  the Air mod. It slows the ball down; it has no part in how pitches break.
+- **Pitch break** is spin crossed with the ball's velocity, times a lift number, over its mass. The Pitch Break
+  mod multiplies that push. The game aims every pitch, then lets the forces bend it.
+- **Pitch speed** goes into the launch in mph. The Pitch Speed mod multiplies it there.
+- **The bounce** is the ball's own bounce times the surface's, and the ground slows a rolling ball by a number
+  that depends on the surface.
+- **A bunt** is made by its own small function with a direction and a power, and filed as hit type BUNT.
 - **The PCI** is compared with where the pitch crosses the plate right before contact. Auto PCI moves it onto
   the ball at that moment. The one you see is a separate thing: a spot the batting interface works out from the
   stick every frame, in zone units (0 is the middle, 1 the edge: 0.75 ft across, half the zone's height up) and in
   feet. Auto PCI Visual writes the pitch's spot there.
-- **Pitch speed** is a base speed times a factor of 0.95 to 1.05 that comes from the pitcher. Heat and Soft Toss
-  scale that factor.
 - **Perfect-Perfect** is two flags set in the hit code.
 - **Bat breaks** and **pitcher fatigue** each come down to one number.
 - The game tells a human hitter from a CPU one with a single value, which is how a mod can affect only you.
 
+The game also writes what it is doing into `logs\mlb.log` as you play: each pitch's movement, each swing's aim
+error, each hit's type, power, spin and air density. That log is how a code mod gets checked.
+
 [Code mods and the full map](CODE_MODS.md)
+
+## Bodies, bats and mascots
+
+- **Body shapes.** Every player carries ten sizes in the players file (`D_PLAYER_APP`): head, neck, shoulders,
+  sleeves, spine, collarbone, hips, thighs, glutes and arms, a byte each with 127 or so as the usual build.
+  Arcade Rosters sets them for a whole league.
+- **Aluminum bats.** The equipment list (`FRONTEND/EQUIPMENT/MLBEQUIPMENT.JSON`) has ten bats marked `mtl=1`,
+  the ones Road to the Show uses in college. They are switched off for normal play, but a player's bat is just a
+  style number in the players file, so anyone can be handed one.
+- **The body is one model** (`NSW/CHARACTERS/MASTERFILES/BODIES/STANDARDMALE/MALEBODY24.MOD`) on 27 bones:
+  hips, waist, back, neck, head, and four or six bones a limb. Caps, helmets, gloves and hands are separate
+  models attached to it. `BODYMETA_*.XML` beside it lists the attachments.
+- **Mascots** (`AND/CHARACTERS/MASCOTS/<TEAM>/<TEAM>_MASCOT_A.MOD`, textures under `NSW`) are built on those same
+  27 bones, in the same order. That is what makes a mascot mode thinkable: a player's animations can drive a
+  mascot's body. The sample "Experiment: Mascot Bodies" swaps one in to see what the game does with it.
+- **Fire and fireworks** are not particles. A firework is a model whose vertices are animated by a texture
+  (`NSW/STADIUMS/PROPS/FW_*.MOD` with its `.XML` and `.TEX`), set off by a park's plain-text `EFFECTS.SCR`. A
+  flame that follows the ball would be one of those models tied to the ball from code, which nobody has done yet.
 
 ## Still open
 
 - Layout animations (the rules that pick each look are solved; the keyframes aren't).
 - What ties a scanned player to his head folder.
-- Head meshes and player body meshes.
+- Head meshes; putting a mascot's head and textures on a player.
 - Franchise and Road to the Show saves.
-- Runner speed, pitch speed and fielding in the code.
+- Runner speed, fielding and the pitch speed shown on screen, in the code.
+- Which sound a metal bat makes, and where Road to the Show keeps its tokens.
+- Tying a flame to the ball, and taking caps, helmets and gloves off.

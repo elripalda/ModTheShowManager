@@ -48,16 +48,16 @@ New here? The [quick start](docs/QUICK_START.md) gets a mod into the game in abo
 | **Scorebug** | See the scorebug drawn with its real art. Move it, flip its looks, tint, resize, hide or repaint any piece, change any text's font, size and colour, bring in your own fonts, play its animations and save the result as a style. Or build one from nothing: describe the pieces and the live data they show, and the manager compiles it for the game. Team colours follow the uniform worn, with your own colours per club and for City Connect. |
 | **Packages** | One mod with a whole look: your scorebug, every ballpark's boards and the lineup and other broadcast screens in its colours. |
 | **Stadium boards** | Every ballpark's scoreboards open in the same builder. Repaint a park by colour, or match all of them to your scorebug in one click. |
-| **Teams & Rosters** | Edit names, ratings, numbers and gear, move players, auto-fill lineups. Import and export rosters as a [plain file](docs/ROSTER_FILES.md) you can write by hand or with an AI. |
+| **Teams & Rosters** | Edit names, ratings, numbers and gear, move players, auto-fill lineups. Hand a whole league aluminum bats or big heads. Import and export rosters as a [plain file](docs/ROSTER_FILES.md) you can write by hand or with an AI. |
 | **Sounds** | Play and export every sound in the game, commentary included. Replace streams with your own WAV. |
 | **3D Models** | View bats, balls, gear and props with their textures. Export OBJ, bring one back in. |
-| **Code mods** | Gameplay changes built into the game and switched per launch: Auto PCI, moonshot home runs, a juiced ball, thin air and more. |
+| **Code mods** | Gameplay changes built into the game, on one page and on F4 while you play: Auto PCI, and dials for exit velocity, pitch speed, pitch break, the air and how the ball bounces. |
 | **Mods** | Each mod is a folder. Switch them on and off, set the order, apply. Restore puts the stock game back. |
 | **Discover** | Mods other people have shared, one click to add. [Share your own](community/README.md). |
 | **Launcher** | See what state the game is in and press Play. |
 
 <p align="center">
-  <img src="docs/images/code-plugins.png" alt="Code Plugins" width="49%">
+  <img src="docs/images/code-plugins.png" alt="Code Mods" width="49%">
   <img src="docs/images/rosters.png" alt="Teams & Rosters" width="49%">
 </p>
 <p align="center">
@@ -97,7 +97,7 @@ Share your own work, not the game's original files.
 | [Game data for a scorebug](docs/SCOREBUG_DATA.md) | The live values a piece can show. |
 | [Making a scorebug with an AI](docs/SCOREBUG_AI.md) | What to paste into a chat AI so it writes a design for you. |
 | [Roster files](docs/ROSTER_FILES.md) | The roster file format, with every rating and gear slot. |
-| [Code mods](docs/CODE_MODS.md) | The samples, how to write your own, and the map of the gameplay code. |
+| [Code mods](docs/CODE_MODS.md) | The list, the in-game menu, how to write your own, and the map of the gameplay code. |
 | [Sharing mods](community/README.md) | What a shared mod can hold, league packs, and how to send yours in. |
 | [What we've found](docs/DISCOVERIES.md) | How the game works inside: file formats, the audio codec, the databases, the code. |
 

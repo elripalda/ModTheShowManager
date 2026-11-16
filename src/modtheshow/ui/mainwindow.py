@@ -530,8 +530,7 @@ class MainWindow(QMainWindow):
                 self.go('Mods')
                 return
         try:
-            self.pages['Code Mods'].write_switches()
-            self.game.launch(self.pages['Code Mods'].env())
+            self.game.launch(self.pages['Code Mods'].launch_env())
             self.toast('Launching MLB The Show 26...')
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Launch', str(x))

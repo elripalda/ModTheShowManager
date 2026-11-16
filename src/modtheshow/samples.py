@@ -1059,6 +1059,60 @@ def fireball(game, lib, current_file):
     return mod, 'Apply and start a game.'
 
 
+def aluminum_bats(game, lib, current_file):
+    """Every MLB hitter swings one of the catalogue's metal bats (the Road to the Show college ones)."""
+    if R.EQUIPMENT not in game.file_set():
+        raise ValueError('This install has no equipment list.')
+    metal = [st for st, _ in R.Equipment(game.original(R.EQUIPMENT)).metal_bats()]
+    if not metal:
+        raise ValueError('This version of the game lists no metal bats.')
+
+    def change(db):
+        n = 0
+        for p in db.players:
+            if p.acc is not None and 'BAT' in p.acc.fields:
+                db.set_player(p, gear={'BAT': metal[p.i % len(metal)]})
+                n += 1
+        return f'{n} players handed an aluminum bat. Apply and start a game.'
+    return _roster_mod(game, lib, current_file, 'Sample: Aluminum Bats',
+                       'Everyone swings aluminum: the metal bats Road to the Show uses in college games. Turn up '
+                       'Exit Velocity in Code Mods for the extra pop.', change)
+
+
+def big_heads(game, lib, current_file):
+    def change(db):
+        n = 0
+        for p in db.players:
+            if p.app is not None and 'HEAD_SCALE' in p.app.fields:
+                db.set_player(p, shape={'HEAD_SCALE': 255})
+                n += 1
+        return f'{n} players given the biggest head the game draws.'
+    return _roster_mod(game, lib, current_file, 'Sample: Big Heads',
+                       'Every player gets the biggest head size the game has. More shapes are in Teams & Rosters, '
+                       'Tools, Arcade Rosters.', change)
+
+
+BODY = 'NSW/CHARACTERS/MASTERFILES/BODIES/STANDARDMALE/MALEBODY24.MOD'
+MASCOT = 'AND/CHARACTERS/MASCOTS/{team}/{team}_MASCOT_A.MOD'
+
+
+def mascot_bodies(game, lib, current_file, team='ARZ'):
+    """An experiment for mascot mode: the players' body model swapped for a team mascot's. The mascot is built on
+    the same 27 bones as the player body, in the same order, so the players' animations should drive it. Heads,
+    hands and textures are not dealt with yet."""
+    from . import modellib
+    fs = game.file_set()
+    src = MASCOT.format(team=team)
+    need = [BODY, modellib.gpu_path(BODY), src, modellib.gpu_path(src)]
+    if any(rel not in fs for rel in need):
+        raise ValueError('This install is missing the body or mascot model files.')
+    mod = _mod(lib, 'Experiment: Mascot Bodies', 'A first try at mascot mode: every player’s body is the D-backs '
+                    'mascot’s. Expect it to look wrong, and switch it off if the game won’t load.')
+    lib.add_file(mod, BODY, game.original(src))
+    lib.add_file(mod, modellib.gpu_path(BODY), game.original(modellib.gpu_path(src)))
+    return mod, 'Apply, start an exhibition game and send a screenshot, whatever it looks like.'
+
+
 SAMPLES = [
     ('yankees', 'Sample: 1927 Yankees', 'A classic roster brought in from a roster file: 25 players, built faces for '
      'the ones the game doesn’t have, lineups set for you.', yankees_1927),
@@ -1086,6 +1140,10 @@ SAMPLES = [
     ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',
      scorebug_flat),
     ('fireball', 'Sample: Fireball', 'A texture mod: the ball burns.', fireball),
+    ('aluminum', 'Sample: Aluminum Bats', 'A roster mod: every player swings a metal bat.', aluminum_bats),
+    ('bigheads', 'Sample: Big Heads', 'A roster mod: every player gets the biggest head size.', big_heads),
+    ('mascot', 'Experiment: Mascot Bodies', 'A model swap: players wear the D-backs mascot’s body. Untested.',
+     mascot_bodies),
 ]
 
 

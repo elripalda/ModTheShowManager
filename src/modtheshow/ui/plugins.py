@@ -170,6 +170,14 @@ class PluginsPage(QWidget):
         sw = self.switches()
         return {env: '1' if sw.get(name, bool(default)) else '0' for name, env, default, _ in sets}
 
+    def launch_env(self):
+        """Ready for a launch: what the in-game menu changed last time is taken in first, then the switches and
+        dials go to the game folder. Returns the environment for the game."""
+        sets, text, _ = codemods.collect(self.main.lib.list())
+        self._sync(sets, text)
+        self.write_switches()
+        return self.env()
+
     def active_names(self):
         """Names of the code mods that are on, when the game is built with the current set."""
         sets, text, bad, misfit = self.table()
