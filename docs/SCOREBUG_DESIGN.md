@@ -35,8 +35,8 @@ underneath so you can judge size against the field.
 - **Paint tintable pieces in white and greys.** The game multiplies a texture by the piece's colour, so white
   takes the colour exactly and grey takes it darker. A piece you paint in colour keeps that colour everywhere.
 - **Keep the transparency.** Export each layer as a PNG with alpha, trimmed to the piece.
-- **Match the size of what you replace**, or a clean multiple of it (2x is fine and looks sharper). The list
-  under the preview shows every texture and its size.
+- **Match the size of what you replace**, or a clean multiple of it (2x is fine and looks sharper). The
+  **Its textures** list shows every texture the overlay draws.
 - **States are separate art.** An out light needs an off and an on. A base needs empty and occupied.
 
 Then in the sandbox: click the piece, **Replace PNG**, pick your export. Move and resize until the preview matches
