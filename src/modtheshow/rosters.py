@@ -62,6 +62,11 @@ class Equipment:
         for t in self.by_type:
             self.by_type[t].sort(key=lambda x: x[0])
 
+    def metal_bats(self):
+        """[(style, label)] of the aluminum bats (the Road to the Show college ones): bats the catalog marks mtl=1."""
+        return [(st, lab or f'Metal bat {st}') for st, lab, _on, it in self.by_type.get(0, [])
+                if 'mtl=1' in str(it.get('gfxinfo', '')).replace(' ', '')]
+
     def choices(self, slot_type):
         """[(style, label)] for a slot, enabled items only (plus 'None' for 0 where the game uses it)."""
         out = [(st, lab) for st, lab, en, _ in self.by_type.get(slot_type, []) if en and lab]

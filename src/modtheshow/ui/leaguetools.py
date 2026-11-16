@@ -1,4 +1,4 @@
-"""Arcade rosters: push ratings and body shapes for many players at once."""
+"""Arcade rosters: push ratings, body shapes and bats for many players at once."""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QSlider, QVBoxLayout
 
@@ -87,6 +87,15 @@ class LeagueTools(QDialog):
         grid2.setColumnStretch(1, 1)
         grid2.setColumnMinimumWidth(0, 170)
         lay.addLayout(grid2)
+        self.bats = QComboBox()
+        self.bats.addItem('Leave bats as they are', None)
+        metal = page.equipment.metal_bats() if getattr(page, 'equipment', None) else []
+        if metal:
+            self.bats.addItem('Aluminum bats for everyone (a mix)', [st for st, _ in metal])
+            for st, lab in metal:
+                self.bats.addItem(f'Aluminum: {lab}', [st])
+            lay.addWidget(label('Aluminum bats are the ones Road to the Show uses in college games.', 'Sub', wrap=True))
+            lay.addWidget(self.bats)
         row = QHBoxLayout()
         row.setSpacing(8)
         self.scope = QComboBox()
@@ -121,7 +130,8 @@ class LeagueTools(QDialog):
             if chk.isChecked():
                 for f in fields:
                     shape[f] = sl.value()
-        if not ratings and not shape:
+        bats = self.bats.currentData()
+        if not ratings and not shape and not bats:
             self.reject()
             return
         n = 0
@@ -140,7 +150,10 @@ class LeagueTools(QDialog):
                 db.set_player(p, ratings=mine)
                 for f, v in mine.items():
                     p.att.fields[f] = (p.att.fields[f][0], int(v).to_bytes(1, 'little'))
-            if mine or fits:
+            swung = bool(bats) and p.acc is not None and 'BAT' in p.acc.fields
+            if swung:
+                db.set_player(p, gear={'BAT': bats[p.i % len(bats)]})
+            if mine or fits or swung:
                 n += 1
         self.count = n
         self.accept()

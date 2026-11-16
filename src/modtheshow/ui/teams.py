@@ -206,7 +206,7 @@ class TeamsPage(QWidget):
         from PySide6.QtWidgets import QMenu
         b = button('Tools')
         m = QMenu(b)
-        m.addAction('Arcade Rosters (ratings, big heads, body shapes)', self.league_tools)
+        m.addAction('Arcade Rosters (ratings, big heads, aluminum bats)', self.league_tools)
         m.addAction('Auto Lineup for This Team', self.auto_lineup)
         m.addSeparator()
         m.addAction('Random Name for This Player', self.random_name)
