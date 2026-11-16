@@ -94,7 +94,7 @@ class CollectionPage(QWidget):
         modes.setSpacing(6)
         self.mode_group = QButtonGroup(self)
         for i, text in enumerate(names):
-            b = QPushButton(text)
+            b = QPushButton(text.replace('&', '&&'))
             b.setObjectName('Chip')
             b.setCheckable(True)
             b.setCursor(Qt.PointingHandCursor)
@@ -305,6 +305,28 @@ class StadiumsPage(CollectionPage):
     TITLE = 'Stadiums'
     SUB = 'Every sign, wall pad and banner in each park. Ads live in the big color sheets; glow maps end in _emissive.'
     SEARCH = 'Find a ballpark'
+    MODE_HIDES_INSPECTOR = (1,)
+
+    def __init__(self, main):
+        super().__init__(main)
+        from .stadium3d import StadiumView
+        self.view3d = StadiumView(main)
+        self.add_modes(('Signs & Textures', '3D View'), [self.view3d])
+
+    def mode_changed(self, i):
+        self.vscroll.setVisible(i == 0 and self.key is not None and len(self.variants_for(self.key)) > 1)
+        if i == 1 and self.key:
+            self.view3d.show_park(self.key)
+
+    def _set_packs(self, packs, variant):
+        super()._set_packs(packs, variant)
+        if self.mode() == 1:
+            self.mode_changed(1)
+
+    def refresh_overrides(self):
+        super().refresh_overrides()
+        if self.loaded and self.mode() == 1:
+            self.view3d.refresh()
 
     def groups(self):
         return [(g, [(path, name) for code, name, path in rows]) for g, rows in catalog.parks(self.main.game)]

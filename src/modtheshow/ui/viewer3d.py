@@ -288,9 +288,41 @@ class ModelView3D(QOpenGLWidget):
         self._grid = self._floor = self._shadow = None
         self._drag = None
         self.center, self.radius, self.floor = np.zeros(3, np.float32), 1.0, 0.0
+        self.show_floor = True
+        self.walk = False
+        self.setFocusPolicy(Qt.StrongFocus)
         self.reset()
 
     # ---------------------------------------------------------- camera
+    def set_walk(self, on):
+        """Fly-through: the camera sits almost on the point it turns around, and WASD moves that point."""
+        self.walk = on
+        if on:
+            self.dist = 0.02
+            self.pitch = 0.05
+            self.pan = QVector3D(0, float(self.radius * 0.02), float(self.radius * 0.25))
+        else:
+            self.reset()
+        self.update()
+
+    def keyPressEvent(self, e):
+        k = e.key()
+        moves = {Qt.Key_W: (0, 0, 1), Qt.Key_Up: (0, 0, 1), Qt.Key_S: (0, 0, -1), Qt.Key_Down: (0, 0, -1),
+                 Qt.Key_A: (-1, 0, 0), Qt.Key_Left: (-1, 0, 0), Qt.Key_D: (1, 0, 0), Qt.Key_Right: (1, 0, 0),
+                 Qt.Key_Q: (0, -1, 0), Qt.Key_E: (0, 1, 0)}
+        if k not in moves:
+            return super().keyPressEvent(e)
+        dx, dy, dz = moves[k]
+        view, eye = self._view()
+        fwd = self.pan - eye
+        fwd.setY(0)
+        if fwd.length() < 1e-6:
+            fwd = QVector3D(-math.sin(self.yaw), 0, -math.cos(self.yaw))
+        fwd.normalize()
+        right = QVector3D.crossProduct(fwd, QVector3D(0, 1, 0))
+        step = self.radius * (0.04 if e.modifiers() & Qt.ShiftModifier else 0.01)
+        self.pan = self.pan + (fwd * dz + right * dx + QVector3D(0, dy, 0)) * step
+        self.update()
     def reset(self):
         self.yaw, self.pitch, self.dist, self.pan = 0.7, 0.32, 3.9, QVector3D(0, 0, 0)
         self.update()
@@ -529,8 +561,8 @@ class ModelView3D(QOpenGLWidget):
             f.glClearColor(bg.redF(), bg.greenF(), bg.blueF(), 1)
             f.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         proj = QMatrix4x4()
-        proj.perspective(32, max(self.width(), 1) / max(self.height(), 1),
-                         self.radius * 0.02, self.radius * 50)
+        proj.perspective(50 if self.walk else 32, max(self.width(), 1) / max(self.height(), 1),
+                         self.radius * (0.001 if self.walk else 0.02), self.radius * 50)
         view, eye = self._view()
         p = self.prog
         p.bind()
@@ -567,7 +599,9 @@ class ModelView3D(QOpenGLWidget):
             f.glDrawArrays(GL_TRIANGLES, 0, m.count)
             m.vbo.release()
         p.release()
-        if self.hq:
+        if not self.show_floor:
+            pass
+        elif self.hq:
             self._draw_floor(f, proj * view)
         else:
             self._draw_grid(f, proj * view)
@@ -657,9 +691,17 @@ class ModelView3D(QOpenGLWidget):
         self._drag = None
 
     def mouseDoubleClickEvent(self, e):
-        self.reset()
+        self.set_walk(self.walk)
 
     def wheelEvent(self, e):
+        if self.walk:       # in fly-through the wheel moves forward and back
+            view, eye = self._view()
+            fwd = self.pan - eye
+            if fwd.length() > 1e-6:
+                fwd.normalize()
+                self.pan = self.pan + fwd * (self.radius * 0.03 * (1 if e.angleDelta().y() > 0 else -1))
+            self.update()
+            return
         self.dist = max(0.3, min(30.0, self.dist * (0.88 if e.angleDelta().y() > 0 else 1 / 0.88)))
         self.update()
 
