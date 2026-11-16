@@ -193,8 +193,8 @@ class Situation:
         if key == 'CAP_CLR_BRIGHTNESS_TAB':                    # 1 for a light cap colour, where dark words read
             r, g, b = self.team_color(a0)
             return int(0.299 * r + 0.587 * g + 0.114 * b > 150)
-        if key == 'HAS_CAP_LOGO':
-            return 1
+        if key == 'HAS_CAP_LOGO':                 # 0 draws the team's own logo; 1 swaps in art made at run time
+            return 0
         if key in ('UI CAP_TEAM_CLR', 'UI ACTUAL_TEAM_CLR', 'UI TEAM_CLR'):   # a team's colour (its second with a 1)
             r, g, b = self.team_color(a0) if key == 'UI CAP_TEAM_CLR' else self.club_color(a0)
             if len(args) > 1 and _num(args[1]):

@@ -221,6 +221,11 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
         if n.clips and nw > 0 and nh > 0:
             nclip = (max(clip[0], ax), max(clip[1], ay), min(clip[2], ax + nw), min(clip[3], ay + nh))
         for k in kids:
+            if n.kind == 0x1C and (nw != n.w or nh != n.h) and not k.x and not k.y and \
+                    abs(k.w - n.w) < 0.5 and abs(k.h - n.h) < 0.5:
+                # a look fills its switch: when the switch is stretched, so is the look, whatever its own anchors say
+                draw(k, ax, ay, c, nclip, path, depth, on, ctx, size=(nw, nh), team=team)
+                continue
             draw(k, ax, ay, c, nclip, path, depth, on, ctx, *kid, team=team)
 
     root = asset.root()

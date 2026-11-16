@@ -734,7 +734,8 @@ class Layout:
 
     def instance_args(self, node):
         """The queries an Instance node hands to the overlay it shows, one token list per argument."""
-        size, cnt = struct.unpack_from('<HH', self.d, node.off + 0x50)
+        size = struct.unpack_from('<H', self.d, node.off + 0x50)[0]
+        cnt = self.d[node.off + 0x52]                  # one byte: the byte after it is a flag, not part of the count
         if not cnt or 0x58 + 8 * cnt > size:
             return []
         return [self._query_at(node.asset, struct.unpack_from('<Q', self.d, node.off + 0x58 + 8 * i)[0])
