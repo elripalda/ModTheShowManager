@@ -138,8 +138,9 @@ def style_recipe(rel, layout, original_path):
     if layout.designs:
         from . import uibuild
         entry['designs'] = list(layout.designs)
+        from .samples import CARRIERS
         for design in layout.designs:
-            uibuild.install(ref, design)
+            uibuild.install(ref, design, CARRIERS)
     entry['runs'] = layout.runs(ref.bytes())
     return entry
 
@@ -154,8 +155,9 @@ def apply_style(lay, entry):
         lay.clone(a, str(name))
     if entry.get('designs'):
         from . import uibuild
+        from .samples import CARRIERS
         for design in entry['designs']:
-            uibuild.install(lay, design)
+            uibuild.install(lay, design, CARRIERS)
     lay.apply_runs(entry.get('runs') or [])
 
 

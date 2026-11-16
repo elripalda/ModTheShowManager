@@ -386,6 +386,7 @@ class LayoutEditor(QWidget):
         drow.addWidget(self.d_piece, 3)
         for text, kind in (('+ Box', 'box'), ('+ Text', 'text'), ('+ Logo', 'logo'), ('+ Team Colour', 'team')):
             drow.addWidget(button(text, on_click=lambda _=False, k=kind: self._design_add(k)), 1)
+        drow.addWidget(button('+ Image', on_click=self._design_image), 1)
         drow.addWidget(button('Team Colours…', on_click=self._design_teams), 1)
         drow.addWidget(button('Copy', on_click=self._design_copy), 1)
         drow.addWidget(button('Delete', on_click=self._design_delete), 1)
@@ -430,6 +431,18 @@ class LayoutEditor(QWidget):
         self.d_align.addItems(['Left', 'Centre', 'Right'])
         self.d_align.activated.connect(self._design_edit)
         prow.addWidget(self.d_align, 1)
+        self.d_font = QComboBox()
+        self.d_font.setIconSize(QSize(150, 22))
+        self.d_font.setToolTip('The game font this text uses')
+        self.d_font.activated.connect(self._design_edit)
+        self.d_font_import = button('Import Font…')
+        self.d_font_import.setToolTip('Draw another font into the game, in place of the font this text uses')
+        menu2 = QMenu(self.d_font_import)
+        for name, file in fontlib.LIBRARY:
+            menu2.addAction(name, lambda f=file: self._import_font(fontlib.library_path(f)))
+        menu2.addSeparator()
+        menu2.addAction('From a file…', lambda: self._import_font())
+        self.d_font_import.setMenu(menu2)
         self.d_move = QComboBox()
         self.d_move.setToolTip('How this piece arrives when the scorebug first appears')
         for text, m in MOTIONS:
@@ -519,11 +532,12 @@ class LayoutEditor(QWidget):
         mid.addLayout(left, 1)
         # the settings, grouped
         self.place_box = section('Place on screen', [[self.preset, self.sscale], [self.sx, self.sy]])
-        self.design_row = section('Your design', [[self.d_piece], d_buttons[0:2], d_buttons[2:4], d_buttons[5:7],
-                                                  [d_buttons[4], d_buttons[7]]])
+        add_box, add_text, add_logo, add_team, add_image, teams, copy_, delete, save = d_buttons
+        self.design_row = section('Your design', [[self.d_piece], [add_box, add_text], [add_logo, add_team],
+                                                  [add_image, teams], [copy_, delete], [save]])
         self.design_props = section('Chosen piece', [self.d_at[0:2], self.d_at[2:4], [self.d_color, self.d_op],
                                                      [self.d_words], [self.d_data], [self.d_size, self.d_align],
-                                                     [self.d_move]])
+                                                     [self.d_font, self.d_font_import], [self.d_move]])
         self.tools_row = section('Chosen piece', [[self.b_tint, self.p_op], [self.p_dx, self.p_dy],
                                                   [self.p_size, self.b_hide], [self.b_piece]])
         self.text_row = section('Its text', [[self.t_font], [self.t_size, self.t_align],
@@ -776,6 +790,8 @@ class LayoutEditor(QWidget):
         try:
             lay = uilayout.Layout.open(self.main.game.original(self.rel))
             samples.replace_scorebug(lay, self.design, self.design.get('x'), self.design.get('y'))
+            for carrier, path in lay.art.items():           # the design's own pictures, shown as the game will
+                self._img_cache[carrier] = self._art(path)
         except Exception as x:
             self.note.setText(f'This design does not build: {x}')
             return
@@ -818,9 +834,15 @@ class LayoutEditor(QWidget):
         p = self._design_piece()
         if p is None:
             return
-        widgets = self.d_at + [self.d_op, self.d_words, self.d_data, self.d_size, self.d_align, self.d_move]
+        widgets = self.d_at + [self.d_op, self.d_words, self.d_data, self.d_size, self.d_align, self.d_move,
+                               self.d_font]
+        if 'text' in p:
+            self._load_fonts()
         for w in widgets:
             w.blockSignals(True)
+        self.d_font.setCurrentIndex(self.d_font.findData(p.get('font', 25)))
+        for w in (self.d_font, self.d_font_import):
+            w.setEnabled('text' in p)
         enter = p.get('enter')
         self.d_move.setCurrentIndex(0 if not enter else next(
             (i for i, (_t, m) in enumerate(MOTIONS) if m and m.get('from') == enter.get('from')), 1))
@@ -869,6 +891,8 @@ class LayoutEditor(QWidget):
                 del p['data']
             p['size'] = self.d_size.value()
             p['align'] = ('left', 'centre', 'right')[self.d_align.currentIndex()]
+            if self.d_font.currentData() is not None:
+                p['font'] = self.d_font.currentData()
         self._design_build()
 
     def _design_color(self):
@@ -879,6 +903,46 @@ class LayoutEditor(QWidget):
         if c.isValid():
             p['color'] = c.name()
             self._design_build()
+
+    def _art(self, path):
+        """A picture of the design's own, from its file (beside the design file when the path is not a full one)."""
+        from PIL import Image
+        full = path if os.path.isabs(path) else os.path.join((self.design or {}).get('_folder', ''), path)
+        return Image.open(full).convert('RGBA')
+
+    def _write_art(self, mod):
+        """Put the design's pictures into a mod, each in the texture that carries it, sized to fit."""
+        art = getattr(self.layout, 'art', None) or {}
+        if not art or not mod:
+            return
+        tex = self.main.tex(self._pack)
+        for carrier, path in art.items():
+            e = next((e for e in tex.entries if e['name'] == carrier), None)
+            if e is not None:
+                self.main.lib.add_texture(mod, self._pack, carrier, uibuild.fit_art(self._art(path), e['w'], e['h']))
+
+    def _design_image(self):
+        if self.design is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, 'Add a picture', self.main.last_dir(), 'Pictures (*.png)')
+        if not path:
+            return
+        self.main.remember_dir(path)
+        try:
+            img = self._art(path)
+        except Exception as x:
+            QMessageBox.warning(self, 'Could Not Open', str(x))
+            return
+        w, h = self.design['size']
+        k = min(1.0, w / img.width, h / img.height)        # at its own size, or shrunk to fit inside the design
+        new = {'image': path, 'at': [0, 0, round(img.width * k), round(img.height * k)]}
+        home, chosen = self._design_home(), self._design_piece()
+        if chosen is not None and 'group' in chosen:
+            home = chosen['group']
+        elif home is None:
+            home = self.design.setdefault('pieces', [])
+        home.append(new)
+        self._design_build_on(new)
 
     def _design_teams(self):
         """Colours of your own for particular clubs, in place of the game's."""
@@ -956,7 +1020,7 @@ class LayoutEditor(QWidget):
             return
         self.main.remember_dir(path)
         with open(path, 'w', encoding='utf-8') as f:
-            json.dump(self.design, f, indent=1)
+            json.dump({k: v for k, v in self.design.items() if not k.startswith('_')}, f, indent=1)
         self.note.setText(f'Design saved to {os.path.basename(path)}. Open it again from Styles › Open a Design File.')
 
     # ------------------------------------------------------------------ styles
@@ -1021,6 +1085,7 @@ class LayoutEditor(QWidget):
                 self.main.remember_dir(path)
                 with open(path, encoding='utf-8') as f:
                     design = json.load(f)
+                design['_folder'] = os.path.dirname(path)
                 self._design_start(design)
                 self.note.setText('Design opened. Add pieces, pick one to change it, then Save to My Mod.')
                 return
@@ -1071,6 +1136,7 @@ class LayoutEditor(QWidget):
             slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-') or 'style'
             with open(os.path.join(folder, slug + '.json'), 'w', encoding='utf-8') as f:
                 json.dump([entry], f)
+            self._write_art(mod)
             own = self.main.active_mod(rel=self._pack)          # and the pieces you repainted for it
             src = os.path.dirname(self.main.lib.texture_path(own, self._pack, 'x')) if own else None
             if src and os.path.isdir(src) and own.path != mod.path:
@@ -1494,6 +1560,8 @@ class LayoutEditor(QWidget):
         table, sheet = self._fonts
         self.t_font.blockSignals(True)
         self.t_font.clear()
+        self.d_font.blockSignals(True)
+        self.d_font.clear()
         for f in table.fonts:
             if f.sheet != 'english':
                 continue
@@ -1505,7 +1573,9 @@ class LayoutEditor(QWidget):
             except Exception:
                 pass
             self.t_font.addItem(icon, f'{f.index}', f.index)
+            self.d_font.addItem(icon, f'{f.index}', f.index)
         self.t_font.blockSignals(False)
+        self.d_font.blockSignals(False)
 
     def _fill_text_row(self):
         n = self._chosen_node
@@ -1659,5 +1729,6 @@ class LayoutEditor(QWidget):
                 if mod:
                     self.main.lib.add_file(mod, lrel, tmp)
                     self.main.changed('')
+            self._write_art(self.main.active_mod(rel=self.rel))
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Save', str(x))

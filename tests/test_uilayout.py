@@ -421,6 +421,26 @@ def test_design_colour_and_motion():
     assert colours('SD', 'LAD', made.pose(0, 12))[0] == (0, 0, 200)
 
 
+def test_design_own_pictures():
+    """A picture of the design's own takes over a texture nothing draws, resized so it loses nothing."""
+    from modtheshow import uibuild
+    design = {'name': 'MTS_T3', 'size': [400, 90], 'pieces': [
+        {'image': 'plate.png', 'at': [0, 0, 400, 90]}, {'image': 'plate.png', 'at': [0, 0, 40, 9]},
+        {'image': 'gloss.png', 'at': [0, 0, 400, 45]}, {'image': 'bar', 'at': [0, 0, 10, 10]}]}
+    chunk, hsh, _s, _l, where, art = uibuild.build(design, ['spare_a', 'spare_b'])
+    assert art == {'spare_a': 'plate.png', 'spare_b': 'gloss.png'} and len(where) == 4
+    refs = [struct.unpack_from('<I', chunk, 0x10 + rel + 0x30)[0] for _p, rel in where]
+    assert refs == [H('spare_a'), H('spare_a'), H('spare_b'), H('bar')]
+    try:
+        uibuild.build(design, ['only_one'])
+        assert False, 'two pictures do not fit one spare texture'
+    except ValueError:
+        pass
+    assert uibuild.fit_art(Image.new('RGBA', (400, 90)), 256, 256).size == (512, 512)
+    assert uibuild.fit_art(Image.new('RGBA', (200, 90)), 256, 256).size == (256, 256)
+    assert uibuild.fit_art(Image.new('RGBA', (5000, 90)), 256, 256).size == (2048, 2048)
+
+
 def test_team_art():
     from modtheshow import teamart
     assert teamart.color('sd') == (0x2F, 0x24, 0x1D) and teamart.color('SD_CC') == teamart.color('SD')
@@ -447,5 +467,6 @@ if __name__ == '__main__':
     test_clone_and_mirror()
     test_build_a_design()
     test_design_colour_and_motion()
+    test_design_own_pictures()
     test_team_art()
     print('ui layout ok')

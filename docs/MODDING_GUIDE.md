@@ -140,8 +140,8 @@ hiding a piece carries its animation with it, so a piece you moved still slides 
 **Import Font…** also lists six open-licence fonts that come with the manager (Bebas Neue, Anton, Oswald,
 Graduate, Share Tech Mono, VT323).
 
-**Styles** (top bar) starts you from a whole look. **Classic Line** and **Line Score** are scorebugs built from
-nothing, **New Blank Design** starts your own and **Open a Design File…** loads one
+**Styles** (top bar) starts you from a whole look. **Classic Line**, **Line Score**, **Team Tiles** and **Glass
+Tiles** are scorebugs built from nothing, **New Blank Design** starts your own and **Open a Design File…** loads one
 ([how they work](SCOREBUG_DESIGN.md#building-one-from-nothing)). **Wide Top Bar** turns Theme 1 into one strip across the top
 of the screen. **Split Bar** puts the teams at either end with the game state between them and mirrors the home
 side. **Glass Bar** is the same shape as three floating tiles of smoked glass, each team tinted its own colour. **Save as Style…** keeps whatever you have built as its own small mod called `Scorebug: <name>`: it

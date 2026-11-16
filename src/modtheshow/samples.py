@@ -358,12 +358,17 @@ def glass_bar(lay, table):
     return a
 
 
+# textures in Theme 1's pack that no layout draws (equipment brand marks): a design's own pictures go into these
+CARRIERS = ['100percent_logo', '44pro_logo', 'aria_logo', 'b45_logo', 'bwp_logo', 'brucebolt_logo',
+            'dingerbats_logo', 'gform_logo', 'lizardskin_logo', 'oldhickory_logo', 'taterbats_logo', 'trinity_logo']
+
+
 def replace_scorebug(lay, design, x=None, y=None):
     """Swap Theme 1's scorebug for a design of our own (uibuild): the stock pieces are hidden and the design is
     drawn where the frame was. x, y place its top-left corner; by default it sits bottom centre. A design with
     "bars": true keeps the game's batter and pitcher bars, rising from its top edge."""
     from . import uibuild
-    asset = uibuild.install(lay, design)
+    asset = uibuild.install(lay, design, CARRIERS)
     a = lay.find('Scorebar')
     c = a.container() if a else None
     panel = lay.node_at(a, 0x4910, 0x0F) if c is not None else None
@@ -501,14 +506,58 @@ def _team_tiles():
             'pieces': [tile('away', 0, False), mid, tile('home', cx + CW + G, True)]}
 
 
+def _art_path(name):
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'scorebug', name)
+
+
+def _glass_tiles():
+    """Rounded tiles of glass, drawn from the manager's own two pictures: each club's tile in its colour under a
+    sheen and a light rim, the game state on smoked glass between them."""
+    TW, CW, H, G = 270, 250, 64, 10
+    W = 2 * TW + CW + 2 * G
+    body, gloss = _art_path('glass_body.png'), _art_path('glass_gloss.png')
+
+    def tile(side, x, mirror):
+        logo = [TW - 78, -3, 70, 70] if mirror else [8, -3, 70, 70]
+        name = [TW - 172, 10, 92, 44] if mirror else [80, 10, 92, 44]
+        score = [16, 6, 70, 52] if mirror else [TW - 86, 6, 70, 52]
+        return {'group': [
+            {'tint': side, 'at': [0, 0, TW, H], 'group': [{'image': body, 'at': [0, 0, TW, H], 'opacity': 90}]},
+            {'image': gloss, 'at': [0, 0, TW, H]},
+            {'logo': side, 'kind': 2, 'at': logo},
+            {'text': '^d0^', 'data': [f'{side.upper()}_TEAM TEAM_PROF SHORT_NAME'], 'at': name, 'size': 30,
+             'font': 25},
+            {'text': '^d0^', 'data': [f'SCORER {side.upper()}_SCORE'], 'at': score, 'size': 40, 'font': 37}],
+            'at': [x, 0, TW, H],
+            'enter': {'from': [70 if mirror else -70, 0], 'frames': 22, 'delay': 0 if not mirror else 4}}
+    cx = TW + G
+    lit = lambda on: [{'box': [0, 0, 14, 14], 'color': '#ffd24a' if on else '#ffffff', 'opacity': 100 if on else 22}]
+    mid = {'group': [
+        {'image': body, 'at': [0, 0, CW, H], 'color': '#0b0f16', 'opacity': 66},
+        {'image': gloss, 'at': [0, 0, CW, H], 'opacity': 70},
+        {'switch': 'IG IS_BOTTOM', 'at': [20, 10, 20, 44], 'looks': [
+            [{'box': [3, 4, 12, 5], 'color': '#ffd24a'}, {'box': [3, 35, 12, 5], 'color': '#ffffff', 'opacity': 25}],
+            [{'box': [3, 4, 12, 5], 'color': '#ffffff', 'opacity': 25}, {'box': [3, 35, 12, 5], 'color': '#ffd24a'}]]},
+        {'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [18, 16, 24, 32], 'size': 24},
+        {'switch': 'SCOREBAR 2ND_BASE_TAB', 'at': [72, 14, 14, 14], 'looks': [lit(0), lit(1)]},
+        {'switch': 'SCOREBAR 3RD_BASE_TAB', 'at': [56, 32, 14, 14], 'looks': [lit(0), lit(1)]},
+        {'switch': 'SCOREBAR 1ST_BASE_TAB', 'at': [88, 32, 14, 14], 'looks': [lit(0), lit(1)]},
+        {'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [108, 12, 64, 40], 'size': 30},
+        {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [170, 12, 62, 40], 'size': 20, 'align': 'right'}],
+        'at': [cx, 0, CW, H], 'enter': {'frames': 16, 'delay': 16}}
+    return {'name': 'MTS_GlassTiles', 'size': [W, H], 'bars': True,
+            'pieces': [tile('away', 0, False), mid, tile('home', cx + CW + G, True)]}
+
+
 def _base(on):
     return [{'box': [0, 0, 14, 14], 'color': '#ffd24a' if on else '#ffffff', 'opacity': 100 if on else 22}]
 
 
 LINE_SCORE = _line_score()
 TEAM_TILES = _team_tiles()
+GLASS_TILES = _glass_tiles()
 DESIGNS = {'classic': ('Classic Line', CLASSIC), 'linescore': ('Line Score', LINE_SCORE),
-           'tiles': ('Team Tiles', TEAM_TILES)}
+           'tiles': ('Team Tiles', TEAM_TILES), 'glasstiles': ('Glass Tiles', GLASS_TILES)}
 
 
 def _design_sample(game, lib, name, description, slug, design):
@@ -523,7 +572,22 @@ def _design_sample(game, lib, name, description, slug, design):
     import json
     with open(os.path.join(folder, slug + '.json'), 'w', encoding='utf-8') as f:
         json.dump([recipes.style_recipe(THEME, lay, game.original(THEME))], f)
+    if lay.art:                                   # the design's own pictures, each into the texture that carries it
+        from PIL import Image
+        from . import texlib, uibuild
+        pack = THEME[:-4] + '.TEX'
+        with texlib.Tex(game.original(pack), readonly=True) as t:
+            sizes = {e['name']: (e['w'], e['h']) for e in t.entries}
+        for carrier, path in lay.art.items():
+            if carrier in sizes:
+                lib.add_texture(mod, pack, carrier, uibuild.fit_art(Image.open(path), *sizes[carrier]))
     return mod, 'Pick scorebug Theme 1, switch other scorebug mods off, apply, and start a game.'
+
+
+def scorebug_glasstiles(game, lib, current_file):
+    return _design_sample(game, lib, 'Sample: Glass Tiles', 'A scorebug built from nothing: rounded glass tiles, '
+                          'each club in its own colour under a sheen, sliding in from the sides.', 'glass-tiles',
+                          GLASS_TILES)
 
 
 def scorebug_classic(game, lib, current_file):
@@ -619,6 +683,8 @@ SAMPLES = [
      scorebug_classic),
     ('linescore', 'Sample: Line Score', 'A scorebug built from nothing: runs by inning, hits and errors.',
      scorebug_linescore),
+    ('glasstiles', 'Sample: Glass Tiles', 'A scorebug built from nothing: rounded glass tiles in team colours.',
+     scorebug_glasstiles),
     ('tiles', 'Sample: Team Tiles', 'A scorebug built from nothing: team-colour tiles with logos that slide in.',
      scorebug_tiles),
     ('glass', 'Sample: Glass Bar', 'A scorebug style: three floating tiles of smoked glass.', scorebug_glass),

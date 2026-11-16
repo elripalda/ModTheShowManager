@@ -64,7 +64,8 @@ it and fills it in like one of its own. Nothing of the stock bug is left on scre
 
 | Piece | What it draws |
 | --- | --- |
-| `box` | A filled rectangle. Add `"texture"` to draw one of the theme pack's textures instead. |
+| `box` | A filled rectangle. |
+| `image` | A picture: one of the theme pack's textures by name, or a PNG of your own by its file name. |
 | `text` | Words. `^d0^`, `^d1^` are live values, one query each in `data`. Without `data` the words are fixed. |
 | `logo` | A team's logo, `"away"` or `"home"`, from one of the game's five logo sets (`kind` 1 to 5). |
 | `team` | A box in the team's colour. |
@@ -81,15 +82,24 @@ you can show is listed in [Game data for a scorebug](SCOREBUG_DATA.md).
 `"team_colors": {"HOU": "#eb6e1f"}` at the top gives a club a colour of your own. It replaces the game's colour
 for that club everywhere the design uses `team` or `tint`, whichever side the club is on.
 
+A PNG of your own is drawn at whatever size its piece is, so export it large and let the piece set the size. Inside
+a `tint` group it takes the team's colour, so paint a plate in white and keep its gloss and rim as a second picture
+outside the group. A design can carry twelve pictures. Each one takes the place of an equipment brand mark in the
+theme's pack, which the scorebug never draws. Paths that are not full ones are looked for beside the design file.
+
 `"enter"` on a piece brings it in when the scorebug first appears:
 `{"from": [-60, 0], "fade": true, "frames": 20, "delay": 4}` starts it 60 pixels to the left and clear, and moves
 and fades it into place over 20 frames after waiting 4. The game runs 60 frames a second.
 
 You don't have to write the file by hand. **Styles › New Blank Design** starts one in the sandbox, and so do
-**Classic Line** (one line of text along the bottom), **Line Score** (runs by inning, hits and errors) and
-**Team Tiles** (each club on a tile of its own colour, sliding in). In a design the right-hand column changes to **Your design** and **Chosen piece**:
+**Classic Line** (one line of text along the bottom), **Line Score** (runs by inning, hits and errors),
+**Team Tiles** (each club on a tile of its own colour, sliding in) and **Glass Tiles** (rounded glass plates drawn
+from two pictures that come with the manager). In a design the right-hand column changes to **Your design** and **Chosen piece**:
 
-- **+ Box, + Text, + Logo, + Team Colour** add a piece. **Copy** and **Delete** act on the chosen one.
+- **+ Box, + Text, + Logo, + Team Colour, + Image** add a piece. **+ Image** takes a PNG of your own. **Copy**
+  and **Delete** act on the chosen one.
+- For text, **Font** picks one of the game's fonts and **Import Font…** draws another font into the game in its
+  place.
 - Pick a piece from the list or click it on the screen. **Chosen piece** sets its place and size, colour and
   opacity, and for text its words, the data it shows, its size and alignment.
 - The last box under **Chosen piece** sets how the piece arrives: fade in, or slide in from a side. Play it from the
@@ -120,7 +130,8 @@ A flat picture is enough to copy a layout: where things sit, how big, what colou
   stock batter bar under a design, is next.
 - **More motion.** A piece can arrive. Moving when something happens (a flash on strike two, a score rolling
   over) is not built.
-- **New textures.** A design can draw the theme pack's textures, not add its own.
+- **More than twelve pictures.** A design's own art borrows textures the scorebug never draws, and there are
+  twelve of them.
 - **Pop-ups dropping down.** The bars and cards are built to rise from behind the bug. On a top bar they still
   rise, so the bar has to sit low enough to leave them room.
 - **Transitions.** The wipes between plays are Bink videos (`CROSS/MOVIES/PRESENTATION/THEMEn/*.BK2`), not

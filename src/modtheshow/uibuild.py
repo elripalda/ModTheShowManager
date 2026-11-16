@@ -61,7 +61,8 @@ def describe(piece):
         n = len(piece['group'])
         return (f'Team tint  {piece["tint"]}' if 'tint' in piece else 'Group') + f'  ·  {n} piece{"s" * (n != 1)}'
     return {'box': 'Box', 'image': 'Image', 'asset': 'Asset'}.get(k, k) + \
-        (f'  {piece.get("color", "")}' if k == 'box' else f'  {piece.get("image", "")}' if k == 'image' else '')
+        (f'  {piece.get("color", "")}' if k == 'box' else
+         '  ' + str(piece.get('image', '')).replace('\\', '/').rsplit('/', 1)[-1] if k == 'image' else '')
 
 
 def rect(piece):
@@ -95,6 +96,8 @@ class Builder:
         self.static, self.live = {}, {}
         self.n_text = 0
         self.where = []               # (piece, position in the tree of the node it became)
+        self.carriers = []            # textures of the theme pack nothing draws: a picture of ours takes one over
+        self.art = {}                 # {carrier texture: path of the picture}
         self.team_colors = {}         # {club: '#rrggbb'}: colours of our own in place of the game's
         self.motions = []             # (node position in the tree, [x, y], alpha, the piece's "enter")
 
@@ -174,6 +177,17 @@ class Builder:
         struct.pack_into('<QQQQ', self.tree, p + 0x38, head, first, head + 0x10, 0x78)
         struct.pack_into('<II', self.tree, p + 0x6C, len(self.tree) - p, n)
 
+    def _carry(self, path):
+        """The texture a picture of our own goes into."""
+        for name, have in self.art.items():
+            if have == path:
+                return name
+        free = [c for c in self.carriers if c not in self.art]
+        if not free:
+            raise ValueError(f'this design has more pictures of its own than there is room for ({len(self.carriers)})')
+        self.art[free[0]] = path
+        return free[0]
+
     def _by_team(self, at, side, default, override):
         """The pieces for a team's colour, with our own colour swapped in for the clubs that have one: a chain of
         two-look switches asking "is this club number N?"."""
@@ -218,7 +232,7 @@ class Builder:
         elif 'box' in s:
             self.box(at, col, s.get('texture'))
         elif 'image' in s:
-            self.box(at, col, s['image'])
+            self.box(at, col, self._carry(s['image']) if str(s['image']).lower().endswith('.png') else s['image'])
         elif 'text' in s:
             self.text(at, str(s['text']), s.get('data') or (), s.get('font', 25), s.get('size', 28), col,
                       ALIGN.get(str(s.get('align', 'centre')).lower(), 1), _rgba(s.get('outline', '#000000')))
@@ -278,11 +292,23 @@ def _motion(motions, tree_at, at):
     return bytes(out + chan_bytes + key_bytes)
 
 
-def build(design):
-    """(chunk bytes, hash, fixed words {id: text}, live words {id: (text, [token lists])}) for a design."""
+def fit_art(img, cw, ch):
+    """A picture resized to go into a texture cw x ch: that size, or it doubled once or more so no detail is lost.
+    The piece that draws it sets the size on screen, so the stretch is undone there."""
+    from PIL import Image
+    m = 1
+    while m < 8 and (cw * m < img.width or ch * m < img.height):
+        m *= 2
+    return img.convert('RGBA').resize((cw * m, ch * m), Image.LANCZOS)
+
+
+def build(design, carriers=()):
+    """(chunk bytes, hash, fixed words {id: text}, live words {id: (text, [token lists])}, where each piece went,
+    {texture: picture} for the design's own art) for a design."""
     name = str(design['name'])
     w, h = design['size']
     b = Builder(name)
+    b.carriers = list(carriers)
     b.team_colors = {str(k).upper(): v for k, v in (design.get('team_colors') or {}).items()}
     b.tree += b._head(0x0F, (0, 0, w, h))                       # root, with the pieces in one group under it
     b.tree[0x1E:0x22] = bytes(4)
@@ -333,7 +359,7 @@ def build(design):
     body += bytes(-len(body) % 16)
     hsh = name_hash(name)
     where = [(piece, tree_at + pos) for piece, pos in b.where]
-    return b'VOIDASS0' + struct.pack('<II', hsh, len(body)) + bytes(body), hsh, b.static, b.live, where
+    return b'VOIDASS0' + struct.pack('<II', hsh, len(body)) + bytes(body), hsh, b.static, b.live, where, b.art
 
 
 def walk(pieces, depth=0, label=''):
@@ -347,12 +373,13 @@ def walk(pieces, depth=0, label=''):
                 yield from walk(look, depth + 1, f'look {i}: ')
 
 
-def install(layout, design):
+def install(layout, design, carriers=()):
     """Compile a design into a layout file and return its asset. Its words are kept on the layout
     (layout.words) for the .LANG file that goes with it, and layout.piece_at says which node each piece became
     ({id(piece): offset in the asset's body})."""
-    chunk, hsh, static, live, where = build(design)
+    chunk, hsh, static, live, where, art = build(design, carriers)
     layout.piece_at = {id(piece): rel for piece, rel in where}
+    layout.art = dict(art)                       # {texture of the pack: the picture that takes it over}
     asset = layout.add_asset(chunk)
     layout.designs.append(design)
     layout.words[0].update(static)
