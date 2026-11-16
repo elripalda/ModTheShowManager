@@ -210,6 +210,38 @@ def test_layout_restyle():
     n = uilayout.Layout(lay.bytes()).assets[0].nodes()[1]
     assert (n.rgba(), n.x, n.y, n.w, n.h) == ((255, 128, 0, 127), 13, 5, 80, 40) and table[n.ref] == 'other'
     assert lay.restyle(a, [{'texture': 'missing', 'opacity': 0}]) == 0
+    # a saved style: only the bytes that changed, put back onto the game's own file
+    import json
+    import tempfile
+    from modtheshow import recipes
+    root = tempfile.mkdtemp()
+    live = os.path.join(root, 'T.NSW')
+    with open(live, 'wb') as f:
+        f.write(data)
+
+    class G:
+        def path(self, rel):
+            return live
+
+        def original(self, rel):
+            return live
+
+    class Mo:
+        path, name = os.path.join(root, 'm'), 'm'
+    entry = recipes.style_recipe('T.NSW', lay, live)
+    assert entry['runs'] and 'asset' not in entry
+    os.makedirs(os.path.join(Mo.path, 'layouts'))
+    with open(os.path.join(Mo.path, 'layouts', 's.json'), 'w') as f:
+        json.dump([entry], f)
+    problems = []
+    recipes.apply_layouts(G(), [Mo()], problems)
+    with open(live, 'rb') as f:
+        assert not problems and f.read() == lay.bytes(), problems
+    entry['of'] = '0' * 40                                   # made for another version of the file: refused
+    with open(os.path.join(Mo.path, 'layouts', 's.json'), 'w') as f:
+        json.dump([entry], f)
+    recipes.apply_layouts(G(), [Mo()], problems)
+    assert len(problems) == 1 and 'different version' in problems[0]
 
 def test_sorted_saves_and_tidy():
     import tempfile

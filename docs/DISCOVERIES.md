@@ -69,6 +69,14 @@ lower-case letter in, set the top bit. It names each texture, each overlay and t
 them (`ACT_SCOREBAR_OFF`, `ACT_BATTER_BAR_IN`...).
 [Layouts](MODDING_GUIDE.md#ui-layouts-iff0assh)
 
+## How a scorebug moves
+
+Each overlay carries its own animations: which piece, which property (x, y, width, height, alpha) and a few
+keyframes. The scorebug has 75, and the game starts them by name: `ACT_BATTER_BAR_IN`, `ACT_PITCHER_BAR_OUT`,
+`ACT_EXIT_VELO_ON`. The keyframes store where a piece actually sits, which is why a piece moved by hand used to
+snap back the moment it animated. The manager now moves the keyframes with the piece, and can play any of them.
+[Animations](MODDING_GUIDE.md#ui-layouts-iff0assh)
+
 ## How a scorebug knows the score
 
 Overlays read the game through small bracketed queries written in the game's own words: `[ SCOREBAR OUT_TAB ]` picks

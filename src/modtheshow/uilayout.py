@@ -28,6 +28,14 @@ Kinds that matter most:
   0x22 text        a text box
   0x0C clip        children from +[0x30] to +[0x48]
 
+Animations are section 1 of the asset body: 16-byte entries (offset of its tracks u64, track count u16, length in
+frames u16). A track is 24 bytes (offset of its channels u64, the node it moves as an offset in the body u64, 0xFFFF,
+last frame u16, channel count u16); a channel 16 (offset of its keys u64, last frame u16, key count u8, property u8:
+0 x, 1 y, 7 width, 8 height, 11 opacity); a key 8 (frame u16, then a float at +4, or for opacity a byte at +2).
+Keys hold where the piece is, not how far it moves, so moving a piece means moving its keys with it: move, resize
+and recolor here do. Section 8 lists the actions the game fires (ACT_BATTER_BAR_IN): command lists where 0x2A plays
+an animation and 0x35 stops one.
+
 Names are a 32-bit hash: for every character of the lower-cased name, rotate the hash left 8 bits and XOR the
 character in; then set the top bit (name_hash). An asset's id is the hash of its name ("PBInterface\\ScoreBar"), a
 texture's the hash of its name in the .TEX pack next to the layout, and an animation's the hash of its action name
@@ -141,6 +149,32 @@ class Node:
         return [by_off.get(o) if o else None for o in self.states]
 
 
+P_X, P_Y, P_W, P_H, P_ALPHA = 0, 1, 7, 8, 11
+
+
+def read_key(d, at, prop):
+    """(frame, value) of one animation key."""
+    frame = struct.unpack_from('<H', d, at)[0]
+    return frame, (d[at + 2] if prop == P_ALPHA else struct.unpack_from('<f', d, at + 4)[0])
+
+
+def write_key(d, at, prop, value):
+    if prop == P_ALPHA:
+        d[at + 2] = max(0, min(255, int(round(value))))
+    else:
+        struct.pack_into('<f', d, at + 4, float(value))
+
+
+class Anim:
+    def __init__(self, index, frames):
+        self.index, self.frames, self.name, self.tracks = index, frames, '', []
+
+    @property
+    def label(self):
+        n = self.name.replace('ACT_', '').replace('_', ' ').title() if self.name else f'Animation {self.index + 1}'
+        return f'{n}  ·  {self.frames} frames'
+
+
 class Asset:
     def __init__(self, layout, off, hash_, size):
         self.layout, self.off, self.hash, self.size = layout, off, hash_, size
@@ -148,6 +182,8 @@ class Asset:
         self.name = self._name()
         self._root = None
         self._nodes = None
+        self._anims = None
+        self._chan_index = None
         self.problems = 0
 
     def _name(self):
@@ -185,6 +221,98 @@ class Asset:
                 return n
         return None
 
+    def animations(self):
+        """[Anim] for this asset, in file order."""
+        if getattr(self, '_anims', None) is not None:
+            return self._anims
+        d, b = self.layout.d, self.body
+        out = []
+        sec = self.sections()
+        if sec and sec[1] and sec[1] + 16 <= self.size:
+            s1 = sec[1]
+            first = struct.unpack_from('<Q', d, b + s1)[0]
+            n = (first - s1) // 16 if s1 < first <= self.size else 0
+            for i in range(min(n, 4096)):
+                off, cnt, dur, _x = struct.unpack_from('<QHHI', d, b + s1 + 16 * i)
+                an = Anim(i, dur)
+                if not off or off + 24 * cnt > self.size:
+                    out.append(an)
+                    continue
+                for j in range(cnt):
+                    ca, node, _ff, _last, nch, _z = struct.unpack_from('<QQHHHH', d, b + off + 24 * j)
+                    chans = []
+                    for c in range(nch):
+                        if ca + 16 * c + 16 > self.size:
+                            break
+                        ko, _lf, kc, prop = struct.unpack_from('<QHBB', d, b + ca + 16 * c)
+                        if ko + 8 * kc <= self.size:
+                            chans.append((prop, b + ko, kc))
+                    an.tracks.append((b + node, chans))
+                out.append(an)
+            self._name_anims(out, sec)
+        self._anims = out
+        return out
+
+    def _name_anims(self, anims, sec):
+        """Name each animation after the first game action that plays it."""
+        d, b = self.layout.d, self.body
+        s8 = sec[8]
+        if not s8 or s8 + 24 > self.size:
+            return
+        first = struct.unpack_from('<Q', d, b + s8)[0]
+        n = (first - s8) // 24 if s8 < first <= self.size else 0
+        acts = sorted(struct.unpack_from('<QI', d, b + s8 + 24 * i) for i in range(min(n, 2048)))
+        lo, hi = sec[1], struct.unpack_from('<Q', d, b + sec[1])[0]
+        from . import uiquery
+        for off, h in acts:
+            if off + 16 > self.size:
+                continue
+            head = struct.unpack_from('<Q', d, b + off + 8)[0]       # entry -> (0x3E, header) -> (list, size, count)
+            if not head or head + 16 > self.size:
+                continue
+            lst, size, _count = struct.unpack_from('<QII', d, b + head)
+            end = min(self.size, max(lst, head) + size)
+            q = lst
+            while lst and q + 16 <= end:
+                op, ptr = struct.unpack_from('<H6xQ', d, b + q)
+                if op & 0xFF == 0x2A and lo <= ptr < hi and (ptr - lo) % 16 == 0:
+                    a = anims[(ptr - lo) // 16]
+                    if not a.name:
+                        a.name = str(uiquery.word(h))
+                q += 16
+
+    def channels(self, node):
+        """[(property, address of its keys, key count)] for every animation channel that drives a node."""
+        idx = getattr(self, '_chan_index', None)
+        if idx is None:
+            idx = {}
+            for an in self.animations():
+                for off, chans in an.tracks:
+                    idx.setdefault(off, []).extend(chans)
+            self._chan_index = idx
+        return idx.get(node.off, [])
+
+    def pose(self, index, frame):
+        """{node offset: {property: value}} at one frame of an animation."""
+        d = self.layout.d
+        out = {}
+        for off, chans in self.animations()[index].tracks:
+            for prop, ka, kc in chans:
+                keys = [read_key(d, ka + 8 * i, prop) for i in range(kc)]
+                if not keys:
+                    continue
+                v = keys[0][1]
+                for (f0, v0), (f1, v1) in zip(keys, keys[1:]):
+                    if frame >= f1:
+                        v = v1
+                    elif frame > f0:
+                        v = v0 + (v1 - v0) * (frame - f0) / max(1, f1 - f0)
+                        break
+                    else:
+                        break
+                out.setdefault(off, {})[prop] = v
+        return out
+
     def instances(self):
         """Hashes of the other assets this one draws."""
         return {n.ref for n in self.nodes() if n.kind == 0x1E}
@@ -203,6 +331,7 @@ class Layout:
             h, size = struct.unpack_from('<II', self.d, o + 8)
             self.assets.append(Asset(self, o, h, size))
         self.by_hash = {a.hash: a for a in self.assets}
+        self.base = bytearray(self.d)          # as opened: edits to animated pieces are worked out from here
 
     @classmethod
     def open(cls, path):
@@ -321,14 +450,69 @@ class Layout:
             a = max(0, min(255, int(alpha)))
         node.color = pack_rgba(r, g, b, a)
         struct.pack_into('<I', self.d, node.off, node.color)
+        if alpha is not None:                      # animations that fade it keep fading it, to the new strength
+            base_a = self.base[node.off + 3]
+            if a == 0:
+                self._keys(node, P_ALPHA, lambda v: 0)
+            elif base_a:
+                self._keys(node, P_ALPHA, lambda v: v * a / base_a)
+            else:
+                self._keys(node, P_ALPHA, lambda v: v)
+
+    def _keys(self, node, prop, fn):
+        """Rewrite a node's animation keys for one property: each becomes fn(its value when the file was opened)."""
+        for p, ka, kc in node.asset.channels(node):
+            if p == prop:
+                for i in range(kc):
+                    write_key(self.d, ka + 8 * i, p, fn(read_key(self.base, ka + 8 * i, p)[1]))
 
     def resize(self, node, w, h):
+        """Set a node's size; its size keys in animations scale with it."""
+        bw, bh = struct.unpack_from('<ff', self.base, node.off + 0x10)
         struct.pack_into('<ff', self.d, node.off + 0x10, float(w), float(h))
         node.w, node.h = float(w), float(h)
+        if bw > 0:
+            self._keys(node, P_W, lambda v: v * w / bw)
+        if bh > 0:
+            self._keys(node, P_H, lambda v: v * h / bh)
 
     def move(self, node, x, y):
+        """Set a node's position; animations that slide it keep sliding it, from the new spot."""
+        bx, by = struct.unpack_from('<ff', self.base, node.off + 4)
         struct.pack_into('<ff', self.d, node.off + 4, float(x), float(y))
         node.x, node.y = float(x), float(y)
+        self._keys(node, P_X, lambda v: v + (x - bx))
+        self._keys(node, P_Y, lambda v: v + (y - by))
+
+    def scale_tree(self, node, k, text=True):
+        """Shrink or grow a piece and everything in it by k, keys included. The piece keeps its own position."""
+        for m in node.walk():
+            bx, by, _z, bw, bh = struct.unpack_from('<5f', self.base, m.off + 4)
+            if m is not node:
+                struct.pack_into('<ff', self.d, m.off + 4, bx * k, by * k)
+                m.x, m.y = bx * k, by * k
+                self._keys(m, P_X, lambda v: v * k)
+                self._keys(m, P_Y, lambda v: v * k)
+            struct.pack_into('<ff', self.d, m.off + 0x10, bw * k, bh * k)
+            m.w, m.h = bw * k, bh * k
+            self._keys(m, P_W, lambda v: v * k)
+            self._keys(m, P_H, lambda v: v * k)
+            if text and m.kind == 0x22:
+                for o in (0x58, 0x60):
+                    v = struct.unpack_from('<H', self.base, m.off + o)[0]
+                    struct.pack_into('<H', self.d, m.off + o, min(0xFFFF, int(round(v * k))))
+
+    def restore(self, asset, family=True, source=None):
+        """Put an overlay (and the overlays it shows) back the way the file was opened, or the way another copy of
+        the same file (source, its bytes) has it."""
+        src = self.base if source is None else source
+        if len(src) != len(self.d):
+            raise ValueError('the other copy of the layout is a different size')
+        for a in (self.family(asset) if family else [asset]):
+            self.d[a.off:a.off + 0x10 + a.size] = src[a.off:a.off + 0x10 + a.size]
+            if source is not None:
+                self.base[a.off:a.off + 0x10 + a.size] = src[a.off:a.off + 0x10 + a.size]
+            a._root = a._nodes = a._anims = a._chan_index = None
 
     def scale(self, node, s):
         v = max(16, min(1024, int(round(0x80 * s))))
@@ -495,6 +679,42 @@ class Layout:
                     self.recolor(n, rgb=rgb, alpha=alpha)
                     done.add(n.off)
         return len(done)
+
+    def node_at(self, asset, rel, kind=None):
+        """The node at an offset inside an asset's body (None when there is none, or it is another kind)."""
+        for n in asset.nodes():
+            if n.off - asset.body == rel:
+                return n if kind is None or n.kind == kind else None
+        return None
+
+    def runs(self, original):
+        """What differs from the original file, as [[offset, hex of the new bytes]]: a whole style in a few lines,
+        with nothing of the game's in it."""
+        a, b = self.d, original
+        if len(a) != len(b):
+            raise ValueError('the layout is not the size of the original')
+        out, i, n = [], 0, len(a)
+        while i < n:
+            if a[i] == b[i]:
+                i += 1
+                continue
+            j, last = i, i
+            while j < n and j - last <= 4:              # runs a few bytes apart are saved as one
+                if a[j] != b[j]:
+                    last = j
+                j += 1
+            out.append([i, bytes(a[i:last + 1]).hex()])
+            i = last + 1
+        return out
+
+    def apply_runs(self, runs):
+        for off, hx in runs:
+            data = bytes.fromhex(hx)
+            if int(off) + len(data) > len(self.d):
+                raise ValueError('this style is for a different version of the layout')
+            self.d[int(off):int(off) + len(data)] = data
+        for a in self.assets:
+            a._root = a._nodes = a._anims = a._chan_index = None
 
     def bytes(self):
         return bytes(self.d)

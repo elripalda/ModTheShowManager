@@ -52,16 +52,35 @@ def states(x, y, w, h, looks):
     return bytes(s + body)
 
 
-def asset(name, root):
+def asset(name, root, moves=()):
+    """moves: one animation, as [(node offset in the body, property, [(frame, value)])]."""
     body = bytearray(0x68 + 0x28)               # 13 section offsets, then padding up to the tree
     struct.pack_into('<Q', body, 0, len(body))
-    struct.pack_into('<Q', body, 8, len(body) + len(root))
+    s1 = len(body) + len(root)
+    struct.pack_into('<Q', body, 8, s1)
     body += root
+    if moves:
+        tracks = s1 + 16
+        chans = tracks + 24 * len(moves)
+        keys = chans + 16 * len(moves)
+        last = max(f for _, _, ks in moves for f, _ in ks)
+        body += struct.pack('<QHHI', tracks, len(moves), last, 0)
+        tail = bytearray()
+        for i, (at, _prop, ks) in enumerate(moves):
+            body += struct.pack('<QQHHHH', chans + 16 * i, at, 0xFFFF, last, 1, 0)
+        for at, prop, ks in moves:
+            body += struct.pack('<QHBB', keys + len(tail), last, len(ks), prop) + bytes(4)
+            for f, v in ks:
+                k = bytearray(8)
+                struct.pack_into('<H', k, 0, f)
+                uilayout.write_key(k, 0, prop, v)
+                tail += k
+        body += tail
     body += bytes(-len(body) % 16)
     return b'VOIDASS0' + struct.pack('<II', H(name), len(body)) + bytes(body)
 
 
-def build():
+def build(moves=()):
     sub = asset('Badge', group(0, 0, 1920, 1080, [bytes(node(0x18, 0, 0, 20, 20, ref=H('dot')))]))
     look1 = group(0, 0, 100, 40, [bytes(node(0x18, 0, 0, 100, 40, color=(255, 0, 0, 255), ref=H('bar')))])
     look2 = group(0, 0, 100, 40, [bytes(node(0x18, 0, 0, 100, 40, color=(0, 0, 255, 255), ref=H('bar')))])
@@ -72,7 +91,7 @@ def build():
         bytes(node(0x18, 300, 10, 64, 64, ref=H('glow'), flags=0x21)),
         bytes(node(0x1E, 400, 100, 20, 20, ref=H('Badge'), size=0x58, extra=struct.pack('<HH', 0x58, 0))),
     ])
-    main = asset('PBInterface\\ScoreBar', group(0, 0, 1920, 1080, [frame]))
+    main = asset('PBInterface\\ScoreBar', group(0, 0, 1920, 1080, [frame]), moves)
     head = bytearray(0x30)
     head[:8] = b'IFF0ASSH'
     data = bytes(head) + main + sub
@@ -129,6 +148,41 @@ def test_edit():
     n = next(n for n in a2.nodes() if n.off == logo.off)
     assert n.rgba() == (10, 20, 30, 128) and (n.w, n.h) == (32, 32) and n.ref == H('bar')
     assert len(a2.nodes()) == len(a.nodes())
+
+
+def test_animation():
+    """A piece that slides in: its keys hold where it sits, so moving, resizing or hiding it rewrites them too."""
+    plain = uilayout.Layout(build())
+    a = plain.by_hash[H('PBInterface\\ScoreBar')]
+    logo = next(n for n in a.nodes() if n.ref == H('logo'))
+    at = logo.off - a.body
+    moves = [(at, uilayout.P_X, [(0, 150.0), (10, 200.0)]), (at, uilayout.P_ALPHA, [(0, 0), (10, 255)])]
+    data = build(moves)
+    L = uilayout.Layout(data)
+    a = L.by_hash[a.hash]
+    an = a.animations()
+    assert len(an) == 1 and an[0].frames == 10 and len(an[0].tracks) == 2
+    logo = L.node_at(a, at, 0x18)
+    assert a.pose(0, 0)[logo.off] == {uilayout.P_X: 150.0, uilayout.P_ALPHA: 0}
+    assert a.pose(0, 5)[logo.off][uilayout.P_X] == 175.0 and a.pose(0, 99)[logo.off][uilayout.P_X] == 200.0
+    img0, _ = uirender.render(L, a, lambda n: Image.new('RGBA', (8, 8), (255, 255, 255, 255)),
+                              {H('logo'): 'logo', H('bar'): 'bar', H('dot'): 'dot'}, pose=a.pose(0, 0))
+    img1, _ = uirender.render(L, a, lambda n: Image.new('RGBA', (8, 8), (255, 255, 255, 255)),
+                              {H('logo'): 'logo', H('bar'): 'bar', H('dot'): 'dot'}, pose=a.pose(0, 10))
+    assert img0.getpixel((1390 + 232, 838 + 42)) != img1.getpixel((1390 + 232, 838 + 42))
+    L.move(logo, 260, 10)                                        # 60 to the right: so do the keys
+    assert [k[uilayout.P_X] for k in (a.pose(0, 0)[logo.off], a.pose(0, 10)[logo.off])] == [210.0, 260.0]
+    L.recolor(logo, alpha=0)                                     # hidden stays hidden while it plays
+    assert a.pose(0, 10)[logo.off][uilayout.P_ALPHA] == 0
+    # a style is the bytes that changed, and puts them back on the game's own file
+    runs = L.runs(data)
+    assert runs and sum(len(h) // 2 for _, h in runs) < 64
+    again = uilayout.Layout(data)
+    again.apply_runs(runs)
+    assert again.bytes() == L.bytes()
+    assert again.by_hash[a.hash].pose(0, 10)[logo.off][uilayout.P_X] == 260.0
+    L.restore(a)
+    assert L.bytes() == data
 
 
 def test_repaint():
@@ -224,6 +278,7 @@ if __name__ == '__main__':
     test_parse()
     test_draw()
     test_edit()
+    test_animation()
     test_repaint()
     test_text()
     test_queries()

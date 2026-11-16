@@ -123,6 +123,15 @@ under it still lets you force any single part to any look; **Follow the Game** h
 **Show animation layers** adds the glows the game flashes in. **Zoom in** fills the view with the overlay. Theme 1
 is checked against the game; themes 2 to 4 draw but still have rough spots.
 
+The **Animation** row lists the moves the game plays on the overlay: the batter bar sliding in, the bars going
+away, a score rolling over. Pick one and drag the slider to step through it, or press **Play**. Moving, resizing or
+hiding a piece carries its animation with it, so a piece you moved still slides in at its new spot.
+
+**Styles** (bottom row) starts you from a whole look. **Wide Top Bar** turns Theme 1 into one strip across the top
+of the screen. **Save as Style…** keeps whatever you have built as its own small mod called `Scorebug: <name>`: it
+shows in the Styles list to come back to, and in the Mods list to switch on or share. A style holds only what
+differs from the game's layout, plus any pieces you repainted.
+
 Click a text box and a third row appears: **Font** (every game font, shown as a sample), **Text size**, **Left /
 Centre / Right** and **Outline Colour**. The letters themselves take the normal **Colour** button.
 
@@ -159,6 +168,13 @@ Text boxes can be restyled the same way, all at once or only the ones using one 
 ```
 
 `use` in a piece draws another texture of the same pack in its place.
+
+A saved style is a recipe too. `runs` are the bytes it changes, `of` the SHA-1 of the layout it was made from, so
+it is refused on a game version it doesn't fit. It starts from the game's own layout, not from other scorebug mods:
+
+```json
+[{"file": "NSW/UI/GAME/THEME1.NSW", "of": "3f1c…", "runs": [[10468, "0000ae43"], [10484, "0000dc44"]]}]
+```
 
 ## Jersey builder
 
@@ -391,6 +407,15 @@ A text box (0x22): the node colour fills the letters and +0x40 is the outline; +
 `.LANG` file (0 when code fills it in); +0x58 is its base size and +0x60 the size it is drawn at (u16, 1/16 px,
 +0x60 wins when set); +0x70 holds the font number in its low six bits and left / centre / right in bits 18-19. An
 image with byte +0x4A set to 1 is a slot the game fills while it runs (a team logo).
+
+Animations are section 1 of an asset: 16-byte entries (tracks offset u64, track count u16, length in frames u16).
+A track is 24 bytes (channels offset u64, the node's offset in the body u64, 0xFFFF, last frame u16, channel count
+u16). A channel is 16 bytes (keys offset u64, last frame u16, key count u8, property u8: 0 x, 1 y, 7 width,
+8 height, 11 alpha). A key is 8 bytes: frame u16, then the alpha byte at +2 or a float at +4. Keys hold the piece's
+real position, not a nudge from it, so a piece moved without its keys jumps back when the animation plays.
+
+Section 8 names them. Its 24-byte entries (pointer u64, name hash u32) lead to a list of 16-byte commands (op u16,
+pointer u64 at +8): 0x2A plays an animation, 0x35 stops one, 0x3A sets a value, 0x3B is a conditional.
 
 ## Layout logic: queries
 

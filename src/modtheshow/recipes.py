@@ -103,6 +103,27 @@ def _texture_table(game, rel):
         return uilayout.Layout.texture_table([e['name'] for e in t.entries])
 
 
+def _original(game, rel, live):
+    try:
+        return game.original(rel)
+    except Exception:
+        return live
+
+
+def _sha1(path):
+    import hashlib
+    with open(path, 'rb') as f:
+        return hashlib.sha1(f.read()).hexdigest()
+
+
+def style_recipe(rel, layout, original_path):
+    """The recipe entry that turns the original layout into this one."""
+    with open(original_path, 'rb') as f:
+        orig = f.read()
+    import hashlib
+    return {'file': rel, 'of': hashlib.sha1(orig).hexdigest(), 'runs': layout.runs(orig)}
+
+
 def apply_layouts(game, mods, problems):
     done = {}
     for m in mods:
@@ -119,6 +140,15 @@ def apply_layouts(game, mods, problems):
                     if not os.path.exists(p):
                         raise ValueError(f'{rel} is not a game file')
                     lay = done.get(rel) or uilayout.Layout.open(p)
+                    if e.get('runs'):                   # a saved style: the game's own layout plus what it changed
+                        orig = _original(game, rel, p)
+                        if e.get('of') and e['of'] != _sha1(orig):
+                            raise ValueError(f'this style was made for a different version of {rel}')
+                        lay = uilayout.Layout.open(orig)
+                        lay.apply_runs(e['runs'])
+                        done[rel] = lay
+                        if not e.get('asset'):
+                            continue
                     asset = lay.find(str(e['asset']))
                     node = asset.container() if asset else None
                     if node is None:

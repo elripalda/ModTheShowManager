@@ -29,12 +29,13 @@ def _tint(img, rgba):
 
 
 def render(layout, asset, texture, table, size=(1920, 1080), states=None, effects=False, hidden=(), background=None,
-           only=None, fonts=None, sample=None, situation=None, lang=None, reveal=()):
+           only=None, fonts=None, sample=None, situation=None, lang=None, reveal=(), pose=None):
     """Draw asset. texture(name) -> PIL RGBA image or None; table: {hash: texture name} for the layout's pack. states: {node offset: state index}. hidden: node offsets
     to leave out. only: draw just this node (an offset) and what it holds. fonts: (FontTable, sheet) to draw text
     boxes with; sample(node) -> the words to show in a text box. situation: a uiquery.Situation, which picks every
     States node's look the way the game would and, with lang (the layout's uilang.Lang), fills in the text.
-    reveal: offsets of see-through nodes to show anyway (the pop-ups an animation fades in). Returns (image, [Hit]) with hits in draw
+    reveal: offsets of see-through nodes to show anyway (the pop-ups an animation fades in). pose: one frame of an
+    animation, from Asset.pose (it only reaches the asset's own nodes). Returns (image, [Hit]) with hits in draw
     order, last on top."""
     states = states or {}
     canvas = Image.new('RGBA', size, background or (0, 0, 0, 0))
@@ -123,6 +124,9 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
         if n.off in hidden:
             return
         r, g, b, a = n.rgba()
+        ps = pose.get(n.off) if pose else None
+        if ps and 11 in ps:
+            a = ps[11]
         if a == 0 and n.off in reveal:
             a = 255
         c = tint * np.array([r, g, b, a], np.float32) / 255
@@ -135,6 +139,9 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
             nx, ny, nw, nh = 0.0, 0.0, size[0], size[1]
         else:
             nx, ny, nw, nh = place(n, dw, dh, pw, ph)
+        if ps:
+            nx, ny = ps.get(0, nx), ps.get(1, ny)
+            nw, nh = ps.get(7, nw), ps.get(8, nh)
         ax, ay = ox + nx, oy + ny
         kid = (nw - n.w, nh - n.h, n.w, n.h)        # how its own children must adjust
         if on and n.kind == 0x18 and layout.is_slot(n) and nw >= 1 and nh >= 1:

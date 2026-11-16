@@ -236,6 +236,88 @@ def scorebug_brick(game, lib, current_file):
                            BRICK_SAND)
 
 
+def wide_top_bar(lay):
+    """Rearrange Theme 1's scorebug into one wide strip across the top: away row, home row, then inning, bases,
+    count and outs in a line. The pitcher and batter bars keep rising above it. Works on the stock layout."""
+    a = lay.find('Scorebar')
+    c = a.container() if a else None
+    if c is None or not c.children or not c.children[0].children:
+        raise ValueError('The scorebug was not found in the layout.')
+    G = c.children[0].children[0]
+    H, RW, IW = 62, 315, 250                 # strip height, team row width, width of the inning-to-outs block
+    W = 2 * RW + IW
+
+    def at(rel, kind=None):
+        n = lay.node_at(a, rel, kind)
+        if n is None:
+            raise ValueError('This scorebug is not laid out like the stock Theme 1, so the wide bar cannot be built.')
+        return n
+    panel, info, home, away = at(0x4910, 0x0F), at(0x4BA0, 0x0F), at(0x9BC8, 0x0F), at(0x9D40, 0x0F)
+    win, banner, glow, kzone = at(0x9EB8, 0x0F), at(0xA0E0, 0x0F), at(0x10250, 0x0F), at(0x102F0, 0x1C)
+    if G.children.index(home) < 0 or round(away.w) != 259 or round(info.w) != 212:
+        raise ValueError('This scorebug has already been rearranged. Start from the stock layout.')
+    lay.move(c, (1920 - W) / 2, 41)                        # centred, with room above for the two bars
+    lay.resize(c, W + 10, c.h)
+    # the frame behind everything
+    lay.resize(panel, W, H + 4)
+    for k in panel.children:
+        if k.kind == 0x1E or (k.kind == 0x0F and k.w > 400):
+            lay.resize(k, W, H + 4 if k.kind == 0x1E else H + 2)
+        elif k.kind == 0x18 and k.w > 400:
+            lay.resize(k, W - (473 - k.w), k.h)
+        elif k.kind == 0x18:                               # the shade down the right edge
+            lay.move(k, W - 40, k.y)
+            lay.resize(k, k.w, H - 2)
+    # the two team rows, side by side
+    for row, x in ((away, 5), (home, 5 + RW)):
+        lay.move(row, x, 14)
+        lay.resize(row, RW, H)
+        lay.resize(row.children[0], RW, H)
+    # inning, bases, count, outs in one line
+    lay.move(info, 5 + 2 * RW, 14)
+    lay.resize(info, IW, H)
+    slide = info.children[0]
+    lay.resize(slide, IW, H)
+    body = at(0x4C40, 0x0F)
+    looks = at(0x4C90, 0x1C)
+    play = at(0x4DF0, 0x0F)
+    for n in (body, looks, play):
+        lay.resize(n, IW, H)
+    bases, outs, inning, count, lines = at(0x4E40), at(0x6710), at(0x6E28), at(0x7288), at(0x7358)
+    lay.scale_tree(inning, 0.72)
+    lay.move(inning, -22, -4)
+    lay.scale_tree(bases, 0.70)
+    lay.move(bases, 28, 6)
+    lay.move(count, 104, 6)
+    lay.move(outs, 176, 6)
+    lay.recolor(lines, alpha=0)
+    # what sits on top of the strip
+    lay.resize(win, W, H)
+    lay.resize(glow, W, glow.h)
+    for k in glow.children:
+        lay.resize(k, k.w * W / 473, k.h)
+    lay.move(kzone, 5 + 2 * RW, 14)
+    lay.scale_tree(kzone, H / 103)
+    lay.recolor(banner, alpha=0)
+    return a
+
+
+def scorebug_wide(game, lib, current_file):
+    if THEME not in game.file_set():
+        raise ValueError('This install has no scorebug layout (THEME1.NSW).')
+    from . import recipes
+    lay = uilayout.Layout.open(game.original(THEME))
+    wide_top_bar(lay)
+    mod = _mod(lib, 'Sample: Wide Top Bar', 'Theme 1 as one wide strip across the top of the screen: both teams, '
+               'inning, bases, count and outs in a line. A first try: tell me what looks off in a game.')
+    folder = os.path.join(mod.path, 'layouts')
+    os.makedirs(folder, exist_ok=True)
+    import json
+    with open(os.path.join(folder, 'wide-top-bar.json'), 'w', encoding='utf-8') as f:
+        json.dump([recipes.style_recipe(THEME, lay, game.original(THEME))], f)
+    return mod, 'Pick scorebug Theme 1, switch other scorebug mods off, apply, and start a game.'
+
+
 def scorebug_text_test(game, lib, current_file):
     if THEME not in game.file_set():
         raise ValueError('This install has no scorebug layout (THEME1.NSW).')
@@ -272,6 +354,8 @@ SAMPLES = [
      scorebug_corner),
     ('midnight', 'Sample: Midnight Scorebug', 'A scorebug style: navy, gold lines, white scores.', scorebug_midnight),
     ('brick', 'Sample: Brick & Sand Scorebug', 'A scorebug style: brick red with sand trim.', scorebug_brick),
+    ('wide', 'Sample: Wide Top Bar', 'A scorebug layout: one wide strip across the top of the screen.',
+     scorebug_wide),
     ('texttest', 'Test: Scorebug Text', 'A check: scorebug text bigger, red and in another font.',
      scorebug_text_test),
     ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',

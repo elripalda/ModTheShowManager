@@ -3,13 +3,17 @@ its real textures. Drag the overlay to place it, click any piece to tint, fade, 
 the layout's states to see each look, and save the result into the active mod."""
 import os
 
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+import json
+import re
+import time
+
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout,
-                               QLineEdit, QListView, QListWidget, QListWidgetItem, QMessageBox, QSpinBox,
-                               QVBoxLayout, QWidget)
+                               QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMessageBox,
+                               QSlider, QSpinBox, QVBoxLayout, QWidget)
 
-from .. import fontlib, uilang, uilayout, uiquery, uirender
+from .. import fontlib, recipes, samples, uilang, uilayout, uiquery, uirender
 from . import theme
 from .common import button, label
 from .widgets import pil_to_qimage
@@ -266,6 +270,29 @@ class LayoutEditor(QWidget):
         self.zoom.toggled.connect(lambda *_: self._redraw())
         srow.addWidget(self.zoom, 0)
         lay.addLayout(srow)
+        # the overlay's animations, a frame at a time or played
+        arow = QHBoxLayout()
+        arow.setSpacing(8)
+        self.anim = QComboBox()
+        self.anim.setToolTip('The moves the game plays on this overlay: bars sliding in, scores rolling, pop-ups')
+        self.anim.activated.connect(self._anim_changed)
+        self.frame = QSlider(Qt.Horizontal)
+        self.frame.setEnabled(False)
+        self.frame.valueChanged.connect(self._frame_changed)
+        self.frame_at = label('', 'Sub')
+        self.frame_at.setMinimumWidth(theme.d(76))
+        self.frame_at.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.b_play = button('Play', on_click=self._play)
+        self.b_play.setEnabled(False)
+        arow.addWidget(self.anim, 3)
+        arow.addWidget(self.frame, 5)
+        arow.addWidget(self.frame_at, 0)
+        arow.addWidget(self.b_play, 1)
+        lay.addLayout(arow)
+        self._clock = QTimer(self)
+        self._clock.setInterval(30)
+        self._clock.timeout.connect(self._tick)
+        self._played = 0.0
         self.canvas = Canvas()
         self.canvas.moved.connect(self._dragged)
         self.canvas.released.connect(self._redraw)
@@ -343,8 +370,16 @@ class LayoutEditor(QWidget):
         bottom.setSpacing(8)
         self.note = label(self.HINT, 'Sub', wrap=True)
         bottom.addWidget(self.note, 1)
+        self.styles = QComboBox()
+        self.styles.setMinimumWidth(theme.d(170))
+        self.styles.setToolTip('Start from a whole look: a built-in one or one you saved')
+        self.styles.activated.connect(self._style_picked)
+        self.b_style = button('Save as Style…', on_click=self.save_style)
+        self.b_style.setToolTip('Keep this look as its own small mod you can switch on, share or come back to')
         self.b_reset = button('Back to Default', on_click=self.reset)
         self.b_save = button('Save to My Mod', True, self.save)
+        bottom.addWidget(self.styles)
+        bottom.addWidget(self.b_style)
         bottom.addWidget(self.b_reset)
         bottom.addWidget(self.b_save)
         lay.addLayout(bottom)
@@ -405,6 +440,7 @@ class LayoutEditor(QWidget):
         for n in names:
             self.which.addItem(n)
         self.which.blockSignals(False)
+        self._fill_styles()
         self._asset_changed()
 
     def _empty(self, why):
@@ -422,7 +458,8 @@ class LayoutEditor(QWidget):
 
     def _enable(self, on):
         for w in (self.which, self.preset, self.sx, self.sy, self.sscale, self.b_reset, self.b_save,
-                  self.state_node, self.state_pick, self.b_states_reset, self.fx, self.zoom, self.game_row):
+                  self.state_node, self.state_pick, self.b_states_reset, self.fx, self.zoom, self.game_row,
+                  self.anim, self.styles, self.b_style):
             w.setEnabled(on)
 
     def _asset_changed(self, *_):
@@ -448,9 +485,162 @@ class LayoutEditor(QWidget):
         self._scale0 = self.sscale.value()
         self._fill_scenes()
         self._fill_states()
+        self._fill_anims()
         self._fill_strip()
         self.note.setText(self.HINT)
         self._redraw()
+
+    # ------------------------------------------------------------------ animations
+    def _fill_anims(self):
+        self._clock.stop()
+        self.b_play.setText('Play')
+        self.anim.blockSignals(True)
+        self.anim.clear()
+        self.anim.addItem('Animation: none', -1)
+        try:
+            moves = [a for a in self.asset.animations() if a.frames and a.tracks]
+        except Exception:
+            moves = []
+        seen = {}
+        for a in sorted(moves, key=lambda a: (not a.name or a.name.startswith('#'), a.index)):
+            text = a.label
+            seen[text] = seen.get(text, 0) + 1
+            if seen[text] > 1:
+                text = text.replace('  ·', f' {seen[text]}  ·')
+            self.anim.addItem(text, a.index)
+        self.anim.blockSignals(False)
+        self.anim.setEnabled(self.anim.count() > 1)
+        self._anim_changed(0)
+
+    def _anim(self):
+        i = self.anim.currentData()
+        if i is None or i < 0 or not self.asset:
+            return None
+        return self.asset.animations()[i]
+
+    def _anim_changed(self, _i=0):
+        a = self._anim()
+        self._clock.stop()
+        self.b_play.setText('Play')
+        self.frame.blockSignals(True)
+        self.frame.setRange(0, a.frames if a else 0)
+        self.frame.setValue(0)
+        self.frame.blockSignals(False)
+        self.frame.setEnabled(a is not None)
+        self.b_play.setEnabled(a is not None)
+        self.frame_at.setText(f'0 / {a.frames}' if a else '')
+        if self.layout and self.asset and self.node is not None:
+            self._redraw()
+
+    def _frame_changed(self, v):
+        a = self._anim()
+        self.frame_at.setText(f'{v} / {a.frames}' if a else '')
+        self._redraw()
+
+    def _play(self):
+        a = self._anim()
+        if a is None:
+            return
+        if self._clock.isActive():
+            self._clock.stop()
+            self.b_play.setText('Play')
+            return
+        if self.frame.value() >= a.frames:
+            self.frame.setValue(0)
+        self._played = time.monotonic() - self.frame.value() / 60.0
+        self.b_play.setText('Stop')
+        self._clock.start()
+
+    def _tick(self):
+        a = self._anim()
+        if a is None:
+            self._clock.stop()
+            return
+        f = int((time.monotonic() - self._played) * 60)          # the game runs these at 60 frames a second
+        if f >= a.frames:
+            f = a.frames
+            self._clock.stop()
+            self.b_play.setText('Play')
+        self.frame.setValue(f)
+
+    # ------------------------------------------------------------------ styles
+    def _fill_styles(self):
+        self.styles.blockSignals(True)
+        self.styles.clear()
+        self.styles.addItem('Styles', None)
+        if self.rel and self.rel.upper() == samples.THEME:
+            self.styles.addItem('Wide Top Bar', ('built-in', 'wide'))
+        try:
+            for m in self.main.lib.list():
+                for path in recipes.files(m.path, 'layouts'):
+                    try:
+                        with open(path, encoding='utf-8') as f:
+                            entries = json.load(f)
+                    except (OSError, ValueError):
+                        continue
+                    for e in entries if isinstance(entries, list) else []:
+                        if isinstance(e, dict) and e.get('runs') and \
+                                str(e.get('file', '')).strip('/').upper() == self.rel.upper():
+                            self.styles.addItem(m.name.replace('Scorebug: ', ''), ('saved', path))
+                            break
+        except Exception:
+            pass
+        self.styles.blockSignals(False)
+
+    def _style_picked(self, i):
+        what = self.styles.itemData(i)
+        self.styles.setCurrentIndex(0)
+        if not what or not self.layout:
+            return
+        try:
+            lay = uilayout.Layout.open(self.main.game.original(self.rel))
+            if what[0] == 'built-in':
+                samples.wide_top_bar(lay)
+            else:
+                with open(what[1], encoding='utf-8') as f:
+                    for e in json.load(f):
+                        if e.get('runs') and str(e.get('file', '')).strip('/').upper() == self.rel.upper():
+                            lay.apply_runs(e['runs'])
+        except Exception as x:
+            QMessageBox.warning(self, 'Could Not Load the Style', str(x))
+            return
+        self.layout = lay
+        self._asset_changed()
+        self.note.setText('Style loaded. Change what you like, then Save to My Mod or Save as Style.')
+
+    def save_style(self):
+        if not self.layout:
+            return
+        name, ok = QInputDialog.getText(self, 'Save as Style', 'A name for this look:')
+        name = re.sub(r'\s+', ' ', name or '').strip()
+        if not ok or not name:
+            return
+        try:
+            entry = recipes.style_recipe(self.rel, self.layout, self.main.game.original(self.rel))
+            if not entry['runs']:
+                QMessageBox.information(self, 'Nothing to Save', 'This layout is the same as the game’s.')
+                return
+            title = f'Scorebug: {name}'
+            mod = next((m for m in self.main.lib.list() if m.name == title), None)
+            if mod is None:
+                mod = self.main.lib.create(title, self.main.settings.get('author', ''),
+                                           'A scorebug look saved from the Scoreboard sandbox.')
+            folder = os.path.join(mod.path, 'layouts')
+            os.makedirs(folder, exist_ok=True)
+            slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-') or 'style'
+            with open(os.path.join(folder, slug + '.json'), 'w', encoding='utf-8') as f:
+                json.dump([entry], f)
+            own = self.main.active_mod(rel=self._pack)          # and the pieces you repainted for it
+            src = os.path.dirname(self.main.lib.texture_path(own, self._pack, 'x')) if own else None
+            if src and os.path.isdir(src) and own.path != mod.path:
+                import shutil
+                shutil.copytree(src, os.path.dirname(self.main.lib.texture_path(mod, self._pack, 'x')),
+                                dirs_exist_ok=True)
+        except Exception as x:
+            QMessageBox.warning(self, 'Could Not Save the Style', str(x))
+            return
+        self._fill_styles()
+        self.main.changed(f'{title} saved as its own mod. It is in the Styles list here and in your Mods list.')
 
     # ------------------------------------------------------------------ drawing
     def _tex_img(self, name):
@@ -484,9 +674,11 @@ class LayoutEditor(QWidget):
         sc = uirender.scenes(self.asset)
         hidden = {k.off for i, k in enumerate(sc) if i != self._scene} if len(sc) > 1 else set()
         try:
+            a = self._anim()
+            pose = self.asset.pose(a.index, self.frame.value()) if a else None
             img, hits = uirender.render(self.layout, self.asset, self._tex_img, self._table, states=self.states,
                                         effects=self.fx.isChecked(), hidden=hidden, fonts=self._load_fonts(),
-                                        situation=self.sit, lang=self.lang, reveal=self._reveal)
+                                        situation=self.sit, lang=self.lang, reveal=self._reveal, pose=pose)
         except Exception as x:
             self.note.setText(f'Could not draw the layout: {x}')
             return
@@ -944,22 +1136,13 @@ class LayoutEditor(QWidget):
                 self.layout.scale(self.node, self.sscale.value())
 
     def reset(self):
-        self.sscale.setValue(1.0)
-        self._preset(0)
-        if self.layout and self.asset:               # and every piece back to how the game has it
-            for a in [self.asset] + [self.layout.by_hash[x] for x in self.asset.instances() if x in self.layout.by_hash]:
-                for n in a.nodes():
-                    if n is self.node:
-                        continue
-                    o = self._orig_node(n)
-                    if (n.color, n.x, n.y, n.w, n.h, n.ref) != (o.color, o.x, o.y, o.w, o.h, o.ref):
-                        self.layout.recolor(n, rgb=o.rgba()[:3], alpha=o.color >> 24)
-                        self.layout.move(n, o.x, o.y)
-                        self.layout.resize(n, o.w, o.h)
-                        if n.ref != o.ref:
-                            import struct
-                            struct.pack_into('<I', self.layout.d, n.off + 0x30, o.ref)
-                            n.ref = o.ref
+        """The overlay, and the overlays it shows, back to the game's own."""
+        if self.layout and self.asset and self._orig is not None:
+            try:
+                self.layout.restore(self.asset, source=self._orig.d)
+            except ValueError as x:
+                QMessageBox.warning(self, 'Could Not Reset', str(x))
+                return
         self._asset_changed()
 
     def save(self):
