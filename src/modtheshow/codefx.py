@@ -9,7 +9,8 @@ What it reads from the game, all of it looked up in MLB The Show 26 1.0.15 (Swit
   the ball        handed over by the code mod itself: its site sits at the start of the routine that releases the ball
                   (main+0x166a2a4), where the ball is in x0, and copies it to x16 for mts_tap. The ball's object on the
                   field hangs off it at +0x560, and that object's place in the world is three floats at +0xe0.
-  the camera      a pointer at main+0x28f51f8. Its matrix is at +0x110 (rows: right, up, forward, where it stands) and
+  the camera      a pointer at main+0x28f51f8 (the table's #global camera line; another game version has it somewhere
+                  else and the manager looks it up). Its matrix is at +0x110 (rows: right, up, forward, where it stands) and
                   its two projection scales at +0x500. main+0x119e918 is the game's own world-to-screen routine and
                   this does the same sum: a point p is at  d = p - where the camera stands,  x = right.d, y = up.d,
                   z = forward.d,  in front of the camera when z > 0, and on screen at
@@ -34,7 +35,8 @@ FX = r"""
 #ifndef MOD_MAIN_BASE
 #define MOD_MAIN_BASE 0x7000000000ull
 #endif
-#define G_CAMERA (MOD_MAIN_BASE + 0x28f51f8ull)      /* a pointer to the camera the game is showing */
+#define MTS_G_CAMERA {G_CAMERA}                       /* in main: a pointer to the camera the game is showing; 0 unknown */
+#define G_CAMERA (MOD_MAIN_BASE + MTS_G_CAMERA)
 #define CAM_MATRIX 0x110                             /* right, up, forward, where it stands: four rows of four floats */
 #define CAM_SCALE 0x500                              /* the projection's two scales */
 #define BALL_NODE 0x560                              /* from the ball to its object on the field */
@@ -118,7 +120,8 @@ static int mts_fx_wanted(void) { return mts_wants(fx.set_fire) || mts_wants(fx.s
 static int mts_cam_read(MtsCam *c) {
     uint64_t cam = 0;
     float m[16], s[2];
-    if (!mts_peek(G_CAMERA, &cam, 8) || !mts_peek(cam + CAM_MATRIX, m, sizeof m) || !mts_peek(cam + CAM_SCALE, s, sizeof s))
+    if (!MTS_G_CAMERA || !mts_peek(G_CAMERA, &cam, 8) || !mts_peek(cam + CAM_MATRIX, m, sizeof m) ||
+        !mts_peek(cam + CAM_SCALE, s, sizeof s))
         return 0;
     memcpy(c->right, m, 12);
     memcpy(c->up, m + 4, 12);

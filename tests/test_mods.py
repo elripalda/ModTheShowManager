@@ -491,3 +491,53 @@ def test_effects_source():
                 'fx frames=5120 camera=5120 ball=found node=found flights=31 lit=7 swings=18\n')
     assert codemods.last_effects(root) == {'frames': 5120, 'camera': 5120, 'ball': True, 'flights': 31, 'lit': 7,
                                            'swings': 18}
+
+
+def test_code_mods_follow_the_game_version():
+    import struct
+    from modtheshow import exefile
+
+    def code_of(words):
+        c = exefile.Code.__new__(exefile.Code)
+        c.text, c.base, c.build_id, c._plain = struct.pack(f'<{len(words)}I', *words), 0, 'x', None
+        return c
+    # a routine: unremarkable instructions, a call, the spot a mod changes, a branch, an address being built
+    routine = [0x52800000 + (i << 5) for i in range(1, 13)] + [0x94000010, 0x1e210800, 0x54000041, 0x90000008,
+                                                              0x91014108] + [0x52900000 + (i << 5) for i in range(1, 13)]
+    filler = [0xd2800000 + (i << 5) for i in range(40)]
+    old = code_of(filler + routine + filler[::-1])
+    site = (40 + 13) * 4
+    assert old.word(site) == 0x1e210800 and exefile.pc_relative(0x94000010) and not exefile.pc_relative(0x1e210800)
+    look = exefile.around(old, site)
+    assert len(look) == 25 and exefile.find(old, look) == site
+    # the "update": the routine sits 7 instructions further on, its call, branch and address point elsewhere
+    moved = [0x94000321 if w == 0x94000010 else 0x54000761 if w == 0x54000041 else 0xb0000048 if w == 0x90000008
+             else 0x91000108 if w == 0x91014108 else w for w in routine]
+    new = code_of(filler + [0xd503201f] * 7 + moved + filler[::-1])
+    assert new.word(site) != 0x1e210800 and exefile.find(new, look) == site + 28
+    table = 'set a MLB_A 0\nsite a main %x 1e210800 1e210800 1e210800\nset b MLB_B 0\nsite b main 10 1 2\n' % site
+    assert set(exefile.misfits(new, table)) == {'a', 'b'}
+    out, how = exefile.relocate(new, table, {site: look})
+    assert how == {'a': 1} and 'site a main %x 1e210800 1e210800 1e210800' % (site + 28) in out
+    assert set(exefile.misfits(new, out)) == {'b'}                     # a mod nobody has a picture of stays left out
+    # a site on a branch takes the branch as this game has it; a replacement that depends on its place is not moved
+    branch = (40 + 14) * 4
+    t2 = 'set c MLB_C 0\nsite c main %x 54000041 d503201f 54000041\n' % branch
+    out2, how2 = exefile.relocate(new, t2, {branch: exefile.around(old, branch)})
+    assert how2 == {'c': 1} and 'site c main %x 54000761 d503201f 54000761' % (branch + 28) in out2
+    t3 = 'set d MLB_D 0\nsite d main %x 1e210800 14000005\n' % site
+    assert exefile.relocate(new, t3, {site: look})[1] == {}
+    # two places that look alike: no guessing
+    twins = code_of(filler + routine + routine + filler[::-1])
+    assert exefile.find(twins, look, (5,)) is None
+    # where the camera is travels with the table, into the effects' source
+    sets, text, bad = codemods.collect([])
+    assert codemods.globals_of(text) == {'camera': 0x28f51f8}
+    src = codemods.switch_source(codemods.table_sets(text), codemods.MENU_FULL, codemods.dials(text),
+                                 codemods.menu_rows(text), codemods.globals_of(text))
+    assert '#define MTS_G_CAMERA 0x28f51f8ull' in src and '{G_CAMERA}' not in src
+    assert '#define MTS_G_CAMERA 0x0ull' in codemods.switch_source(codemods.table_sets(text), codemods.MENU_FULL)
+    from modtheshow import codesigs
+    wanted = {int(f[3], 16) for f in (r.split('#', 1)[0].split() for r in codemods.ARCADE.splitlines())
+              if len(f) >= 6 and f[0] == 'site'}
+    assert wanted <= set(codesigs.LOOKS)                               # every built-in site has its picture

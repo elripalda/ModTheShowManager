@@ -63,6 +63,11 @@ the one shown.
 Experimental means it is built from reading the code and hasn't been confirmed in a game yet. These are for
 offline play.
 
+**Game versions.** These were written against game version 1.0.15. A game update moves the code around, so on
+another version the manager looks for each spot by what the code around it looks like and uses it where it is now.
+A mod it finds says so in its row; one it can't find for certain is left out of the build rather than risk
+changing the wrong thing.
+
 The last three are **Effects**. Nothing in them is the game's art: the manager simulates its own particles in the
 game's space and draws them over the picture every frame. They are drawn on the frames the game's overlay lays
 out, so they show while its fps readout is on. The manager switches that on for them; F10 is the readout's own
@@ -120,7 +125,9 @@ word, and it must write the same flags the original did. That last one matters: 
 `fsub` can't use `cmp`. Auto PCI shows how to pick between two values without touching the flags.
 
 The manager reads `game/exefs/main` before a build and leaves out any set whose original words don't match your
-game version, instead of letting the build fail.
+game version, instead of letting the build fail. Its own mods also carry a picture of the code around each site
+(`codesigs.py`: the instruction and twelve either side, with branch targets and addresses blanked), which is how
+they follow the game from one version to the next. A mod of your own is tied to the version you made it on.
 
 ## How it is built
 

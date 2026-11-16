@@ -21,6 +21,8 @@ DIAL = re.compile(r'^#dial\s+([a-z][a-z0-9_]*)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\
 DIAL_WORD = re.compile(r'^\$([a-z][a-z0-9_]*):s(\d{1,2})$')      # in a site: load that dial into float register sN
 # a dial a mod reads by itself while the game runs, without a site loading it:  #turns <set> <dial>
 TURNS = re.compile(r'^#turns\s+([A-Za-z_][A-Za-z0-9_]*)\s+([a-z][a-z0-9_]*)\s*$')
+# where something of the game's is, for a mod's own code:  #global <name> <offset in main>   (see exefile.relocate)
+GLOBAL = re.compile(r'^#global\s+([a-z][a-z0-9_]*)\s+([0-9a-fA-F]{1,9})\s*$')
 TAP = 0xAA0003F0     # mov x16, x0 (| N << 16 for xN): the first word of a site that hands a register to mts_tap
 MAX_DIALS = 15
 
@@ -136,7 +138,7 @@ def parse(text, where=''):
     if len(known) > MAX_DIALS:
         bad.append(f'{where}: more than {MAX_DIALS} dials')
     lines += [raw.strip() for raw in text.splitlines() if DIAL.match(raw.strip())]
-    lines += [raw.strip() for raw in text.splitlines() if TURNS.match(raw.strip())]
+    lines += [raw.strip() for raw in text.splitlines() if TURNS.match(raw.strip()) or GLOBAL.match(raw.strip())]
     for raw in text.splitlines():
         m = TURNS.match(raw.strip())
         if m and m.group(2) not in known:
@@ -262,13 +264,36 @@ def drop_sets(text, names):
 
 
 def fitting(game_root, text):
-    """(table text without the sets that do not match the installed game, {set: [why]})."""
-    from . import exefile
+    """(table text for the installed game, {set: [why it does not fit]}).
+
+    The built-in mods were written against one game version. On another, each of their sites is looked for by what
+    the code around it looks like and the table is rewritten for where it is now (fitting.moved: {set: sites moved});
+    a set that cannot be found, like one from any mod whose original words do not match, is left out."""
+    from . import codesigs, exefile
     code = exefile.load(game_root)
     if code is None:
+        fitting.moved = {}
         return text, {}
-    bad = exefile.misfits(code, text)
-    return drop_sets(text, set(bad)), bad
+    key = (code.build_id, len(code.text), hash(text))
+    if fitting.memo[0] != key:                                     # looking takes a moment: once per game and table
+        moved = {}
+        new = text
+        if code.build_id != codesigs.BUILD_ID and exefile.misfits(code, text):
+            new, moved = exefile.relocate(code, text, codesigs.LOOKS, codesigs.POINTERS)
+        bad = exefile.misfits(code, new)
+        fitting.memo = (key, drop_sets(new, set(bad)), bad, {k: v for k, v in moved.items() if k not in bad})
+    fitting.moved = fitting.memo[3]
+    return fitting.memo[1], dict(fitting.memo[2])
+
+
+fitting.moved = {}
+fitting.memo = (None, '', {}, {})
+
+
+def globals_of(patch_text):
+    """{name: offset in main} from the table's #global lines."""
+    return {m.group(1): int(m.group(2), 16) for m in map(GLOBAL.match, (r.strip() for r in patch_text.splitlines()))
+            if m}
 
 
 BUILD_REV = 7      # goes up when the way the manager builds changes, so an older build is offered a rebuild
@@ -324,7 +349,7 @@ def menu_rows(patch_text):
 MENU_FULL, MENU_PLAIN, MENU_NONE = 2, 1, 0
 
 
-def switch_source(sets, menu=MENU_FULL, dial_list=(), rows=None):
+def switch_source(sets, menu=MENU_FULL, dial_list=(), rows=None, where=None):
     """C for the built-in sets: their switches, their dials, their counters and the in-game menu. sets: [(name, env,
     default)] in table order; dial_list: dials(table); rows: menu_rows(table).
 
@@ -336,7 +361,7 @@ def switch_source(sets, menu=MENU_FULL, dial_list=(), rows=None):
     mod that is on but never reached can be told from one that ran and changed nothing you could see.
 
     menu: MENU_FULL adds the in-game menu (F4) joined to the game's own input, MENU_PLAIN the same panel on its own,
-    MENU_NONE neither (see codemenu.py)."""
+    MENU_NONE neither (see codemenu.py). where: globals_of(table), for the effects (0 when a thing was not found)."""
     from . import codefx, codemenu
     if menu is True:
         menu = MENU_FULL
@@ -349,7 +374,8 @@ def switch_source(sets, menu=MENU_FULL, dial_list=(), rows=None):
                        f'{float(step)!r}f}}' for n, start, lo, hi, step, label in dial_list)
     menurows = ''.join(f'    {{{s_}, {d_}, {o_}}},\n' for s_, d_, o_ in rows)
     text = codemenu.HEAD + (codemenu.MENU if menu else '') + codemenu.TAIL
-    for key, value in (('{FX}', codefx.FX), ('{START}', codemenu.START if menu else ''), ('{NSETS}', str(len(sets))),
+    for key, value in (('{FX}', codefx.FX), ('{G_CAMERA}', f'0x{(where or {}).get("camera", 0):x}ull'),
+                       ('{START}', codemenu.START if menu else ''), ('{NSETS}', str(len(sets))),
                        ('{NDIALS}', str(len(dial_list))), ('{NROWS}', str(len(rows))),
                        ('{SEAMS}', '1' if menu == MENU_FULL else '0'), ('{SETROWS}', setrows),
                        ('{DIALROWS}', dialrows), ('{MENUROWS}', menurows), ('{SWITCH_FILE}', SWITCH_FILE),
@@ -427,7 +453,7 @@ def wire_switches(gen, patch_text, menu=MENU_FULL):
                         f.write(new)
                 changed += 1
                 wired += new.count(b'(uint64_t)mts_dial[')
-    text = switch_source(sets, menu, dials(patch_text), menu_rows(patch_text))
+    text = switch_source(sets, menu, dials(patch_text), menu_rows(patch_text), globals_of(patch_text))
     old = None
     if os.path.exists(src):
         with open(src, encoding='utf-8') as f:
@@ -800,9 +826,11 @@ site iron_arms main 3c5710 72a800c8 72a7e0c8
 # These three draw over the game with the manager's own particles: nothing of the game's is reused. The site of each
 # only watches (it runs the instruction that was there): Fireball's hands the ball over as it is let go, and the
 # other two count swings. They need the in-game menu (F4) to have been built joined to the game, and they show while
-# the game's fps readout is on, which is switched on for them.
+# the game's fps readout is on, which is switched on for them. The #global line is where the game keeps its pointer
+# to the camera they look through.
 #: fireball: A pitch thrown hard enough catches fire: flames, a glow, embers and a trail of smoke, the manager's own. Slower pitches stay a plain ball.
 #tag fireball: Experimental
+#global camera 28f51f8
 #dial fire_from 95 60 110 1 Fire from mph
 #turns fireball fire_from
 set  fireball MLB_MOD_FIREBALL 0

@@ -243,6 +243,8 @@ class PluginsPage(QWidget):
                         note, warn = 'It was on in your last game, but the game never got to its code.', True
                 elif current and seen and name not in seen:
                     note = 'Not in the game yet. Press Rebuild Game.'
+                if name in getattr(codemods.fitting, 'moved', {}) and not note:
+                    note = 'Found at a new place in your game version. Not tried there yet, so tell us how it goes.'
                 if current and group == 'Effects' and \
                         int(self.main.settings.get('code_menu', codemods.MENU_FULL)) < codemods.MENU_FULL:
                     note, warn = ('This build could not join the in-game menu to the game, so this one has nothing '
