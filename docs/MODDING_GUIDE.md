@@ -120,8 +120,9 @@ The same edits can go in a layout recipe, so a scorebug style can be shared with
 ## Jersey builder
 
 **Uniforms › Builder** changes a uniform without an image editor. Pick a part (jersey, sleeves, undershirt, pants,
-socks, cap, helmet), click one of its colours to swap it everywhere on that part, add pinstripes, and put a PNG
-logo on it with the three sliders. **On the Player** shows every part you've touched on the mannequin before you
+socks, cap, helmet), click one of its colours to swap it everywhere on that part (trim and piping are colours
+too), add pinstripes, and put as many PNG logos on it as you like, each with its own place and size: chest, back,
+sleeve. **Sharpness** builds the part at 2x or 4x the game's size so logos and stripes stay crisp up close. **On the Player** shows every part you've touched on the mannequin before you
 save. **Save to My Mod** writes them as ordinary PNGs in your mod, so they can still be edited by hand.
 
 It works by colour: the most common colour is the fabric, and trim keeps its soft edges when it changes.

@@ -23,8 +23,10 @@ start the game. After that, ticking and unticking takes effect the next time the
 | Auto PCI Visual | The PCI on screen moves onto the pitch by itself, so you can see it. New. |
 | Perfect Perfect | Every ball you put in play counts as perfect PCI and perfect timing. Experimental. |
 | Orbit Shots, God Power, Moonshot, Juiced Ball | Balls leave the bat 3x, 2x, 1.5x and 1.25x faster. |
+| Gap Power | Balls leave the bat 10% faster: more balls off the wall, the odd extra home run. |
 | Dead Ball | Balls leave the bat 20% slower. |
 | Thin Air | A quarter of the air density everywhere. Fly balls carry. |
+| Heavy Air | Twice the air density. Fly balls die at the warning track. |
 | Rocket Arms | Thrown balls travel 1.25x faster. Experimental. |
 | Heat, Soft Toss | Every pitch comes in about 15% faster, or 15% slower. Experimental. |
 | Unbreakable Bats | Bats never break. |

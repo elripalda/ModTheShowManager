@@ -485,6 +485,10 @@ site moonshot main 167d0b4 72a7f769 72a80189
 set  juiced_ball MLB_MOD_JUICED 0
 site juiced_ball main 167d0b4 72a7f769 72a7fd49
 
+#: gap_power: Balls leave the bat 10% faster. More shots to the gap and off the wall, and the odd extra home run.
+set  gap_power MLB_MOD_GAPPOWER 0
+site gap_power main 167d0b4 72a7f769 72a7f9c9
+
 #: dead_ball: Balls leave the bat 20% slower. 1910s baseball.
 set  dead_ball MLB_MOD_DEADBALL 0
 site dead_ball main 167d0b4 72a7f769 72a7f2c9
@@ -495,6 +499,10 @@ site dead_ball main 167d0b4 72a7f769 72a7f2c9
 #: thin_air: Every park plays like it is four times higher than Coors Field. Fly balls carry forever.
 set  thin_air MLB_MOD_THINAIR 0
 site thin_air main 165ac78 1e210800 1e210800 1e2a1001 1e210800
+
+#: heavy_air: Twice the air. Fly balls die at the warning track and the game turns into singles and doubles.
+set  heavy_air MLB_MOD_HEAVYAIR 0
+site heavy_air main 165ac78 1e210800 1e210800 1e201001 1e210800
 
 # Experimental: a thrown ball's speed (mph to feet per second) x 1.25. Aim may be off.
 #: rocket_arms: Experimental. Thrown balls travel 1.25x faster.

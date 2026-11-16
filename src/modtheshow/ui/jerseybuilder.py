@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QPushButton, QScrollArea, QSlider, QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QButtonGroup
 
 from .. import uniformbuilder as UB
 from .common import button, label, section_title
@@ -39,7 +40,7 @@ class Mannequin(PlayerPreview):
 
 
 def _blank():
-    return dict(new={}, stripes=False, stripe_color=(20, 30, 70), spacing=36, width=3, logo=None, lx=34, ly=36, lw=12)
+    return dict(new={}, stripes=False, stripe_color=(20, 30, 70), spacing=36, width=3, logos=[], cur=-1)
 
 
 class JerseyBuilder(QWidget):
@@ -60,11 +61,20 @@ class JerseyBuilder(QWidget):
         side.setContentsMargins(0, 0, 10, 0)
         side.setSpacing(8)
         side.addWidget(section_title('Part'))
-        self.part = QComboBox()
-        for name, _, _ in UB.PARTS:
-            self.part.addItem(name)
-        self.part.currentIndexChanged.connect(self._load_part)
-        side.addWidget(self.part)
+        self.part = QButtonGroup(self)          # one chip per part, two rows of four
+        chips = QGridLayout()
+        chips.setSpacing(6)
+        for i, (name, _, _) in enumerate(UB.PARTS):
+            b = QPushButton(name.replace(', New Style', ' 2'))
+            b.setObjectName('Chip')
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setChecked(i == 0)
+            self.part.addButton(b, i)
+            chips.addWidget(b, i // 2, i % 2)
+        self.part.idClicked.connect(self._load_part)
+        self.part.currentIndex = self.part.checkedId
+        side.addLayout(chips)
         side.addWidget(section_title('Colours'))
         self.sw_grid = QGridLayout()
         self.sw_grid.setSpacing(8)
@@ -92,7 +102,10 @@ class JerseyBuilder(QWidget):
             form.addWidget(lb, i, 0)
             form.addWidget(sl, i, 1)
         side.addLayout(form)
-        side.addWidget(section_title('Logo'))
+        side.addWidget(section_title('Logos'))
+        self.logo_pick = QComboBox()             # every logo on this part; the sliders move the one shown
+        self.logo_pick.currentIndexChanged.connect(self._logo_chosen)
+        side.addWidget(self.logo_pick)
         lrow = QHBoxLayout()
         lrow.setSpacing(8)
         self.b_logo = button('Add a PNG', on_click=self._pick_logo)
@@ -100,7 +113,7 @@ class JerseyBuilder(QWidget):
         lrow.addWidget(self.b_logo, 1)
         lrow.addWidget(self.b_nologo, 1)
         side.addLayout(lrow)
-        self.lx, self.ly, self.lw = self._slider(0, 100, 34), self._slider(0, 100, 36), self._slider(3, 40, 12)
+        self.lx, self.ly, self.lw = self._slider(0, 100, 34), self._slider(0, 100, 36), self._slider(2, 60, 12)
         form = QGridLayout()
         form.setHorizontalSpacing(10)
         form.setVerticalSpacing(8)
@@ -110,6 +123,12 @@ class JerseyBuilder(QWidget):
             form.addWidget(lb, i, 0)
             form.addWidget(sl, i, 1)
         side.addLayout(form)
+        side.addWidget(section_title('Sharpness'))
+        self.quality = QComboBox()
+        self.quality.addItems(['Game size', 'Sharp (2x)', 'Sharpest (4x)'])
+        self.quality.setCurrentIndex(1)
+        self.quality.setToolTip('Builds the part larger than the game does, so logos and stripes stay crisp up close')
+        side.addWidget(self.quality)
         side.addStretch(1)
         inner = QWidget()
         inner.setLayout(side)
@@ -175,7 +194,7 @@ class JerseyBuilder(QWidget):
 
     def _enable(self, on):
         for w in (self.stripes, self.b_stripe, self.spacing, self.width, self.b_logo, self.b_nologo, self.lx, self.ly,
-                  self.lw, self.b_reset, self.b_save):
+                  self.lw, self.b_reset, self.b_save, self.logo_pick, self.quality):
             w.setEnabled(on)
 
     # ---- loading
@@ -238,8 +257,9 @@ class JerseyBuilder(QWidget):
         self._loading = True
         self.stripes.setChecked(st['stripes'])
         _paint(self.b_stripe, st['stripe_color'])
-        for key, sl in (('spacing', self.spacing), ('width', self.width), ('lx', self.lx), ('ly', self.ly), ('lw', self.lw)):
+        for key, sl in (('spacing', self.spacing), ('width', self.width)):
             sl.setValue(st[key])
+        self._fill_logos(st)
         self._loading = False
         self._enable(True)
         self._render()
@@ -264,21 +284,55 @@ class JerseyBuilder(QWidget):
             _paint(self.b_stripe, st['stripe_color'])
             self._later()
 
+    def _fill_logos(self, st):
+        """The logo list for this part, with the sliders on the chosen one."""
+        was, self._loading = self._loading, True
+        self.logo_pick.clear()
+        for i, lg in enumerate(st['logos']):
+            self.logo_pick.addItem(f"{i + 1}. {lg['name']}")
+        if not st['logos']:
+            self.logo_pick.addItem('No logos yet')
+            st['cur'] = -1
+        else:
+            st['cur'] = max(0, min(st['cur'], len(st['logos']) - 1))
+            self.logo_pick.setCurrentIndex(st['cur'])
+            lg = st['logos'][st['cur']]
+            for sl, key in ((self.lx, 'x'), (self.ly, 'y'), (self.lw, 'w')):
+                sl.setValue(lg[key])
+        self._loading = was
+
+    def _logo_chosen(self, i):
+        if self._loading:
+            return
+        st = self._st()
+        if 0 <= i < len(st['logos']):
+            st['cur'] = i
+            self._fill_logos(st)
+
     def _pick_logo(self):
         from PIL import Image
         path, _ = QFileDialog.getOpenFileName(self, 'Logo', self.main.last_dir(), 'Images (*.png)')
         if path:
             self.main.remember_dir(path)
             try:
-                self._st()['logo'] = Image.open(path).convert('RGBA')
+                img = Image.open(path).convert('RGBA')
             except Exception:
                 self.main.toast('That image could not be opened.')
                 return
+            st = self._st()
+            # each new logo lands a little further along, so two never hide each other
+            st['logos'].append(dict(image=img, name=os.path.splitext(os.path.basename(path))[0][:18],
+                                    x=min(90, 34 + 12 * len(st['logos'])), y=36, w=12))
+            st['cur'] = len(st['logos']) - 1
+            self._fill_logos(st)
             self._later()
 
     def _drop_logo(self):
-        self._st()['logo'] = None
-        self._later()
+        st = self._st()
+        if 0 <= st['cur'] < len(st['logos']):
+            st['logos'].pop(st['cur'])
+            self._fill_logos(st)
+            self._later()
 
     def _reset(self):
         self.state.pop(self.part.currentIndex(), None)
@@ -292,8 +346,9 @@ class JerseyBuilder(QWidget):
         if self._loading or self.base_img is None:
             return
         st = self._st()
-        st.update(stripes=self.stripes.isChecked(), spacing=self.spacing.value(), width=self.width.value(),
-                  lx=self.lx.value(), ly=self.ly.value(), lw=self.lw.value())
+        st.update(stripes=self.stripes.isChecked(), spacing=self.spacing.value(), width=self.width.value())
+        if 0 <= st['cur'] < len(st['logos']):
+            st['logos'][st['cur']].update(x=self.lx.value(), y=self.ly.value(), w=self.lw.value())
         self._timer.setInterval(450 if self.views.currentIndex() == 1 else 90)
         self._timer.start()
 
@@ -308,9 +363,9 @@ class JerseyBuilder(QWidget):
 
     @staticmethod
     def _edited(st):
-        return bool(st['new'] or st['stripes'] or st['logo'] is not None)
+        return bool(st['new'] or st['stripes'] or st['logos'])
 
-    def _made(self, i, small=None):
+    def _made(self, i, small=None, quality=1):
         """The part with its edits (full size, or on the small preview copy)."""
         st = self.state.get(i) or _blank()
         rel, name, img = self._base(i)
@@ -323,10 +378,8 @@ class JerseyBuilder(QWidget):
         if st['stripes']:
             stripes = dict(color=st['stripe_color'], spacing=max(2, round(st['spacing'] * scale)),
                            width=max(1, round(st['width'] * scale)))
-        logo = None
-        if st['logo'] is not None:
-            logo = dict(image=st['logo'], x=st['lx'] / 100, y=st['ly'] / 100, width=st['lw'] / 100)
-        return UB.apply(img, swaps, stripes, logo)
+        logos = [dict(image=lg['image'], x=lg['x'] / 100, y=lg['y'] / 100, width=lg['w'] / 100) for lg in st['logos']]
+        return UB.apply(img, swaps, stripes, logos=logos, quality=quality)
 
     def _drafts(self):
         """Write every edited part where the player preview picks it up."""
@@ -360,9 +413,13 @@ class JerseyBuilder(QWidget):
         mod = self.main.active_mod(ask=True)
         if not mod:
             return
+        want = (1, 2, 4)[self.quality.currentIndex()]
         for i in todo:
-            rel, name, _ = self.bases[i]
-            self.main.lib.add_texture(mod, rel, name, self._made(i))
+            rel, name, img = self.bases[i]
+            q = want
+            while q > 1 and max(img.size) * q > 4096:      # sharp, but never past what the game's largest parts are
+                q //= 2
+            self.main.lib.add_texture(mod, rel, name, self._made(i, quality=q))
         names = ', '.join(UB.PARTS[i][0] for i in sorted(todo))
         self.state, self.bases = {}, {}
         self.drafts.clear()
