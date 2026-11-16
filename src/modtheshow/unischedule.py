@@ -13,6 +13,20 @@ DAYS = ('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat')
 TIMES = ('Any time', 'Day', 'Night')
 KINDS = {0: 'Home & Road', 1: 'Alternate', 2: 'City Connect', 3: 'Throwback', 4: 'Holiday', 5: 'Jackie Robinson Day',
          6: 'Spring & Practice', 8: 'All-Star', 9: 'Home Run Derby'}
+CITY_CONNECT, THROWBACK = 2, 3
+
+
+def set_city_connect(uni, on, game_type):
+    """Mark a uniform as the City Connect kind, or take the mark away. The game shows its City Connect look (the
+    City Connect logo, and whatever a scorebug keeps for City Connect) for a uniform of that kind, so any jersey
+    can be given it. game_type: the kind the game ships the uniform as. A real City Connect uniform with the mark
+    taken away becomes a throwback, which is what the game itself does with a club's older City Connect set."""
+    if on:
+        uni['unitype'] = CITY_CONNECT
+    else:
+        uni['unitype'] = THROWBACK if game_type == CITY_CONNECT else game_type
+
+
 FIELDS = ('teamid', 'uni_id', 'pants_id', 'cap_id', 'homeOrAway', 'percentage', 'dayOfWeekMask', 'dayOrNight',
           'date_start', 'date_stop', 'comment')
 

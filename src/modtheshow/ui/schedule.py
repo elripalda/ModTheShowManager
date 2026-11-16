@@ -298,7 +298,7 @@ class ScheduleEditor(QWidget):
 
 
 class UniformList(QWidget):
-    """Rename uniforms and choose which show up in the uniform picker."""
+    """Rename uniforms, choose which show up in the uniform picker, and which get the City Connect look."""
 
     def __init__(self, main, data):
         super().__init__()
@@ -307,14 +307,17 @@ class UniformList(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
-        self.note = label('Double-click a name to rename it. Untick a uniform to hide it from the uniform picker; '
-                          'the schedule can still use it.', 'Sub', wrap=True)
+        self.note = label('Double-click a name to rename it. Untick In Menus to hide a uniform from the uniform '
+                          'picker; the schedule can still use it. Tick City Connect Look on any jersey and the game '
+                          'treats it as City Connect: scorebugs show the City Connect logo and the colour you kept '
+                          'for City Connect in Team Colours.', 'Sub', wrap=True)
         lay.addWidget(self.note)
-        self.table = table(['In Menus', 'Name', 'Type', 'Year', 'Folder'])
+        self.table = table(['In Menus', 'City Connect Look', 'Name', 'Type', 'Year', 'Folder'])
         h = self.table.horizontalHeader()
-        for i in (0, 2, 3, 4):
+        for i in (0, 1, 3, 4, 5):
             h.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        h.setSectionResizeMode(1, QHeaderView.Stretch)
+        h.setSectionResizeMode(2, QHeaderView.Stretch)
+        self._game_types = {}
         lay.addWidget(self.table, 1)
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -333,40 +336,57 @@ class UniformList(QWidget):
             return
         self.team_name = team_name
         _, self.unis = self.data.team(uniform_path)
+        if not self._game_types:
+            try:
+                self._game_types = {u['id']: u['unitype'] for u in
+                                    us.load(self.main.game.original(us.UNIS))['uniforms']}
+            except Exception:
+                self._game_types = {}
         self._fill()
+
+    def _tick(self, row, col, on, name, changed=None):
+        chk = QCheckBox()
+        chk.setChecked(on)
+        chk.setAccessibleName(name)
+        if changed:
+            chk.toggled.connect(changed)
+        box = QWidget()
+        bl = QHBoxLayout(box)
+        bl.setContentsMargins(12, 0, 0, 0)
+        bl.addWidget(chk)
+        self.table.setCellWidget(row, col, box)
 
     def _fill(self):
         self.table.setRowCount(len(self.unis))
         for i, u in enumerate(self.unis):
-            chk = QCheckBox()
-            chk.setChecked(not u.get('hideInFE'))
-            chk.setAccessibleName('Show in menus')
-            box = QWidget()
-            bl = QHBoxLayout(box)
-            bl.setContentsMargins(12, 0, 0, 0)
-            bl.addWidget(chk)
-            self.table.setCellWidget(i, 0, box)
+            self._tick(i, 0, not u.get('hideInFE'), 'Show in menus')
+            self._tick(i, 1, u['unitype'] == us.CITY_CONNECT, 'City Connect look', lambda on, i=i: self._look(i, on))
             name = QTableWidgetItem(u['dpy_name'])
             name.setFlags(name.flags() | Qt.ItemIsEditable)
-            self.table.setItem(i, 1, name)
-            for c, text in ((2, us.KINDS.get(u['unitype'], str(u['unitype']))), (3, str(u.get('year', ''))),
-                            (4, u.get('assetname', '').upper())):
+            self.table.setItem(i, 2, name)
+            for c, text in ((3, us.KINDS.get(u['unitype'], str(u['unitype']))), (4, str(u.get('year', ''))),
+                            (5, u.get('assetname', '').upper())):
                 it = QTableWidgetItem(text)
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                 self.table.setItem(i, c, it)
+
+    def _look(self, i, on):
+        u = self.unis[i]
+        us.set_city_connect(u, on, self._game_types.get(u['id'], u['unitype']))
+        self.table.item(i, 3).setText(us.KINDS.get(u['unitype'], str(u['unitype'])))
 
     def _collect(self):
         for i, u in enumerate(self.unis):
             chk = self.table.cellWidget(i, 0).findChild(QCheckBox)
             u['hideInFE'] = 0 if chk.isChecked() else 1
-            u['dpy_name'] = self.table.item(i, 1).text().strip() or u['dpy_name']
+            u['dpy_name'] = self.table.item(i, 2).text().strip() or u['dpy_name']
 
     def reset(self):
         orig = {u['id']: u for u in us.load(self.main.game.original(us.UNIS))['uniforms']}
         for u in self.unis:
             o = orig.get(u['id'])
             if o:
-                u['hideInFE'], u['dpy_name'] = o.get('hideInFE', 0), o['dpy_name']
+                u['hideInFE'], u['dpy_name'], u['unitype'] = o.get('hideInFE', 0), o['dpy_name'], o['unitype']
         self._fill()
         self.main.toast('Back to the game’s names. Save to keep them.')
 

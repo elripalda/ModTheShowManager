@@ -590,6 +590,20 @@ def test_design_on_any_theme():
         pass
 
 
+def test_city_connect_look():
+    """Any uniform can be given the City Connect kind, and a real one can give it up."""
+    from modtheshow import unischedule as us
+    throwback, real = {'unitype': 3}, {'unitype': 2}
+    us.set_city_connect(throwback, True, 3)
+    assert throwback['unitype'] == us.CITY_CONNECT
+    us.set_city_connect(throwback, False, 3)
+    assert throwback['unitype'] == 3
+    us.set_city_connect(real, False, 2)
+    assert real['unitype'] == us.THROWBACK
+    us.set_city_connect(real, True, 2)
+    assert real['unitype'] == 2
+
+
 def test_design_rule():
     """A piece with a rule is drawn only while the rule holds."""
     from modtheshow import uibuild, uilang, uiquery
@@ -686,6 +700,7 @@ if __name__ == '__main__':
     test_boards()
     test_design_one_file()
     test_design_on_any_theme()
+    test_city_connect_look()
     test_design_rule()
     test_design_own_pictures()
     test_team_art()
