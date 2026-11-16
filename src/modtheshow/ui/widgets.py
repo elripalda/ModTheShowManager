@@ -20,13 +20,14 @@ class Toggle(QAbstractButton):
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedSize(44, 24)
         self._pos = 0.0
-        self._anim = QPropertyAnimation(self, b'pos', self)
+        self._anim = QPropertyAnimation(self, b'knob', self)      # not 'pos': that is the widget's own position
         self._anim.setDuration(140)
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
         self.toggled.connect(self._go)
 
     def _go(self, on):
         self._anim.stop()
+        self._anim.setStartValue(self._pos)
         self._anim.setEndValue(1.0 if on else 0.0)
         self._anim.start()
 
@@ -36,14 +37,14 @@ class Toggle(QAbstractButton):
         self._pos = 1.0 if on else 0.0
         self.update()
 
-    def getPos(self):
+    def getKnob(self):
         return self._pos
 
-    def setPos(self, v):
-        self._pos = v
+    def setKnob(self, v):
+        self._pos = float(v)
         self.update()
 
-    pos = Property(float, getPos, setPos)
+    knob = Property(float, getKnob, setKnob)
 
     def paintEvent(self, _):
         p = QPainter(self)
