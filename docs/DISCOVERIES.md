@@ -61,11 +61,12 @@ night, a date range and a percentage. A second file names the uniforms and decid
 
 ## Screen layouts
 
-The scorebug and other overlays are `.NSW` layout files: a tree of boxes with a position, size, colour and
-scale. Moving and scaling them works. Everything in them is named by a hash, and that one is solved: rotate left
-eight bits, XOR the next lower-case letter in, set the top bit. It names each box's texture, each layout, and the
-animations the game plays on them (`ACT_SCOREBAR_OFF`, `ACT_BATTER_BAR_IN`...). So the manager can show which
-textures a scorebug is made of.
+The scorebug and other overlays are `.NSW` layout files: a tree of groups, images, text boxes, switches and
+copies of other overlays, each with a position, size, colour and scale. The whole tree reads now, using the same
+rule the game uses for where each kind of piece ends, so the manager draws a scorebug with its real art and every
+piece can be clicked and changed. Everything in them is named by a hash: rotate left eight bits, XOR the next
+lower-case letter in, set the top bit. It names each texture, each overlay and the animations the game plays on
+them (`ACT_SCOREBAR_OFF`, `ACT_BATTER_BAR_IN`...).
 [Layouts](MODDING_GUIDE.md#ui-layouts-iff0assh)
 
 ## The code
@@ -92,7 +93,7 @@ The game still carries its debug text, which is how the interesting code gets fo
 
 ## Still open
 
-- How every node nests in a screen layout, to draw a scorebug exactly as the game does and restyle it freely.
+- Layout animations, and what decides which look a scorebug switch shows.
 - What ties a scanned player to his head folder.
 - Head meshes and player body meshes.
 - Franchise and Road to the Show saves.

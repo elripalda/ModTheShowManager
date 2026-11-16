@@ -1,27 +1,56 @@
 """UI layouts (.NSW, IFF0ASSH): the scorebug, transitions, tickers and menus.
 
-A layout file is a header table of (asset hash, offset) followed by one VOIDASS0 chunk per asset. Each asset is a
-tree of nodes on a 1920x1080 canvas. A node record holds:
+A layout file holds one VOIDASS0 chunk per asset. An asset body starts with 13 section offsets; the first section
+is the asset's node tree. Every node starts with the same 0x2C bytes:
 
-  +0x00 u32   size of the node and everything under it (bytes) - this is what nests the tree
-  +0x04 u16   node type (0x8001 image, 0x8002/0x8003 groups, 0x81xx text and effects, 0 = a modifier/keyframe)
-  +0x08 u32   colour, ARGB
-  +0x0C f32   x, relative to the parent
-  +0x10 f32   y
-  +0x14 f32   z
-  +0x18 f32   width
-  +0x1C f32   height
-  +0x2A u16   scale x, 0x80 = 1.0      (marker 80 00 80 00 .. .. 84 01 at +0x2A)
-  +0x2C u16   scale y
+  +0x00 u8[4] colour, R G B A (multiplies down the tree; alpha 0 hides a node and everything under it)
+  +0x04 f32   x, relative to the parent        +0x08 f32 y        +0x0C f32 z
+  +0x10 f32   width                            +0x14 f32 height   (1920x1080 space)
+  +0x1C s16   rotation
+  +0x1E u16   anchor flags (+0x20 a second set used in another screen mode)
+  +0x22 u16   scale x, 0x80 = 1.0              +0x24 u16 scale y
+  +0x26 u8    kind (low 6 bits; the top two are flip flags)
+  +0x27 u8    flags (0x20 additive, 0x80 starts hidden and is shown by an animation)
+
+What follows depends on the kind. Where a node ends is fixed per kind, the same rule the game uses
+(KIND_END); a node that holds other nodes keeps them packed between the end of its own fields and its end.
+Kinds that matter most:
+
+  0x0F group       children from +[0x38] to +[0x48]
+  0x18 image       texture hash at +0x30, a second texture (mask) at +0x38
+  0x01 sprite      texture hash at +0x30
+  0x1E instance    draws another asset of the same file, its hash at +0x30
+  0x1C states      a switch: +0x70 state count, +0x78 one u64 offset per state (0 = empty), children from +[0x48]
+  0x22 text        a text box
+  0x0C clip        children from +[0x30] to +[0x48]
 
 Names are a 32-bit hash: for every character of the lower-cased name, rotate the hash left 8 bits and XOR the
 character in; then set the top bit (name_hash). An asset's id is the hash of its name ("PBInterface\\ScoreBar"), a
 texture's the hash of its name in the .TEX pack next to the layout, and an animation's the hash of its action name
-("ACT_SCOREBAR_OFF"). A node draws the texture or sub-layout whose hash sits at +0x38 (a second one at +0x40).
+("ACT_SCOREBAR_OFF").
 """
 import re
 import struct
 
+# where each kind of node ends: ('u32'|'u16', field) read from the node, or a fixed size
+KIND_END = {
+    0x01: 0x58, 0x02: ('I', 0x48), 0x03: ('I', 0x48), 0x04: 0x90, 0x05: ('I', 0x48), 0x06: 0x50,
+    0x07: ('I', 0x30), 0x08: ('I', 0x50), 0x09: ('I', 0x30), 0x0A: ('I', 0x78), 0x0B: ('I', 0x78),
+    0x0C: ('I', 0x48), 0x0D: 0x40, 0x0E: ('I', 0x30), 0x0F: ('I', 0x48), 0x10: ('I', 0x30),
+    0x11: ('I', 0x58), 0x12: 0x40, 0x13: ('I', 0x30), 0x14: ('I', 0x48), 0x15: ('I', 0x30),
+    0x16: ('I', 0xA0), 0x17: ('I', 0x48), 0x18: 0x50, 0x19: ('H', 0x48), 0x1A: ('I', 0x38),
+    0x1B: 0x78, 0x1C: ('I', 0x6C), 0x1D: ('I', 0x30), 0x1E: ('H', 0x50), 0x1F: ('I', 0x30),
+    0x20: ('I', 0x30), 0x21: ('I', 0x30), 0x22: 0x80, 0x23: 0x88, 0x24: ('I', 0x30), 0x25: 0x98,
+    0x26: ('I', 0x58),
+}
+# where the nodes a node holds start: a field holding the offset, for the kinds that hold nodes
+KIND_KIDS = {0x02: 0x38, 0x03: 0x38, 0x05: 0x38, 0x0F: 0x38, 0x14: 0x38, 0x17: 0x38, 0x0C: 0x30, 0x1C: 0x48,
+             0x13: 0x38, 0x21: 0x38, 0x10: 0x38, 0x1D: 0x38, 0x1F: 0x38, 0x20: 0x38, 0x24: 0x38,
+             0x26: ('at', 0x68), 0x11: ('at', 0x68)}
+KIND_NAMES = {0x0F: 'Group', 0x18: 'Image', 0x01: 'Sprite', 0x1E: 'Instance', 0x1C: 'States', 0x22: 'Text',
+              0x0C: 'Clip', 0x19: 'Flipbook', 0x05: 'Colour set', 0x13: 'List', 0x1D: 'Table', 0x26: 'Text field',
+              0x11: 'Button', 0x04: 'Image (two)', 0x21: 'Scroller'}
+NONE = 0x80000000           # the hash of an empty name
 
 
 def name_hash(name):
@@ -34,72 +63,98 @@ def name_hash(name):
     return h | 0x80000000
 
 
+def rgba(v):
+    """A node colour (u32 as stored) as (r, g, b, a)."""
+    return v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >> 24) & 255
+
+
+def pack_rgba(r, g, b, a):
+    return (int(r) & 255) | (int(g) & 255) << 8 | (int(b) & 255) << 16 | (int(a) & 255) << 24
+
+
 class Node:
-    __slots__ = ('off', 'size', 'type', 'color', 'x', 'y', 'w', 'h', 'sx', 'sy', 'children', 'parent', 'ref', 'ref2')
+    __slots__ = ('off', 'size', 'kind', 'kflip', 'flags', 'color', 'x', 'y', 'z', 'w', 'h', 'sx', 'sy', 'rot',
+                 'anchor', 'ref', 'ref2', 'children', 'parent', 'states', 'asset')
+
+    @property
+    def type(self):                      # older name for kind
+        return self.kind
+
+    @property
+    def kind_name(self):
+        return KIND_NAMES.get(self.kind, f'Kind {self.kind:02X}')
 
     def abs_rect(self):
         x, y, n = self.x, self.y, self.parent
-        while n is not None and n.parent is not None:     # the asset root sits at the canvas origin
+        while n is not None:
             x += n.x
             y += n.y
             n = n.parent
         return x, y, self.w, self.h
 
+    def rgba(self):
+        return rgba(self.color)
+
+    def walk(self):
+        yield self
+        for c in self.children:
+            yield from c.walk()
+
+    def state_children(self):
+        """For a States node: [child node or None] per state, in state order."""
+        if self.states is None:
+            return []
+        by_off = {c.off - self.off: c for c in self.children}
+        return [by_off.get(o) if o else None for o in self.states]
+
 
 class Asset:
     def __init__(self, layout, off, hash_, size):
         self.layout, self.off, self.hash, self.size = layout, off, hash_, size
+        self.body = off + 0x10
         self.name = self._name()
+        self._root = None
         self._nodes = None
+        self.problems = 0
 
     def _name(self):
         d = self.layout.d
-        body = d[self.off + 0x10:self.off + 0x10 + self.size]
+        body = d[self.body:self.body + self.size]
         strs = [s.decode('latin1') for s in re.findall(rb'[A-Za-z][A-Za-z0-9_]{3,}', body)]
         good = [s for s in strs if s[0].isupper() and not s.isupper() and len(s) <= 40]
         return good[0] if good else f'asset_{self.hash:08x}'
 
+    def sections(self):
+        if self.size < 0x68:
+            return None
+        return struct.unpack_from('<13Q', self.layout.d, self.body)
+
+    def root(self):
+        if self._root is None and self.size >= 0x68:
+            sec = self.sections()
+            start = self.body + sec[0]
+            end = self.body + (sec[1] if sec[1] else self.size)
+            if sec[0] and start + 0x2C <= end <= self.body + self.size and self.layout._valid(start, end):
+                self._root = self.layout._parse(start, end, None, self)
+        return self._root
+
     def nodes(self):
-        """Flat list of nodes in file order, with parent/children filled in."""
-        if self._nodes is not None:
-            return self._nodes
-        d = self.layout.d
-        start, end = self.off + 0x10, self.off + 0x10 + self.size
-        out = []
-        for m in re.finditer(rb'[\x01-\xff][\x00-\x03][\x01-\xff][\x00-\x03]..\x84\x01', d[start:end], re.S):
-            p = start + m.start() - 0x2A
-            if p < start or d[p + 0x2A:p + 0x2C] == b'':
-                continue
-            size, typ, _flags, color = struct.unpack_from('<IHHI', d, p)
-            x, y, _z, w, h = struct.unpack_from('<5f', d, p + 0x0C)
-            sx, sy = struct.unpack_from('<HH', d, p + 0x2A)
-            if not (-10000 < x < 10000 and -10000 < y < 10000 and 0 <= w < 10000 and 0 <= h < 10000):
-                continue
-            n = Node()
-            n.off, n.size, n.type, n.color = p, size, typ, color
-            n.x, n.y, n.w, n.h, n.sx, n.sy = x, y, w, h, sx, sy
-            n.children, n.parent = [], None
-            n.ref, n.ref2 = struct.unpack_from('<I4xI', d, p + 0x38) if p + 0x44 <= end else (0, 0)
-            out.append(n)
-        # nest by subtree size: a node contains the nodes that start inside its byte span
-        stack = []
-        for n in out:
-            while stack and not (stack[-1].off < n.off < stack[-1].off + max(stack[-1].size, 0x50)):
-                stack.pop()
-            if stack and stack[-1].size >= 0x50:
-                n.parent = stack[-1]
-                stack[-1].children.append(n)
-            if n.size >= 0x50:
-                stack.append(n)
-        self._nodes = out
-        return out
+        """Every node in file order, with parent and children filled in."""
+        if self._nodes is None:
+            r = self.root()
+            self._nodes = list(r.walk()) if r else []
+        return self._nodes
 
     def container(self):
         """The asset's top visual node (the scorebug's frame), or None."""
         for n in self.nodes():
-            if n.type & 0x8000 and n.w > 0 and n.h > 0 and (n.w, n.h) != (1920, 1080):
+            if n.parent is not None and n.w > 0 and n.h > 0 and (n.w, n.h) != (1920, 1080):
                 return n
         return None
+
+    def instances(self):
+        """Hashes of the other assets this one draws."""
+        return {n.ref for n in self.nodes() if n.kind == 0x1E}
 
 
 class Layout:
@@ -114,17 +169,83 @@ class Layout:
                 continue
             h, size = struct.unpack_from('<II', self.d, o + 8)
             self.assets.append(Asset(self, o, h, size))
+        self.by_hash = {a.hash: a for a in self.assets}
 
     @classmethod
     def open(cls, path):
         with open(path, 'rb') as f:
             return cls(f.read())
 
+    # ------------------------------------------------------------------ reading
+    def _valid(self, p, end):
+        d = self.d
+        if p + 0x2C > end:
+            return False
+        x, y, z, w, h = struct.unpack_from('<5f', d, p + 4)
+        if not all(abs(v) < 20000 for v in (x, y, z, w, h)):
+            return False
+        sx, sy = struct.unpack_from('<HH', d, p + 0x22)
+        return d[p + 0x29] <= 1 and (d[p + 0x26] & 0x3F) in KIND_END and 0 < sx <= 0x800 and 0 < sy <= 0x800
+
+    def _end(self, p, kind):
+        rule = KIND_END.get(kind)
+        if rule is None:
+            return None
+        if isinstance(rule, int):
+            return rule
+        fmt, field = rule
+        return struct.unpack_from('<' + fmt, self.d, p + field)[0]
+
+    def _parse(self, p, end, parent, asset, depth=0):
+        d = self.d
+        n = Node()
+        n.off, n.parent, n.asset, n.children, n.states = p, parent, asset, [], None
+        n.color = struct.unpack_from('<I', d, p)[0]
+        n.x, n.y, n.z, n.w, n.h = struct.unpack_from('<5f', d, p + 4)
+        n.rot, n.anchor, _a2, n.sx, n.sy = struct.unpack_from('<hHHHH', d, p + 0x1C)
+        n.kind, n.kflip, n.flags = d[p + 0x26] & 0x3F, d[p + 0x26] >> 6, d[p + 0x27]
+        n.ref, n.ref2 = struct.unpack_from('<I4xI', d, p + 0x30) if p + 0x3C <= len(d) else (NONE, NONE)
+        size = self._end(p, n.kind)
+        if not size or size < 0x40 or p + size > end:
+            # an unknown or damaged node: it runs to the next node that looks right
+            q = p + 0x50
+            while q < end and not self._valid(q, end):
+                q += 4
+            size = q - p
+            asset.problems += 1
+        n.size = size
+        kids = KIND_KIDS.get(n.kind)
+        if kids is not None and depth < 64:
+            first = kids[1] if isinstance(kids, tuple) else struct.unpack_from('<I', d, p + kids)[0]
+            e = p + size
+            if 0x2C <= first < size:
+                q = p + first
+                if not self._valid(q, e) and q + 0x10 <= e:      # a table keeps a small header before its rows
+                    v = struct.unpack_from('<I', d, q + 8)[0]
+                    if first < v < size and self._valid(p + v, e):
+                        q = p + v
+                while q < e:
+                    if not self._valid(q, e):
+                        # a few kinds keep extra data after their own end (a button's string list): skip it
+                        q += 4
+                        while q < e and not self._valid(q, e):
+                            q += 4
+                        if q >= e:
+                            break
+                    c = self._parse(q, e, n, asset, depth + 1)
+                    n.children.append(c)
+                    q += c.size
+        if n.kind == 0x1C:
+            cnt = d[p + 0x70]
+            n.states = [struct.unpack_from('<I', d, p + 0x78 + 8 * i)[0] for i in range(cnt)]
+        return n
+
     def find(self, name):
         for a in self.assets:
             if a.name.lower() == name.lower():
                 return a
-        return None
+        h = name_hash(name)
+        return self.by_hash.get(h)
 
     @staticmethod
     def texture_table(names):
@@ -141,11 +262,6 @@ class Layout:
                 out.setdefault(h, s)
         return out
 
-    def retexture(self, node, name):
-        """Point a node at another texture of the pack (by name)."""
-        struct.pack_into('<I', self.d, node.off + 0x38, name_hash(name))
-        node.ref = name_hash(name)
-
     def pieces(self, asset, table):
         """{texture name: [nodes that draw it]} for one asset, in the order they first appear."""
         out = {}
@@ -155,19 +271,34 @@ class Layout:
                 out.setdefault(name, []).append(n)
         return out
 
+    # ------------------------------------------------------------------ editing
+    def retexture(self, node, name):
+        """Point a node at another texture of the pack (by name)."""
+        struct.pack_into('<I', self.d, node.off + 0x30, name_hash(name))
+        node.ref = name_hash(name)
+
     def recolor(self, node, rgb=None, alpha=None):
         """Set a node's tint (r, g, b) and/or its opacity (0-255)."""
-        c = node.color
+        r, g, b, a = rgba(node.color)
         if rgb is not None:
-            c = (c & 0xFF000000) | (int(rgb[0]) & 255) << 16 | (int(rgb[1]) & 255) << 8 | (int(rgb[2]) & 255)
+            r, g, b = rgb
         if alpha is not None:
-            c = (c & 0x00FFFFFF) | (max(0, min(255, int(alpha))) << 24)
-        struct.pack_into('<I', self.d, node.off + 8, c)
-        node.color = c
+            a = max(0, min(255, int(alpha)))
+        node.color = pack_rgba(r, g, b, a)
+        struct.pack_into('<I', self.d, node.off, node.color)
 
     def resize(self, node, w, h):
-        struct.pack_into('<ff', self.d, node.off + 0x18, float(w), float(h))
+        struct.pack_into('<ff', self.d, node.off + 0x10, float(w), float(h))
         node.w, node.h = float(w), float(h)
+
+    def move(self, node, x, y):
+        struct.pack_into('<ff', self.d, node.off + 4, float(x), float(y))
+        node.x, node.y = float(x), float(y)
+
+    def scale(self, node, s):
+        v = max(16, min(1024, int(round(0x80 * s))))
+        struct.pack_into('<HH', self.d, node.off + 0x22, v, v)
+        node.sx = node.sy = v
 
     def restyle(self, asset, edits):
         """Carry out piece edits on an asset. Each edit names a texture and may give color '#rrggbb', opacity 0-100,
@@ -192,15 +323,6 @@ class Layout:
                     self.retexture(n, str(e['use']))
                 changed += 1
         return changed
-
-    def move(self, node, x, y):
-        struct.pack_into('<ff', self.d, node.off + 0x0C, float(x), float(y))
-        node.x, node.y = float(x), float(y)
-
-    def scale(self, node, s):
-        v = max(16, min(1024, int(round(0x80 * s))))
-        struct.pack_into('<HH', self.d, node.off + 0x2A, v, v)
-        node.sx = node.sy = v
 
     def bytes(self):
         return bytes(self.d)

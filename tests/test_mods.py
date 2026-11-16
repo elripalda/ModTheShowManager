@@ -182,25 +182,34 @@ def test_name_hash():
 def test_layout_restyle():
     import struct
     from modtheshow import uilayout
-    # one asset with two nodes: a frame, and a piece that draws the texture "logo"
-    def node(size, typ, color, x, y, w, h, ref):
-        b = bytearray(0x58)
-        struct.pack_into('<IHHI5f', b, 0, size, typ, 0, color, x, y, 0, w, h)
-        struct.pack_into('<HHHH', b, 0x2A, 0x80, 0x80, 0x010F, 0x0184)
-        struct.pack_into('<I', b, 0x38, ref)
-        return bytes(b)
-    body = node(0xB0, 0x8003, 0xFFFFFFFF, 100, 200, 300, 80, 0x80000000) + \
-        node(0x58, 0x8101, 0xFFFFFFFF, 10, 5, 40, 20, uilayout.name_hash('logo'))
-    data = b'IFF0ASSH' + bytes(8) + b'VOIDASS0' + struct.pack('<II', 0x81234567, len(body)) + body
+    # one asset: a frame group holding a piece that draws the texture "logo"
+
+    def node(kind, x, y, w, h, ref=0x80000000):
+        b = bytearray(0x50)
+        b[0:4] = b'\xff\xff\xff\xff'
+        struct.pack_into('<5f', b, 4, x, y, 0, w, h)
+        struct.pack_into('<HHHH', b, 0x1E, 5, 5, 0x80, 0x80)
+        b[0x26], b[0x27] = kind, 1
+        struct.pack_into('<HI', b, 0x28, 0x184, 0)
+        struct.pack_into('<I', b, 0x30, ref)
+        return b
+    piece = node(0x18, 10, 5, 40, 20, uilayout.name_hash('logo'))
+    frame = node(0x0F, 100, 200, 300, 80)
+    struct.pack_into('<I', frame, 0x38, 0x50)
+    struct.pack_into('<I', frame, 0x48, 0xA0)
+    struct.pack_into('<I', frame, 0x4C, 0x8001)
+    body = bytearray(0x90)
+    struct.pack_into('<QQ', body, 0, 0x90, 0x90 + 0xA0)
+    body += frame + piece
+    data = b'IFF0ASSH' + bytes(8) + b'VOIDASS0' + struct.pack('<II', 0x81234567, len(body)) + bytes(body)
     lay = uilayout.Layout(data)
     a = lay.assets[0]
     table = uilayout.Layout.texture_table(['logo', 'other'])
     assert list(lay.pieces(a, table)) == ['logo']
     assert lay.restyle(a, [{'texture': 'LOGO', 'color': '#ff8000', 'opacity': 50, 'dx': 3, 'size': 2, 'use': 'other'}]) == 1
     n = uilayout.Layout(lay.bytes()).assets[0].nodes()[1]
-    assert (n.color, n.x, n.y, n.w, n.h) == (0x7FFF8000, 13, 5, 80, 40) and table[n.ref] == 'other'
+    assert (n.rgba(), n.x, n.y, n.w, n.h) == ((255, 128, 0, 127), 13, 5, 80, 40) and table[n.ref] == 'other'
     assert lay.restyle(a, [{'texture': 'missing', 'opacity': 0}]) == 0
-
 
 if __name__ == '__main__':
     test_apply_disable_restore()

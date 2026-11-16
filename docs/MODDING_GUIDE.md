@@ -98,14 +98,19 @@ its samples are listed by name; tutorial lines show what is being said.
 
 ## Scorebug layout
 
-**Scoreboards › Layout** shows a theme's overlays (the scorebug, the bottom ticker, transitions) on a 1080p
-screen. Drag the box or type X and Y, then save. The layout file (`NSW/UI/GAME/THEMEn.NSW`) goes into your mod
-with only those numbers changed. Scale is there too, but not every theme honours it yet.
+**Scoreboards › Layout** draws a theme's overlays (the scorebug, the bottom ticker, transitions) the way the game
+lays them out, with their real textures. Drag the red box or type X and Y to place one, then save. The layout file
+(`NSW/UI/GAME/THEMEn.NSW`) goes into your mod with only what you changed. Scale is there too, but not every theme
+honours it yet.
 
-Under the screen is a strip of every texture that overlay draws: the frame, the base diamonds, the sponsor logo.
-Pick one and the row below it changes that piece everywhere the overlay draws it: **Colour** tints it, **Opacity**
-fades it (0 hides it), **Move X / Y** shift it, **Size** scales it and **Replace PNG** repaints it. **Back to
-Default** undoes all of it.
+Click any piece on the screen to edit just that piece, or pick a texture in the strip underneath to change every
+place the overlay draws it. **Colour** tints, **Opacity** fades, **Move X / Y** shift, **Size** scales, **Hide**
+takes it off and **Replace PNG** repaints it. **Back to Default** undoes all of it.
+
+Parts of a scorebug switch between looks while you play (bases, banners, the count). The switch list above the
+screen flips each one so you can see and edit every look. **Show animation layers** adds the glows and the pieces
+the game fades in, which are hidden at rest. Text boxes show as dotted outlines, since their words come from the
+game. **Zoom in** fills the view with the overlay.
 
 The same edits can go in a layout recipe, so a scorebug style can be shared without the layout file:
 
@@ -197,8 +202,8 @@ and walk around with W A S D (Q and E for down and up). Hide Roof opens up cover
 
 ## Not cracked yet
 
-- The full node tree of UI layouts. Names are solved (below), but how every node nests isn't, so the Layout view
-  can list an overlay's pieces and not yet draw the whole thing as the game does.
+- Layout animations and what picks each look of a switch. The tree, the looks and the textures are read; the
+  keyframes and the conditions (stored as hashed words like `[ ... ]`) aren't yet.
 - Head meshes. The `HEADS` folders hold hair and eyebrow models plus the face textures; the head shape is built at
   runtime.
 - Saves. A fresh profile only holds settings (`profile/save/<id>/SETT...`) and a marker (`PLYA...`); franchise and
@@ -303,9 +308,34 @@ keeps 28 career rows per player.
 
 ## UI layouts (IFF0ASSH)
 
-A table of (hash, offset) pairs, then one `VOIDASS0` chunk per asset. Nodes nest by subtree size. Node fields: +0
-size, +4 type, +8 ARGB colour, +0xC x, y, z, width, height (floats, 1920×1080 space), +0x2A scale x/y (0x80 = 1.0),
-+0x38 the hash of the texture or sub-layout it draws (a second one at +0x40).
+One `VOIDASS0` chunk per asset (tag, name hash, size). The body starts with 13 u64 section offsets; section 0 is the
+node tree. Every node starts with the same 0x2C bytes:
+
+| Offset | Field |
+| --- | --- |
+| 0x00 | colour, bytes R G B A; it multiplies down the tree and alpha 0 hides a node and everything under it |
+| 0x04 | x, y, z, width, height (floats, 1920×1080, x and y relative to the parent) |
+| 0x1C | rotation (s16) |
+| 0x1E | anchor flags (0x20 a second set for another screen mode) |
+| 0x22 | scale x, scale y (u16, 0x80 = 1.0) |
+| 0x26 | kind (low 6 bits; the top two flip the picture) |
+| 0x27 | flags: 0x20 additive, 0x80 hidden until an animation shows it |
+
+Where a node ends depends on its kind; the game's own table is at `main+0x7e61d0`. A node that holds others keeps
+them packed between the end of its fields and its end, so groups clip what they hold.
+
+| Kind | What | Ends at | Holds nodes from |
+| --- | --- | --- | --- |
+| 0x0F | group | +[0x48] | +[0x38] |
+| 0x18 | image: texture hash at +0x30, a second (mask) at +0x38 | 0x50 | |
+| 0x01 | sprite: texture hash at +0x30 | 0x58 | |
+| 0x1E | instance of another asset in the file, its hash at +0x30 | +u16[0x50] | |
+| 0x1C | switch: look count at +0x70, one u64 offset per look at +0x78 (0 = empty) | +[0x6C] | +[0x48] |
+| 0x22 | text box | 0x80 | |
+| 0x0C | clip | +[0x48] | +[0x30] |
+| 0x19 | flipbook: a list of textures | +u16[0x48] | |
+| 0x13, 0x1D, 0x21 | lists and tables | +[0x30] | +[0x38] |
+| 0x26, 0x11 | text field, button | +[0x58] | 0x68 |
 
 Names are stored as a 32-bit hash: start at 0; for each character of the lower-cased name, rotate left 8 bits and
 XOR the character in; set the top bit at the end. In Python:
