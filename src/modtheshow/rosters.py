@@ -266,6 +266,65 @@ def find_head(files, first, last):
     return f'NSW/CHARACTERS/HEADS/{hit}/{hit}-COLOR.TEX' if hit else None
 
 
+class Roster:
+    """A team's D_ROSTER_HLPR: 95 slots of 1-based player numbers (0 = empty) and five lineups.
+
+    Slots 0-4 are the rotation, 5 the closer, 6-29 the bullpen, 30-94 position players. A lineup's ROSTER holds
+    the slot playing each defensive position (0 P, 1 C, 2 1B, 3 2B, 4 3B, 5 SS, 6 LF, 7 CF, 8 RF, 9 DH; 255 none)
+    and BATTING_ORDER the positions batting 1-9.
+    """
+    PITCHERS = range(0, 30)
+    HITTERS = range(30, 95)
+
+    def __init__(self, rec):
+        self.rec = rec
+        self.slots = list(struct.unpack('<95I', rec.raw('PLAYER_NUMS')))
+        self.lineups = [(bytearray(l.raw('ROSTER')), bytearray(l.raw('BATTING_ORDER'))) for l in rec.kids.get('D_LINEUP', [])]
+        self.dirty = False
+
+    def slot_of(self, player_index):
+        try:
+            return self.slots.index(player_index + 1)
+        except ValueError:
+            return None
+
+    def remove(self, player_index):
+        k = self.slot_of(player_index)
+        if k is None:
+            return
+        self.slots[k] = 0
+        self.dirty = True
+        if k < 6:        # rotation or closer: the next arm moves up, so lineups pointing here stay right
+            nxt = next((j for j in range(6, 30) if self.slots[j]), None)
+            if nxt is not None:
+                self.slots[k], self.slots[nxt] = self.slots[nxt], 0
+                k = nxt
+        # anyone this slot was playing gets covered by the first bench bat or bullpen arm not already used
+        for roster, order in self.lineups:
+            for pos, sl in enumerate(roster):
+                if sl == k:
+                    pool = self.HITTERS if pos else range(6, 30)
+                    sub = next((j for j in pool if self.slots[j] and j not in roster), 255)
+                    roster[pos] = sub
+                    if sub == 255 and pos and pos in order:
+                        order[order.index(pos)] = 0
+
+    def add(self, player_index, pitcher):
+        group = self.PITCHERS if pitcher else self.HITTERS
+        k = next((j for j in group if self.slots[j] == 0), None)
+        if k is None:
+            return False
+        self.slots[k] = player_index + 1
+        self.dirty = True
+        return True
+
+    def apply(self, db):
+        db.put(self.rec, 'PLAYER_NUMS', struct.pack('<95I', *self.slots))
+        for (roster, order), l in zip(self.lineups, self.rec.kids.get('D_LINEUP', [])):
+            db.put(l, 'ROSTER', bytes(roster))
+            db.put(l, 'BATTING_ORDER', bytes(order))
+
+
 class Database:
     """Teams and players, with edits that can be written back to every copy the game ships."""
 
@@ -284,6 +343,7 @@ class Database:
                         for i, p in enumerate(profs)]
         self.edits_t = {}     # team index -> {field: value}
         self.edits_p = {}     # player index -> {('prof'|'att', field): value}
+        self.rosters = {}     # team index -> Roster, once touched
 
     def team_name(self, idx):
         if idx == FREE_AGENT:
@@ -314,8 +374,13 @@ class Database:
         if 'pos' in kw:
             p.pos = int(kw['pos'])
             e[('prof', 'POSITION')] = p.pos
-        if 'team' in kw:
-            p.team = int(kw['team'])
+        if 'team' in kw and int(kw['team']) != p.team:
+            old, new = p.team, int(kw['team'])
+            if old < len(self.teams):
+                self.roster_of(old).remove(p.i)
+            if new < len(self.teams) and not self.roster_of(new).add(p.i, p.pitcher):
+                raise ValueError(f'{self.team_name(new)} has no open {"pitcher" if p.pitcher else "position player"} slot')
+            p.team = new
             e[('team',)] = p.team
         for f, v in kw.get('ratings', {}).items():
             e[('att', f)] = max(0, min(255, int(v)))
@@ -325,16 +390,27 @@ class Database:
             if p.acc is not None and f in p.acc.fields:
                 p.acc.fields[f] = (p.acc.fields[f][0], int(e[('acc', f)]).to_bytes(size, 'little'))
 
-    def dirty(self):
-        return bool(self.edits_t or self.edits_p)
+    def roster_of(self, team_index):
+        if team_index not in self.rosters:
+            hl = self.rdb.tables.get('D_ROSTER_HLPR', [])
+            self.rosters[team_index] = Roster(hl[team_index])
+        return self.rosters[team_index]
 
-    @staticmethod
-    def _apply_teams(db, edits):
+    def dirty(self):
+        return bool(self.edits_t or self.edits_p or any(r.dirty for r in self.rosters.values()))
+
+    def _apply_teams(self, db, edits):
         teams = db.tables.get('D_TEAM_PROF', [])
         for idx, e in edits.items():
             if idx < len(teams):
                 for f, v in e.items():
                     db.put(teams[idx], f, v)
+        hl = db.tables.get('D_ROSTER_HLPR', [])
+        for idx, r in self.rosters.items():
+            if r.dirty and idx < len(hl):
+                mine = Roster(hl[idx])
+                mine.slots, mine.lineups = r.slots, r.lineups
+                mine.apply(db)
 
     def _apply_players(self, db, edits):
         profs = db.tables.get('PLR_PROFS', [])

@@ -116,8 +116,8 @@ class TeamsPage(QWidget):
         self.pos.currentIndexChanged.connect(self._player_edited)
         form.addWidget(self.pos, 1, 0)
         self.move_to = QComboBox()
-        self.move_to.setToolTip('Beta: lineups and rotations aren’t rebuilt for you. After moving players, set them '
-                                'in the game’s own roster screens.')
+        self.move_to.setToolTip('Move to another club. He leaves his old lineup and rotation; the new team puts him '
+                                'on the bench or in the bullpen.')
         self.move_to.currentIndexChanged.connect(self._player_edited)
         form.addWidget(self.move_to, 1, 1)
         form.setColumnStretch(0, 1)
@@ -458,8 +458,15 @@ class TeamsPage(QWidget):
         p = self.player
         moved = self.move_to.currentData() != p.team
         ratings = {f: s.value() for f, s in self.spins.items() if s.isVisible() and s.value() != p.rating(f)}
-        self.db.set_player(p, first=self.first.text(), last=self.last.text(), pos=self.pos.currentIndex(),
-                           team=self.move_to.currentData(), ratings=ratings)
+        try:
+            self.db.set_player(p, first=self.first.text(), last=self.last.text(), pos=self.pos.currentIndex(),
+                               team=self.move_to.currentData(), ratings=ratings)
+        except ValueError as x:
+            QMessageBox.information(self, 'No Room', str(x))
+            self._busy = True
+            self.move_to.setCurrentIndex(self.move_to.findData(p.team))
+            self._busy = False
+            return
         for f, v in ratings.items():
             p.att.fields[f] = (p.att.fields[f][0], int(v).to_bytes(1, 'little'))
         self._dirty(True)
@@ -506,6 +513,7 @@ class TeamsPage(QWidget):
             return
         self.db.edits_t.clear()
         self.db.edits_p.clear()
+        self.db.rosters.clear()
         self._dirty(False)
         self.main.changed(f'Rosters saved into {mod.name} ({n} files). Apply to use them.')
 
