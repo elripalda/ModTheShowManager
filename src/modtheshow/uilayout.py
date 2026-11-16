@@ -324,6 +324,8 @@ class Layout:
         if self.d[:8] != b'IFF0ASSH':
             raise ValueError('not a UI layout (IFF0ASSH)')
         self.clones = []                       # [(hash of the asset copied, the copy's name)], in the order made
+        self.designs = []                      # designs compiled into it (uibuild), in the order made
+        self.words = ({}, {})                  # their text: fixed {id: words}, live {id: (words, [token lists])}
         self._index()
         self.base = bytearray(self.d)          # as opened: edits to animated pieces are worked out from here
 
@@ -338,8 +340,9 @@ class Layout:
         self.by_hash = {a.hash: a for a in self.assets}
 
     @staticmethod
-    def _add_chunk(buf, src_off, h):
-        """Copy the asset chunk at src_off to the end of a layout file under hash h, and list it in the directory.
+    def _add_chunk(buf, src_off, h, chunk=None):
+        """Copy the asset chunk at src_off to the end of a layout file under hash h, and list it in the directory
+        (or add chunk, a ready one, to the table src_off is listed in).
 
         The file opens with a directory: at 0x0C the file's size, at 0x10 how many tables, at 0x18 where their
         headers are; a header is (count u32, type u32, offset u64) and a table is (hash u32, 0, chunk offset u64)
@@ -358,9 +361,10 @@ class Layout:
         if hit is None:
             raise ValueError('the asset is not in the layout\'s directory')
         t, row = hit
-        size = struct.unpack_from('<I', buf, src_off + 12)[0]
-        chunk = bytearray(buf[src_off:src_off + 0x10 + size])
-        struct.pack_into('<I', chunk, 8, h)
+        if chunk is None:
+            size = struct.unpack_from('<I', buf, src_off + 12)[0]
+            chunk = bytearray(buf[src_off:src_off + 0x10 + size])
+            struct.pack_into('<I', chunk, 8, h)
         struct.pack_into('<I', buf, tl + 16 * t, tables[t][0] + 1)
         for u in range(t + 1, ntab):
             struct.pack_into('<Q', buf, tl + 16 * u + 8, tables[u][2] + 16)
@@ -380,6 +384,24 @@ class Layout:
         for buf in (self.d, self.base):
             self._add_chunk(buf, asset.off, h)
         self.clones.append((src, name))
+        self._index()
+        return self.by_hash[h]
+
+    def add_asset(self, chunk):
+        """Add a ready asset chunk (uibuild.build) to the file, beside the other overlays' parts."""
+        h = struct.unpack_from('<I', chunk, 8)[0]
+        if h in self.by_hash:
+            raise ValueError('the layout already has an asset by that name')
+        like = next((a for a in self.assets if a.size >= 0x90 and a.container() is None), None) or self.assets[0]
+        tl = struct.unpack_from('<I', self.d, 0x18)[0]
+        ntab = struct.unpack_from('<I', self.d, 0x10)[0]
+        if ntab >= 2:                                   # the second table holds the parts overlays are built from
+            cnt, _t, off = struct.unpack_from('<IIQ', self.d, tl + 16)
+            if cnt:
+                at = struct.unpack_from('<Q', self.d, off + 8)[0]
+                like = next((a for a in self.assets if a.off == at), like)
+        for buf in (self.d, self.base):
+            self._add_chunk(buf, like.off, h, bytes(chunk))
         self._index()
         return self.by_hash[h]
 

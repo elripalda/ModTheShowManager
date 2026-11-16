@@ -239,3 +239,14 @@ def import_font(table, sheet, slot, font_path):
         row = max(row, th)
         drawn += 1
     return Image.fromarray(a, 'RGBA'), drawn
+
+
+# open-licence fonts that come with the manager, for lettering a scorebug (SIL Open Font License, in assets/fonts)
+LIBRARY = [('Bebas Neue', 'BebasNeue-Regular.ttf'), ('Anton', 'Anton-Regular.ttf'), ('Oswald', 'Oswald.ttf'),
+           ('Graduate', 'Graduate-Regular.ttf'), ('Share Tech Mono', 'ShareTechMono-Regular.ttf'),
+           ('VT323', 'VT323-Regular.ttf')]
+
+
+def library_path(file):
+    import os
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'fonts', file)

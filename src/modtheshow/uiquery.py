@@ -158,6 +158,9 @@ class Situation:
             'SCOREBAR HOMERUN_TAB': 0, 'SCOREBAR STRIKEOUT_TAB': 0, 'SCOREBAR WIN_EXP_TAB': 0,
             'SCOREBAR HAS_NOTABLE': 0, 'SCOREBAR HITTER_TYPE': 0, 'SCOREBAR SLIDEUP_TAB': 0,
             'SCORER PITCH_CLOCK': 15, 'HAS_3D_LOGO': 0,
+            'SCORER OUTS': self.outs, 'SCORER BALLS': self.balls, 'SCORER STRIKES': self.strikes,
+            'SCORER INNING': self.inning, 'AWAY_TEAM_ID': 0, 'HOME_TEAM_ID': 1,
+            'CURRENT_BATTER SEASON_STATS AVG': self.batter_avg,
         }
         if key in simple:
             return simple[key]

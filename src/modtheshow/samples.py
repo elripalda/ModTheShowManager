@@ -358,6 +358,84 @@ def glass_bar(lay, table):
     return a
 
 
+def replace_scorebug(lay, design, x=None, y=None):
+    """Swap Theme 1's scorebug for a design of our own (uibuild): the stock pieces are hidden and the design is
+    drawn where the frame was. x, y place its top-left corner; by default it sits bottom centre."""
+    from . import uibuild
+    asset = uibuild.install(lay, design)
+    a = lay.find('Scorebar')
+    c = a.container() if a else None
+    panel = lay.node_at(a, 0x4910, 0x0F) if c is not None else None
+    if panel is None or not c.children or not c.children[0].children:
+        raise ValueError('This scorebug is not laid out like the stock Theme 1.')
+    w, h = design['size']
+    for k in c.children[0].children[0].children:
+        if k is not panel:
+            lay.recolor(k, alpha=0)
+    inst = None
+    for k in panel.children:
+        if k.kind == 0x1E and inst is None:
+            inst = k
+        else:
+            lay.recolor(k, alpha=0)
+    if inst is None:
+        raise ValueError('The scorebug frame was not found.')
+    lay.retarget(inst, asset)
+    lay.move(inst, 0, 0)
+    lay.resize(inst, w, h)
+    lay.move(panel, 5, 12)
+    lay.resize(panel, w, h)
+    lay.move(c, ((1920 - w) / 2 if x is None else x) - 5, (1080 - 60 - h if y is None else y) - 53)
+    lay.resize(c, w + 10, c.h)
+    return a
+
+
+def _lit(on):
+    return [{'box': [0, 0, 12, 12], 'color': '#ffd24a' if on else '#3a3a3a'}]
+
+
+# a plain line of text along the bottom, the way a 1970s broadcast would have done it: built from nothing
+CLASSIC = {'name': 'MTS_Classic', 'size': [700, 46], 'pieces': [
+    {'box': [0, 0, 700, 46], 'color': '#0c0c0c', 'opacity': 88},
+    {'box': [0, 0, 700, 2], 'color': '#ffffff', 'opacity': 55},
+    {'text': '^d0^', 'data': ['AWAY_TEAM TEAM_PROF SHORT_NAME'], 'at': [14, 5, 80, 36], 'size': 30, 'align': 'left'},
+    {'text': '^d0^', 'data': ['SCORER AWAY_SCORE'], 'at': [96, 5, 54, 36], 'size': 30, 'align': 'right',
+     'color': '#ffd24a'},
+    {'box': [168, 10, 2, 26], 'color': '#ffffff', 'opacity': 35},
+    {'text': '^d0^', 'data': ['HOME_TEAM TEAM_PROF SHORT_NAME'], 'at': [186, 5, 80, 36], 'size': 30, 'align': 'left'},
+    {'text': '^d0^', 'data': ['SCORER HOME_SCORE'], 'at': [268, 5, 54, 36], 'size': 30, 'align': 'right',
+     'color': '#ffd24a'},
+    {'box': [340, 10, 2, 26], 'color': '#ffffff', 'opacity': 35},
+    {'switch': 'IG IS_BOTTOM', 'at': [354, 5, 50, 36], 'looks': [
+        [{'text': 'TOP', 'at': [0, 0, 50, 36], 'size': 22, 'align': 'left'}],
+        [{'text': 'BOT', 'at': [0, 0, 50, 36], 'size': 22, 'align': 'left'}]]},
+    {'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [404, 5, 34, 36], 'size': 30, 'align': 'left',
+     'color': '#ffd24a'},
+    {'box': [446, 10, 2, 26], 'color': '#ffffff', 'opacity': 35},
+    {'switch': 'SCOREBAR 2ND_BASE_TAB', 'at': [474, 6, 12, 12], 'looks': [_lit(0), _lit(1)]},
+    {'switch': 'SCOREBAR 3RD_BASE_TAB', 'at': [460, 22, 12, 12], 'looks': [_lit(0), _lit(1)]},
+    {'switch': 'SCOREBAR 1ST_BASE_TAB', 'at': [488, 22, 12, 12], 'looks': [_lit(0), _lit(1)]},
+    {'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [512, 5, 64, 36], 'size': 30},
+    {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [584, 5, 104, 36], 'size': 26, 'align': 'right'},
+]}
+
+
+def scorebug_classic(game, lib, current_file):
+    if THEME not in game.file_set():
+        raise ValueError('This install has no scorebug layout (THEME1.NSW).')
+    from . import recipes
+    lay = uilayout.Layout.open(game.original(THEME))
+    replace_scorebug(lay, CLASSIC)
+    mod = _mod(lib, 'Sample: Classic Line', 'A scorebug built from nothing: one line of text along the bottom, '
+               'the way an old broadcast did it. Teams, score, inning, bases, count and outs.')
+    folder = os.path.join(mod.path, 'layouts')
+    os.makedirs(folder, exist_ok=True)
+    import json
+    with open(os.path.join(folder, 'classic-line.json'), 'w', encoding='utf-8') as f:
+        json.dump([recipes.style_recipe(THEME, lay, game.original(THEME))], f)
+    return mod, 'Pick scorebug Theme 1, switch other scorebug mods off, apply, and start a game.'
+
+
 def _style_sample(game, lib, name, description, slug, split, glass=False):
     if THEME not in game.file_set():
         raise ValueError('This install has no scorebug layout (THEME1.NSW).')
@@ -431,6 +509,8 @@ SAMPLES = [
      scorebug_wide),
     ('split', 'Sample: Split Bar', 'A scorebug layout: teams at either end, the game state in the middle.',
      scorebug_split),
+    ('classic', 'Sample: Classic Line', 'A scorebug built from nothing: one line of text along the bottom.',
+     scorebug_classic),
     ('glass', 'Sample: Glass Bar', 'A scorebug style: three floating tiles of smoked glass.', scorebug_glass),
     ('texttest', 'Test: Scorebug Text', 'A check: scorebug text bigger, red and in another font.',
      scorebug_text_test),

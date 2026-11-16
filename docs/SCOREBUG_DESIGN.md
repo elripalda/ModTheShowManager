@@ -44,6 +44,40 @@ your mockup, and set the fonts.
 
 For lettering, **Import Font…** takes a `.ttf` or `.otf` and draws it into the game in place of one of its fonts.
 
+## Building one from nothing
+
+A design file describes a scorebug as data. The manager compiles it into the game's own format, so the game draws
+it and fills it in like one of its own. Nothing of the stock bug is left on screen.
+
+```json
+{"name": "MTS_Mine", "size": [700, 46], "pieces": [
+  {"box": [0, 0, 700, 46], "color": "#0c0c0c", "opacity": 88},
+  {"text": "^d0^", "data": ["AWAY_TEAM TEAM_PROF SHORT_NAME"], "at": [14, 5, 80, 36], "size": 30, "align": "left"},
+  {"text": "^d0^", "data": ["SCORER AWAY_SCORE"], "at": [96, 5, 54, 36], "size": 30, "color": "#ffd24a"},
+  {"logo": "home", "kind": 2, "at": [640, 3, 40, 40]},
+  {"team": "home", "at": [186, 0, 150, 46], "opacity": 70},
+  {"switch": "IG IS_BOTTOM", "at": [354, 5, 50, 36], "looks": [
+    [{"text": "TOP", "at": [0, 0, 50, 36], "size": 22}],
+    [{"text": "BOT", "at": [0, 0, 50, 36], "size": 22}]]},
+  {"text": "^d0^ OUT", "data": ["SCORER OUTS"], "at": [584, 5, 104, 36], "size": 26, "align": "right"}]}
+```
+
+| Piece | What it draws |
+| --- | --- |
+| `box` | A filled rectangle. Add `"texture"` to draw one of the theme pack's textures instead. |
+| `text` | Words. `^d0^`, `^d1^` are live values, one query each in `data`. Without `data` the words are fixed. |
+| `logo` | A team's logo, `"away"` or `"home"`, from one of the game's five logo sets (`kind` 1 to 5). |
+| `team` | A box in the team's colour. |
+| `switch` | One look per value of a query: look 0 when it answers 0, look 1 for 1, and so on. |
+| `group` | Pieces kept together, optionally clipped to the group's box. |
+
+Positions are `[x, y, width, height]` inside the parent, in screen pixels. `font` is a game font number, `size` is
+in pixels, `align` is left, centre or right. Add `"x"` and `"y"` at the top to place the bug on screen. The data
+you can show is listed in [Game data for a scorebug](SCOREBUG_DATA.md).
+
+Load one from **Styles › Open a Design File…**. **Classic Line** in the same list is built this way: one line of
+text along the bottom.
+
 ## What a mockup needs if you hand it over
 
 A flat picture is enough to copy a layout: where things sit, how big, what colour. To build it properly send:
@@ -56,9 +90,10 @@ A flat picture is enough to copy a layout: where things sit, how big, what colou
 
 ## Not possible yet
 
-- **New pieces.** You can change, move, hide and repaint what a theme has, and a template can be copied and
-  reshaped (the Split Bar's mirrored home side is a second copy of the team row). A piece built from nothing,
-  with its own text and data, is next.
+- **Mixing the two.** A design replaces the whole scorebug. Adding one new piece to a stock bug, or keeping the
+  stock batter bar under a design, is next.
+- **Motion in a design.** A design is still. Giving its pieces animations is not built.
+- **New textures.** A design can draw the theme pack's textures, not add its own.
 - **Pop-ups dropping down.** The bars and cards are built to rise from behind the bug. On a top bar they still
   rise, so the bar has to sit low enough to leave them room.
 - **Transitions.** The wipes between plays are Bink videos (`CROSS/MOVIES/PRESENTATION/THEMEn/*.BK2`), not

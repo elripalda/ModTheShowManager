@@ -44,6 +44,11 @@ def roster_targets(game):
             if rel in fs and os.path.exists(game.path(rel))]
 
 
+def lang_of(rel):
+    """The text file beside a layout."""
+    return rel[:-4] + '.LANG_EN'
+
+
 def layout_targets(mods):
     out = []
     for m in mods:
@@ -53,6 +58,8 @@ def layout_targets(mods):
                     rel = str(e.get('file', '')).strip('/').upper()
                     if rel and rel not in out:
                         out.append(rel)
+                    if rel and e.get('designs') and lang_of(rel) not in out:      # a design brings words with it
+                        out.append(lang_of(rel))
             except (OSError, ValueError, AttributeError, TypeError):
                 pass
     return out
@@ -128,18 +135,36 @@ def style_recipe(rel, layout, original_path):
         entry['clones'] = [[f'{src:08x}', name] for src, name in layout.clones]
         for src, name in layout.clones:
             ref.clone(ref.by_hash[src], name)
+    if layout.designs:
+        from . import uibuild
+        entry['designs'] = list(layout.designs)
+        for design in layout.designs:
+            uibuild.install(ref, design)
     entry['runs'] = layout.runs(ref.bytes())
     return entry
 
 
 def apply_style(lay, entry):
-    """Carry a saved style out on the game's own layout."""
+    """Carry a saved style out on the game's own layout: the assets it copies, the designs it builds, then the
+    bytes it changes. The designs' words are left on lay.words for the text file."""
     for src, name in entry.get('clones') or []:
         a = lay.by_hash.get(int(str(src), 16))
         if a is None:
             raise ValueError('this style copies an asset the layout does not have')
         lay.clone(a, str(name))
-    lay.apply_runs(entry['runs'])
+    if entry.get('designs'):
+        from . import uibuild
+        for design in entry['designs']:
+            uibuild.install(lay, design)
+    lay.apply_runs(entry.get('runs') or [])
+
+
+def lang_bytes(game, rel, lay):
+    """The text file that goes with a layout: the game's own plus the words of the designs built into it."""
+    from . import uilang
+    p = game.path(lang_of(rel))
+    with open(_original(game, lang_of(rel), p), 'rb') as f:
+        return uilang.add(f.read(), *lay.words)
 
 
 def apply_layouts(game, mods, problems):
@@ -188,9 +213,20 @@ def apply_layouts(game, mods, problems):
                     done[rel] = lay
                 except Exception as x:
                     problems.append(f'{m.name}: {os.path.basename(path)}: {x}')
+    out = list(done)
     for rel, lay in done.items():
         p = game.path(rel)
         os.chmod(p, 0o666)
         with open(p, 'wb') as f:
             f.write(lay.bytes())
-    return list(done)
+        if lay.words[0] or lay.words[1]:
+            try:
+                data = lang_bytes(game, rel, lay)
+                p = game.path(lang_of(rel))
+                os.chmod(p, 0o666)
+                with open(p, 'wb') as f:
+                    f.write(data)
+                out.append(lang_of(rel))
+            except (OSError, ValueError) as x:
+                problems.append(f'{lang_of(rel)}: {x}')
+    return out

@@ -6,6 +6,8 @@ additive glows (flag 0x20) are left out unless effects is on, since at rest they
 Text boxes are drawn with sample words in their own font, size and colour when the font table is given, since the
 real words come from the game while it runs.
 """
+import struct
+
 import numpy as np
 from PIL import Image, ImageChops
 
@@ -146,6 +148,13 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
         kid = (nw - n.w, nh - n.h, n.w, n.h)        # how its own children must adjust
         if on and n.kind == 0x18 and layout.is_slot(n) and nw >= 1 and nh >= 1:
             team = ctx.args[0] if ctx is not None and ctx.args else 0
+            own = layout._query_at(n.asset, struct.unpack_from('<Q', layout.d, n.off + 0x30)[0])
+            if own and ctx is not None:                    # the slot's own query says whose logo: UI LOGO [team, kind]
+                try:
+                    from . import uiquery
+                    team = ctx.value(uiquery.parse(own))
+                except Exception:
+                    pass
             logo = situation.team_logo(team) if situation is not None else None
             if logo is not None:
                 fit = logo.copy()

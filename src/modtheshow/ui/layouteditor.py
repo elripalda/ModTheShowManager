@@ -10,7 +10,7 @@ import time
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout,
-                               QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMessageBox,
+                               QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QSlider, QSpinBox, QVBoxLayout, QWidget)
 
 from .. import fontlib, recipes, samples, teamart, uilang, uilayout, uiquery, uirender
@@ -189,7 +189,7 @@ class LayoutEditor(QWidget):
         # the game: a pretend moment (teams, score, inning, count, runners) the overlay is drawn for
         self.sit = uiquery.Situation()
         self._logos = {}
-        self.lang = None
+        self.lang, self._lang_base = None, None
         self._scene = 0
         self._reveal = set()
         grow = QHBoxLayout()
@@ -355,8 +355,14 @@ class LayoutEditor(QWidget):
         self.t_align = QComboBox()
         self.t_align.addItems(['Left', 'Centre', 'Right'])
         self.t_align.activated.connect(self._text_align)
-        self.b_font_import = button('Import Font…', on_click=self._import_font)
-        self.b_font_import.setToolTip('Draw a font file of your own into the game, in place of the font this box uses')
+        self.b_font_import = button('Import Font…')
+        self.b_font_import.setToolTip('Draw another font into the game, in place of the font this box uses')
+        menu = QMenu(self.b_font_import)
+        for name, file in fontlib.LIBRARY:
+            menu.addAction(name, lambda f=file: self._import_font(fontlib.library_path(f)))
+        menu.addSeparator()
+        menu.addAction('From a file…', lambda: self._import_font())
+        self.b_font_import.setMenu(menu)
         trow.addWidget(self.t_font, 3)
         trow.addWidget(self.t_size, 1)
         trow.addWidget(self.t_align, 1)
@@ -411,11 +417,13 @@ class LayoutEditor(QWidget):
             self._table = uilayout.Layout.texture_table([e['name'] for e in tex.entries]) if tex else {}
         except Exception:
             self._table = {}
-        self.lang = None
+        self.lang, self._lang_base = None, None
         try:
             lrel = pack_rel[:-4] + '.LANG_EN'
             if lrel in self.main.game.file_set():
-                self.lang = uilang.Lang.open(self.main.current_file(lrel))
+                with open(self.main.current_file(lrel), 'rb') as f:
+                    self._lang_base = f.read()
+                self.lang = uilang.Lang(self._lang_base)
         except Exception:
             self.lang = None
         try:
@@ -566,6 +574,24 @@ class LayoutEditor(QWidget):
         self.frame.setValue(f)
 
     # ------------------------------------------------------------------ styles
+    def _lang_bytes(self):
+        """The text file as the layout needs it: the game's plus the words of any design built into it."""
+        if self._lang_base is None or not self.layout:
+            return None
+        if not (self.layout.words[0] or self.layout.words[1]):
+            return self._lang_base
+        return uilang.add(self._lang_base, *self.layout.words)
+
+    def _use(self, lay):
+        """Swap in a whole layout (a style, a design, the game's own)."""
+        self.layout = lay
+        try:
+            data = self._lang_bytes()
+            self.lang = uilang.Lang(data) if data else None
+        except Exception:
+            pass
+        self._asset_changed()
+
     def _fill_styles(self):
         self.styles.blockSignals(True)
         self.styles.clear()
@@ -574,6 +600,8 @@ class LayoutEditor(QWidget):
             self.styles.addItem('Wide Top Bar', ('built-in', 'wide'))
             self.styles.addItem('Split Bar', ('built-in', 'split'))
             self.styles.addItem('Glass Bar', ('built-in', 'glass'))
+            self.styles.addItem('Classic Line', ('built-in', 'classic'))
+            self.styles.addItem('Open a Design File…', ('design', None))
         try:
             for m in self.main.lib.list():
                 for path in recipes.files(m.path, 'layouts'):
@@ -598,7 +626,17 @@ class LayoutEditor(QWidget):
             return
         try:
             lay = uilayout.Layout.open(self.main.game.original(self.rel))
-            if what == ('built-in', 'glass'):
+            if what[0] == 'design':
+                path, _ = QFileDialog.getOpenFileName(self, 'Open a design', self.main.last_dir(), 'Designs (*.json)')
+                if not path:
+                    return
+                self.main.remember_dir(path)
+                with open(path, encoding='utf-8') as f:
+                    design = json.load(f)
+                samples.replace_scorebug(lay, design, design.get('x'), design.get('y'))
+            elif what == ('built-in', 'classic'):
+                samples.replace_scorebug(lay, samples.CLASSIC)
+            elif what == ('built-in', 'glass'):
                 samples.glass_bar(lay, self._table)
             elif what[0] == 'built-in':
                 samples.wide_top_bar(lay, split=what[1] == 'split')
@@ -610,8 +648,7 @@ class LayoutEditor(QWidget):
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Load the Style', str(x))
             return
-        self.layout = lay
-        self._asset_changed()
+        self._use(lay)
         self.note.setText('Style loaded. Change what you like, then Save to My Mod or Save as Style.')
 
     def save_style(self):
@@ -1103,15 +1140,17 @@ class LayoutEditor(QWidget):
                 self.layout.set_text_color(n, rgb=(c.red(), c.green(), c.blue()))
             self._redraw()
 
-    def _import_font(self):
+    def _import_font(self, path=None):
         t = self._text_targets()
         fonts = self._load_fonts()
         if not t or not fonts:
             return
-        path, _ = QFileDialog.getOpenFileName(self, 'Import a font', self.main.last_dir(), 'Fonts (*.ttf *.otf)')
         if not path:
-            return
-        self.main.remember_dir(path)
+            path, _ = QFileDialog.getOpenFileName(self, 'Import a font', self.main.last_dir(),
+                                                  'Fonts (*.ttf *.otf)')
+            if not path:
+                return
+            self.main.remember_dir(path)
         mod = self.main.active_mod(ask=True, rel=fontlib.SHEETS)
         if not mod:
             return
@@ -1173,10 +1212,10 @@ class LayoutEditor(QWidget):
                 self.layout.restore(self.asset, source=self._orig.d)
             except ValueError:                   # a style that added to the file: start over from the game's own
                 try:
-                    self.layout = uilayout.Layout.open(self.main.game.original(self.rel))
+                    self._use(uilayout.Layout.open(self.main.game.original(self.rel)))
                 except Exception as x:
                     QMessageBox.warning(self, 'Could Not Reset', str(x))
-                    return
+                return
         self._asset_changed()
 
     def save(self):
@@ -1188,7 +1227,20 @@ class LayoutEditor(QWidget):
             with open(path, 'wb') as f:
                 f.write(data)
         try:
-            self.main.save_file(self.rel, write,
-                                self.which.currentText() + ' layout saved into {mod}. Apply, then check it in a game.')
+            words = self.layout.words[0] or self.layout.words[1]
+            lang = self._lang_bytes() if words else None
+            if not self.main.save_file(self.rel, write, self.which.currentText() +
+                                       ' layout saved into {mod}. Apply, then check it in a game.'):
+                return
+            if lang:                                         # a design's words travel with it
+                import tempfile
+                lrel = recipes.lang_of(self.rel)
+                tmp = os.path.join(tempfile.mkdtemp(prefix='mts_'), os.path.basename(lrel))
+                with open(tmp, 'wb') as f:
+                    f.write(lang)
+                mod = self.main.active_mod(rel=self.rel)
+                if mod:
+                    self.main.lib.add_file(mod, lrel, tmp)
+                    self.main.changed('')
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Save', str(x))

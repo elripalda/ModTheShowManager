@@ -133,7 +133,11 @@ The **Animation** row lists the moves the game plays on the overlay: the batter 
 away, a score rolling over. Pick one and drag the slider to step through it, or press **Play**. Moving, resizing or
 hiding a piece carries its animation with it, so a piece you moved still slides in at its new spot.
 
-**Styles** (bottom row) starts you from a whole look. **Wide Top Bar** turns Theme 1 into one strip across the top
+**Import Font…** also lists six open-licence fonts that come with the manager (Bebas Neue, Anton, Oswald,
+Graduate, Share Tech Mono, VT323).
+
+**Styles** (bottom row) starts you from a whole look. **Classic Line** is a scorebug built from nothing, and
+**Open a Design File…** loads one of your own ([how to write one](SCOREBUG_DESIGN.md#building-one-from-nothing)). **Wide Top Bar** turns Theme 1 into one strip across the top
 of the screen. **Split Bar** puts the teams at either end with the game state between them and mirrors the home
 side. **Glass Bar** is the same shape as three floating tiles of smoked glass, each team tinted its own colour. **Save as Style…** keeps whatever you have built as its own small mod called `Scorebug: <name>`: it
 shows in the Styles list to come back to, and in the Mods list to switch on or share. A style holds only what
@@ -421,6 +425,17 @@ offset u64) sorted by hash. Offsets inside an asset count from its own body, so 
 of the file under a new name as long as the directory gets a row for it. A saved style lists such copies as
 `"clones": [["dc303b63", "MTS_TeamRow_Mirrored"]]`.
 
+An asset's header continues after the 13 section offsets: at +0x6C the end of its strings, +0x70 how many
+children the root has, +0x72 how many animations, +0x7C how many named animations, +0x82 how many triggers, +0x84
+the screen it was drawn for (1920, 1080). Section 7 names the animations: rows of (name hash u32, 0, offset of the
+animation's entry u64) sorted by hash. Queries need no section of their own. A query is a record (offset of its
+token list u64, token count u64) anywhere in the body, and small assets keep them straight after section 7.
+
+An image whose byte +0x4A is 1 keeps a query at +0x30 instead of a texture: `[ UI LOGO [ team , kind ] ]`. A copy
+of another asset (0x1E) has the asset's hash at +0x30, its size and argument count as two u16 at +0x50, and one
+query pointer per argument from +0x58. A switch (0x1C) has its query at +0x30, its size at +0x6C, its number of
+looks at +0x70 and one offset per look from +0x78. `uibuild.py` writes all of these from a design file.
+
 Animations are section 1 of an asset: 16-byte entries (tracks offset u64, track count u16, length in frames u16).
 A track is 24 bytes (channels offset u64, the node's offset in the body u64, 0xFFFF, last frame u16, channel count
 u16). A channel is 16 bytes (keys offset u64, last frame u16, key count u8, property u8: 0 x, 1 y, 7 width,
@@ -455,6 +470,10 @@ the 1,500 words layouts use; `uiquery.py` reads, writes and answers them.
 Beside each layout. Two tables: fixed words (id, string) and live text (id, string, bindings). Live strings carry
 `^d0^ ^d1^` slots, each bound in order to a query, plus marks: `^n^` new line, `^sNN^` size, `^fNN^` font, `^cN^`
 colour, `^bN^` a button picture. The count is `^d0^-^d1^` bound to `[ IG BALLS ]` and `[ IG STRIKES ]`.
+
+To add text, a `.LANG_EN` file takes new rows in either table as long as the tables stay sorted by id and every
+offset after them moves down. In a live entry each binding's second u64 holds the token count in its low 16 bits
+and, above that, how many more bindings follow.
 
 ## Fonts (FONTS.NSW + FONTS.TEX)
 

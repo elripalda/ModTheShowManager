@@ -320,6 +320,64 @@ def test_clone_and_mirror():
     assert again.bytes() == L.bytes()
 
 
+def test_build_a_design():
+    """A piece of UI written as data compiles into an asset the reader takes like the game's own, and its words go
+    into the text file."""
+    from modtheshow import recipes, uibuild, uilang, uiquery
+    design = {'name': 'MTS_Test', 'size': [300, 40], 'pieces': [
+        {'box': [0, 0, 300, 40], 'color': '#101010', 'opacity': 80},
+        {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [200, 4, 96, 32], 'size': 24, 'align': 'right'},
+        {'text': 'TOP', 'at': [4, 4, 60, 32], 'font': 23},
+        {'logo': 'home', 'kind': 2, 'at': [70, 0, 40, 40]},
+        {'team': 'away', 'at': [110, 0, 40, 40]},
+        {'switch': 'IG IS_BOTTOM', 'at': [150, 0, 40, 40], 'looks': [
+            [{'box': [0, 0, 40, 40], 'color': '#ff0000'}], [{'box': [0, 0, 40, 40], 'color': '#0000ff'}]]}]}
+    row = asset('Row', group(0, 0, 100, 40, [bytes(node(0x18, 0, 0, 30, 40))]))
+    use = bytes(node(0x1E, 0, 0, 100, 40, ref=H('Row'), size=0x58, extra=struct.pack('<HH', 0x58, 0)))
+    main = asset('PBInterface\\ScoreBar', group(0, 0, 1920, 1080, [group(10, 10, 200, 100, [use])]))
+    data = directory([main, row])
+    L = uilayout.Layout(data)
+    made = uibuild.install(L, design)
+    L.retarget(L.by_hash[H('PBInterface\\ScoreBar')].container().children[0], made)
+    L2 = uilayout.Layout(L.bytes())
+    a = L2.by_hash[H('MTS_Test')]
+    assert a.problems == 0 and a.name == 'MTS_Test'
+    kinds = [n.kind for n in a.nodes()]
+    assert kinds.count(0x22) == 2 and kinds.count(0x1C) == 1 and kinds.count(0x1E) == 1 and kinds[0] == 0x0F
+    sw = next(n for n in a.nodes() if n.kind == 0x1C)
+    assert uiquery.text(L2.selector(sw)) == '[ IG IS_BOTTOM ]' and len(sw.state_children()) == 2
+    assert all(c is not None and c.children[0].kind == 0x18 for c in sw.state_children())
+    slot = next(n for n in a.nodes() if L2.is_slot(n))
+    assert uiquery.text(L2._query_at(a, struct.unpack_from('<Q', L2.d, slot.off + 0x30)[0])) == \
+        '[ UI LOGO [ HOME_TEAM_ID , 2 ] ]'
+    wash = next(n for n in a.nodes() if n.kind == 0x1E)
+    assert [uiquery.text(q) for q in L2.instance_args(wash)] == ['[ AWAY_TEAM_ID ]'] and wash.parent.clips
+    txt = next(n for n in a.nodes() if n.kind == 0x22)
+    assert L2.text_size(txt) == 24 and L2.text_align(txt) == 2 and L2.text_font(txt) == 25
+    # the words: a text file with nothing but a header takes them, sorted, and reads them back
+    static, live = L.words
+    assert list(static.values()) == ['TOP'] and [v[0] for v in live.values()] == ['^d0^ OUT']
+    empty = struct.pack('<8I', 0x20, 0, 0x20, 0, 0, 0, 0x20, 2)
+    assert uilang.add(empty) == empty
+    lang = uilang.Lang(uilang.add(uilang.add(empty, {5: 'five'}, {}), static, live))
+    assert lang.static[5] == 'five' and lang.static[L2.text_label(next(n for n in a.nodes() if n.kind == 0x22 and
+                                                                       L2.text_font(n) == 23))] == 'TOP'
+    words, binds = lang.live[L2.text_label(txt)]
+    assert words == '^d0^ OUT' and uiquery.text(binds[0]) == '[ SCORER OUTS ]'
+    img, _ = uirender.render(L2, L2.by_hash[H('PBInterface\\ScoreBar')], lambda n: None, {},
+                             situation=uiquery.Situation(bottom=True), lang=lang)
+    assert img.getpixel((10 + 150 + 20, 10 + 20))[:3] == (0, 0, 255)                # the second look is the one drawn
+    # and a style carries the design as data, not as bytes
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        f.write(data)
+    entry = recipes.style_recipe('T.NSW', L, f.name)
+    assert entry['designs'] == [design]
+    again = uilayout.Layout(data)
+    recipes.apply_style(again, entry)
+    assert again.bytes() == L.bytes() and again.words == L.words
+
+
 def test_team_art():
     from modtheshow import teamart
     assert teamart.color('sd') == (0x2F, 0x24, 0x1D) and teamart.color('SD_CC') == teamart.color('SD')
@@ -344,5 +402,6 @@ if __name__ == '__main__':
     test_queries()
     test_lang_and_place()
     test_clone_and_mirror()
+    test_build_a_design()
     test_team_art()
     print('ui layout ok')
