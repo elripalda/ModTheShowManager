@@ -271,6 +271,7 @@ class Mesh:
 
 class ModelView3D(QOpenGLWidget):
     failed = Signal(str)
+    picked = Signal(int)          # index of the mesh under a click (no drag), -1 for empty space
 
     def __init__(self, hq=False):
         super().__init__()
@@ -729,7 +730,61 @@ class ModelView3D(QOpenGLWidget):
         self.update()
 
     def mouseReleaseEvent(self, e):
+        d = self._drag
         self._drag = None
+        if d and d[1] == Qt.LeftButton and (e.position() - d[0]).manhattanLength() < 4:
+            self.picked.emit(self.pick(e.position().x(), e.position().y()))
+
+    def pick(self, x, y):
+        """Index of the nearest visible mesh under the widget point (x, y), or -1."""
+        w, h = max(self.width(), 1), max(self.height(), 1)
+        proj = QMatrix4x4()
+        proj.perspective(50 if self.walk else 32, w / h, self.radius * (0.002 if self.walk else 0.02),
+                         self.radius * (14 if self.walk else 50))
+        view, _ = self._view()
+        inv, ok = (proj * view * self._model()).inverted()
+        if not ok:
+            return -1
+        nx, ny = 2.0 * x / w - 1.0, 1.0 - 2.0 * y / h
+        a, b = inv.map(QVector3D(nx, ny, -1.0)), inv.map(QVector3D(nx, ny, 1.0))
+        o = np.array([a.x(), a.y(), a.z()], np.float64)
+        d = np.array([b.x() - a.x(), b.y() - a.y(), b.z() - a.z()], np.float64)
+        n = np.linalg.norm(d)
+        if n == 0:
+            return -1
+        d /= n
+        best, hit = np.inf, -1
+        safe = np.where(np.abs(d) < 1e-12, 1e-12, d)
+        for i, m in enumerate(self.meshes):
+            if not m.visible or not len(m.tris) or not len(m.pos):
+                continue
+            mn, mx = m.pos.min(0), m.pos.max(0)
+            t1, t2 = (mn - o) / safe, (mx - o) / safe
+            near, far = np.minimum(t1, t2).max(), np.maximum(t1, t2).min()
+            if far < max(near, 0.0) or near > best:
+                continue
+            t3 = m.tris.reshape(-1, 3)
+            t3 = t3[(t3 < len(m.pos)).all(1)]
+            if not len(t3):
+                continue
+            p0 = m.pos[t3[:, 0]].astype(np.float64)
+            e1 = m.pos[t3[:, 1]] - p0
+            e2 = m.pos[t3[:, 2]] - p0
+            pv = np.cross(d, e2)
+            det = (e1 * pv).sum(1)
+            okd = np.abs(det) > 1e-12
+            invd = np.where(okd, 1.0 / np.where(okd, det, 1.0), 0.0)
+            tv = o - p0
+            u = (tv * pv).sum(1) * invd
+            qv = np.cross(tv, e1)
+            v = (qv @ d) * invd
+            t = (e2 * qv).sum(1) * invd
+            good = okd & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1e-6)
+            if good.any():
+                tm = t[good].min()
+                if tm < best:
+                    best, hit = tm, i
+        return hit
 
     def mouseDoubleClickEvent(self, e):
         self.set_walk(self.walk)

@@ -124,6 +124,18 @@ lineups and puts him on the new team's bench or in its bullpen. **Team Builder N
 the game's custom team builder offers. **Arcade Rosters** sets ratings for a whole league at once (99 is the normal
 top, 125 the boosted one).
 
+## Recipes
+
+A mod can describe a change instead of carrying the changed game file. `rosters/*.json` are
+[roster files](ROSTER_FILES.md) and `layouts/*.json` move overlays:
+
+```json
+[{"file": "NSW/UI/GAME/THEME1.NSW", "asset": "Scorebar", "x": 40, "y": 838, "scale": 1.0}]
+```
+
+They are carried out when you apply. A mod made of PNGs, recipes and code patches has nothing of the game's in
+it, which is what [shared mods](../community/README.md) have to be.
+
 ## Code mods
 
 **Code Plugins** builds instruction patches into `mlb.exe` with the recomp's own tools. A mod carries them in

@@ -101,7 +101,8 @@ def test_switch_wiring():
     assert 'rt_patch_on' not in text and 'mts_patch_on[1]' in text
     with open(os.path.join(gen, 'main', 'mts_switches.c')) as f:
         src = f.read()
-    assert '{"a", "MLB_A", 0}' in src and '{"b", "MLB_B", 1}' in src and '#define MTS_SETS 2' in src
+    assert '{"a", "MLB_A", 0, "A"}' in src and '{"b", "MLB_B", 1, "B"}' in src and '#define MTS_SETS 2' in src
+    assert 'VK_F2' in src and 'VK_F2' not in codemods.switch_source([('a', 'MLB_A', 0)], hotkeys=False)
     assert codemods.wire_switches(gen, '') == 0 and not os.path.exists(os.path.join(gen, 'main', 'mts_switches.c'))
     root = tempfile.mkdtemp()
     os.makedirs(os.path.join(root, 'logs'))
@@ -116,6 +117,35 @@ def test_switch_wiring():
     assert codemods.last_swing(root) == {'error': 0.37, 'perfect': (0, 1)}
 
 
+def test_shared_zip_rules():
+    import zipfile
+    from modtheshow import community
+    d = tempfile.mkdtemp()
+    good, bad = os.path.join(d, 'good.zip'), os.path.join(d, 'bad.zip')
+    with zipfile.ZipFile(good, 'w') as z:
+        z.writestr('Pack/mod.json', '{}')
+        z.writestr('Pack/rosters/a.json', '{"teams": []}')
+        z.writestr('Pack/textures/NSW/X.TEX/logo.png', b'png')
+        z.writestr('Pack/code/x.patch', 'set a A 0\n')
+    with zipfile.ZipFile(bad, 'w') as z:
+        z.writestr('Pack/romfs/FRONTEND/STATS/ROSTERS.BIN', b'x')
+        z.writestr('Pack/tool.exe', b'x')
+        z.writestr('Pack/textures/../../evil.png', b'x')
+    assert community.check_zip(good) == [] and len(community.check_zip(bad)) == 3
+
+
+def test_layout_recipe_targets():
+    from modtheshow import recipes
+    root = tempfile.mkdtemp()
+    os.makedirs(os.path.join(root, 'layouts'))
+    with open(os.path.join(root, 'layouts', 'a.json'), 'w') as f:
+        f.write('[{"file": "nsw/ui/game/theme1.nsw", "asset": "Scorebar", "x": 1, "y": 2}]')
+
+    class M:
+        path, name = root, 'm'
+    assert recipes.layout_targets([M]) == ['NSW/UI/GAME/THEME1.NSW'] and recipes.count(root) == 1
+
+
 def test_roster_keys():
     assert rosterjson._height('6\'2"') == 74 and rosterjson._height(74) == 74 and rosterjson._height('6-0') == 72
     assert rosterjson.RATING_KEYS['power_vs_r'] == 'POWER_RIGHT' and rosterjson._pos('SP') == 0
@@ -128,5 +158,7 @@ if __name__ == '__main__':
     test_restore_exe()
     test_drop_sets()
     test_switch_wiring()
+    test_shared_zip_rules()
+    test_layout_recipe_targets()
     test_roster_keys()
     print('ok')

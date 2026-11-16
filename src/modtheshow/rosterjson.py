@@ -268,6 +268,38 @@ def apply(db, doc):
     return rep
 
 
+def random_name(db, rng=None):
+    """A first and last name drawn from the game's own players (each from a different one)."""
+    import random
+    rng = rng or random
+    pool = [p for p in db.players if p.first and p.last and p.first.isascii() and p.last.isascii()]
+    return rng.choice(pool).first, rng.choice(pool).last
+
+
+def create_player(db, team, pos, overall=None, first=None, last=None, rng=None):
+    """Turns a spare built-face player into a new one on team. pos is a position index (0 pitcher). Ratings are
+    the spare's own, moved up or down together so his overall lands on `overall`. Returns the Player."""
+    import random
+    rng = rng or random
+    spare = next((c for c in _donors(db, set()) if c.pitcher == (pos == 0)), None)
+    if spare is None:
+        raise ValueError('no spare player left to turn into a new one')
+    if first is None or last is None:
+        first, last = random_name(db, rng)
+    kw = {'first': first[:15], 'last': last[:15], 'pos': pos,
+          'bits': {'jersey': rng.randint(1, 99), 'jersey2': 0}}
+    kw['bits']['jersey2'] = kw['bits']['jersey']
+    if overall is not None and spare.att is not None:
+        shift = int(overall) - spare.rating('RANK')
+        use = 3 if pos == 0 else 2
+        kw['ratings'] = {f: max(20, min(99 if f != 'RANK' else 125, spare.rating(f) + shift))
+                         for f, _, *who in R.RATINGS if who[use - 2] and f in spare.att.fields and f != 'POTENTIAL'}
+        kw['ratings']['RANK'] = max(1, min(125, int(overall)))
+    db.set_player(spare, **kw)
+    db.set_player(spare, team=team.index)
+    return spare
+
+
 def load(path):
     with open(path, encoding='utf-8-sig') as f:
         return json.load(f)

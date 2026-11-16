@@ -130,7 +130,7 @@ def fitting(game_root, text):
     return drop_sets(text, set(bad)), bad
 
 
-BUILD_REV = 2      # goes up when the way the manager builds changes, so an older build is offered a rebuild
+BUILD_REV = 3      # goes up when the way the manager builds changes, so an older build is offered a rebuild
 SWITCH_FILE = 'mts-code.cfg'
 SWITCH_LOG = 'mts-code.log'
 
@@ -141,15 +141,94 @@ def signature(text):
     return hashlib.sha1(f'{BUILD_REV}\n{body}'.encode()).hexdigest()[:16] if body.strip() else ''
 
 
-def switch_source(sets):
+def switch_source(sets, hotkeys=True):
     """C for the switches of the built-in sets. sets: [(name, env, default)] in table order.
 
     The recomp's shipped runtime library was built without any patch sets, so its own switch array is never filled
     in and a set baked into the game could not be turned on. The manager points the lifted code at this array
     instead. It is filled before the game starts: each set's default, then mts-code.cfg in the game folder
     (name=0/1, written by the manager), then the set's environment variable. What was decided goes to
-    logs/mts-code.log so it can be checked."""
-    rows = ',\n'.join(f'    {{"{n}", "{e}", {int(d)}}}' for n, e, d in sets)
+    logs/mts-code.log so it can be checked.
+
+    hotkeys adds a small watcher thread (Windows): F2 steps through the code mods, F3 switches the one shown on or
+    off while the game runs. The window title shows it for a moment and a tone confirms it (high for on, low for
+    off). A change made this way is saved to mts-code.cfg."""
+    rows = ',\n'.join(f'    {{"{n}", "{e}", {int(d)}, "{nice(n)}"}}' for n, e, d in sets)
+    keys = '''
+#ifdef _WIN32
+#include <windows.h>
+
+static void mts_save(void) {
+    FILE *f = fopen("{SWITCH_FILE}", "w");
+    int i;
+    if (!f)
+        return;
+    fprintf(f, "# Code mod switches, written by Mod the Show Manager. name=1 is on.\\n");
+    for (i = 0; i < MTS_SETS; i++)
+        fprintf(f, "%s=%d\\n", mts_sets[i].name, mts_patch_on[i]);
+    fclose(f);
+}
+
+static BOOL CALLBACK mts_find(HWND h, LPARAM out) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(h, &pid);
+    if (pid == GetCurrentProcessId() && IsWindowVisible(h) && !GetWindow(h, GW_OWNER)) {
+        *(HWND *)out = h;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static DWORD WINAPI mts_keys(LPVOID unused) {
+    char title[200], saved[200];
+    int sel = 0, shown = 0, was2 = 0, was3 = 0;
+    HWND win = NULL;
+    (void)unused;
+    saved[0] = 0;
+    for (;;) {
+        int f2, f3;
+        DWORD pid = 0;
+        Sleep(30);
+        GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+        if (pid != GetCurrentProcessId()) {
+            was2 = was3 = 0;
+            continue;
+        }
+        f2 = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
+        f3 = (GetAsyncKeyState(VK_F3) & 0x8000) != 0;
+        if ((f2 && !was2) || (f3 && !was3)) {
+            if (f2 && !was2 && shown)
+                sel = (sel + 1) % MTS_SETS;
+            if (f3 && !was3) {
+                mts_patch_on[sel] = (uint8_t)!mts_patch_on[sel];
+                mts_save();
+            }
+            win = NULL;
+            EnumWindows(mts_find, (LPARAM)&win);
+            if (win) {
+                if (!shown)
+                    GetWindowTextA(win, saved, sizeof saved);
+                snprintf(title, sizeof title, "%s: %s   (F2 next, F3 on/off)", mts_sets[sel].title,
+                         mts_patch_on[sel] ? "ON" : "OFF");
+                SetWindowTextA(win, title);
+            }
+            Beep(f3 && !was3 ? (mts_patch_on[sel] ? 1047 : 392) : 659, 70);
+            shown = 100;                      /* about three seconds */
+        } else if (shown && !--shown && win && saved[0]) {
+            SetWindowTextA(win, saved);
+        }
+        was2 = f2;
+        was3 = f3;
+    }
+    return 0;
+}
+#endif
+''' if hotkeys else ''
+    keys = keys.replace('{SWITCH_FILE}', SWITCH_FILE)
+    start = '''
+#ifdef _WIN32
+    CloseHandle(CreateThread(NULL, 0, mts_keys, NULL, 0, NULL));
+#endif''' if hotkeys else ''
     return f'''// Written by Mod the Show Manager (codemods.switch_source). Switches for code mod sets.
 #include <stdint.h>
 #include <stdio.h>
@@ -159,10 +238,10 @@ def switch_source(sets):
 #define MTS_SETS {len(sets)}
 uint8_t mts_patch_on[MTS_SETS + 1];
 
-static const struct {{ const char *name; const char *env; int def; }} mts_sets[MTS_SETS] = {{
+static const struct {{ const char *name; const char *env; int def; const char *title; }} mts_sets[MTS_SETS] = {{
 {rows}
 }};
-
+{keys}
 __attribute__((constructor)) static void mts_switches_init(void) {{
     const char *from[MTS_SETS];
     char line[256];
@@ -200,7 +279,7 @@ __attribute__((constructor)) static void mts_switches_init(void) {{
         for (i = 0; i < MTS_SETS; i++)
             fprintf(f, "%s=%d (%s)\\n", mts_sets[i].name, mts_patch_on[i], from[i]);
         fclose(f);
-    }}
+    }}{start}
 }}
 '''
 
@@ -215,7 +294,7 @@ def table_sets(patch_text):
     return out
 
 
-def wire_switches(gen, patch_text):
+def wire_switches(gen, patch_text, hotkeys=True):
     """After the generator ran: point every patched chunk at the manager's switch array and add its source.
     Returns how many chunks were changed."""
     sets = table_sets(patch_text)
@@ -240,7 +319,7 @@ def wire_switches(gen, patch_text):
                 with open(path, 'wb') as f:
                     f.write(data.replace(b'rt_patch_on', b'mts_patch_on'))
                 changed += 1
-    text = switch_source(sets)
+    text = switch_source(sets, hotkeys)
     old = None
     if os.path.exists(src):
         with open(src, encoding='utf-8') as f:
@@ -258,6 +337,20 @@ def write_switches(game_root, states):
             ''.join(f'{n}={1 if on else 0}\n' for n, on in states.items()))
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(body)
+
+
+def read_switches(game_root):
+    """{set name: bool} from mts-code.cfg (the game rewrites it when a mod is switched with F3), or {}."""
+    out = {}
+    try:
+        with open(os.path.join(game_root, SWITCH_FILE), encoding='utf-8', errors='replace') as f:
+            for line in f:
+                m = re.match(r'(\w+)=([01])\s*$', line)
+                if m:
+                    out[m.group(1)] = m.group(2) == '1'
+    except OSError:
+        pass
+    return out
 
 
 def last_launch(game_root):
@@ -308,7 +401,16 @@ def rebuild(recomp, game_root, patch_text, log=print):
                 tail = (tail + [line])[-12:]
                 if re.match(r'emitted \d+/\d+ chunks|\[\d+/\d+\]', line):
                     log(f'{title}: {line.split("]")[0].lstrip("[") if line.startswith("[") else line}')
-        if p.wait():
+        failed = p.wait() != 0
+        if failed and k == 1 and signature(patch_text) and any('mts_switches' in t for t in tail):
+            # the in-game keys are the only Windows-specific code the manager adds: build again without them
+            log('Building without the in-game F2/F3 keys...')
+            wire_switches(gen, patch_text, hotkeys=False)
+            p = subprocess.run(cmd, cwd=recomp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                               errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            tail = [l for l in p.stdout.splitlines() if l.strip()][-12:]
+            failed = p.returncode != 0
+        if failed:
             raise PatchError(f'{title} failed:\n' + '\n'.join(tail))
         if k == 0:
             n = wire_switches(gen, patch_text)

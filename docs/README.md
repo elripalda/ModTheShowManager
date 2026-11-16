@@ -9,7 +9,8 @@ Start with the one that matches what you're doing.
 | Build or import a roster | [Roster files](ROSTER_FILES.md) |
 | Use or write gameplay mods | [Code mods](CODE_MODS.md) |
 | Understand how the game works inside | [What we've found](DISCOVERIES.md) |
-| See what's in this build | [Patch notes 0.10](PATCH-NOTES-0.10.md) |
+| Share a mod or build a league pack | [Sharing mods](../community/README.md) |
+| See what's in this build | [Patch notes 0.11](PATCH-NOTES-0.11.md) |
 
 ## One-line answers
 

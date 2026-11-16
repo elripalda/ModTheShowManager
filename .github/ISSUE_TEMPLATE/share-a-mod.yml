@@ -1,0 +1,38 @@
+name: Share a mod
+description: Send in a mod for the Discover tab
+title: "Mod: "
+labels: ["mod submission"]
+body:
+  - type: input
+    id: name
+    attributes:
+      label: Mod name
+    validations:
+      required: true
+  - type: input
+    id: author
+    attributes:
+      label: Your name or handle
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What it does
+      description: One or two lines, as it should read in the list.
+    validations:
+      required: true
+  - type: textarea
+    id: file
+    attributes:
+      label: The zip
+      description: Drag the zip the manager packed (Discover › Share a Mod) into this box.
+    validations:
+      required: true
+  - type: checkboxes
+    id: mine
+    attributes:
+      label: It's mine to share
+      options:
+        - label: I made what's in this mod, and it holds no game files.
+          required: true

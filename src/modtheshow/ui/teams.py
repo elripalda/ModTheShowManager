@@ -208,6 +208,11 @@ class TeamsPage(QWidget):
         m = QMenu(b)
         m.addAction('Arcade Rosters (boost or scramble ratings)', self.league_tools)
         m.addAction('Auto Lineup for This Team', self.auto_lineup)
+        m.addSeparator()
+        m.addAction('Random Name for This Player', self.random_name)
+        m.addAction('Add a Random Hitter to This Team', lambda: self.random_player(False))
+        m.addAction('Add a Random Pitcher to This Team', lambda: self.random_player(True))
+        m.addSeparator()
         m.addAction('Team Builder Names', self.team_builder)
         b.setMenu(m)
         return b
@@ -217,6 +222,8 @@ class TeamsPage(QWidget):
         b = button('Import / Export')
         m = QMenu(b)
         m.addAction('Import a Roster File (.json)', self.import_json)
+        m.addSeparator()
+        m.addAction('Put This Team in My Mod as a Roster File (shareable)', self.team_recipe)
         m.addSeparator()
         m.addAction('Export This Team', lambda: self.export_json(False))
         m.addAction('Export All 30 MLB Teams', lambda: self.export_json(True))
@@ -235,6 +242,66 @@ class TeamsPage(QWidget):
             idx = self.move_to.itemData(i)
             if idx != R.FREE_AGENT and idx < len(self.db.teams):
                 self.move_to.setItemText(i, self.db.teams[idx].full)
+
+    def random_name(self):
+        from .. import rosterjson as J
+        if not self.db or self.player is None:
+            return
+        first, last = J.random_name(self.db)
+        self.db.set_player(self.player, first=first, last=last)
+        self._dirty(True)
+        keep = self.player.i
+        self._fill_roster()
+        self._select_player(keep)
+
+    def random_player(self, pitcher):
+        import random
+
+        from .. import rosterjson as J
+        if not self.db or self.team is None:
+            return
+        try:
+            pos = 0 if pitcher else random.choice(range(1, 9))
+            p = J.create_player(self.db, self.team, pos, overall=random.randint(58, 82))
+        except ValueError as x:
+            QMessageBox.information(self, 'Random Player', str(x).capitalize() + '.')
+            return
+        self._dirty(True)
+        self._fill_roster()
+        self._select_player(p.i)
+        self.main.toast(f'{p.name} joined {self.team.full}. Save to My Mod to keep him.')
+
+    def _select_player(self, index):
+        for r in range(self.roster.rowCount()):
+            it = self.roster.item(r, 0)
+            if it is not None and it.data(Qt.UserRole) == index:
+                self.roster.selectRow(r)
+                self.roster.scrollToItem(it)
+                return
+
+    def team_recipe(self):
+        """The team as it stands, edits included, written into the active mod as a roster file."""
+        from .. import rosterjson as J
+        if not self.db or self.team is None:
+            return
+        mod = self.main.active_mod(ask=True)
+        if not mod:
+            return
+        doc = J.export(self.db, [self.team.index])
+        doc['teams'][0]['replace'] = True
+        doc['teams'][0]['rename'] = {'city': self.team.city, 'name': self.team.name, 'short': self.team.short}
+        # the team is found by its place in the game, so the file still fits after the rename it carries
+        doc['teams'][0]['team'] = str(self.team.index)
+        folder = os.path.join(mod.path, 'rosters')
+        os.makedirs(folder, exist_ok=True)
+        name = ''.join(c for c in self.team.full if c.isalnum() or c in ' -_').strip() or f'team {self.team.index}'
+        try:
+            with open(os.path.join(folder, name + '.json'), 'w', encoding='utf-8') as f:
+                f.write(J.dump(doc))
+        except OSError as x:
+            QMessageBox.warning(self, 'Could Not Save', str(x))
+            return
+        self.main.changed(f'{self.team.full} is in {mod.name} as a roster file. Apply to use it; the mod can be shared.')
 
     def auto_lineup(self):
         if not self.db or self.team is None:

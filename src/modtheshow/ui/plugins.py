@@ -41,7 +41,8 @@ class PluginsPage(QWidget):
                             'format.')
         self.empty = label(self._empty_text, 'Soft', wrap=True)
         self.hint = label('Tick what you want, press Rebuild Game once, then play. After that you can tick and '
-                          'untick without rebuilding; it takes effect the next time the game starts.', 'Sub', wrap=True)
+                          'untick without rebuilding; it takes effect the next time the game starts. In the game, '
+                          'F2 steps through the code mods and F3 switches the one shown on or off.', 'Sub', wrap=True)
         ll.addWidget(self.hint)
         ll.addWidget(self.empty)
         self.filler = QWidget()
@@ -102,6 +103,13 @@ class PluginsPage(QWidget):
         text, misfit = codemods.fitting(self.main.game.root, text)
         self.list.clear()
         sw = self.switches()
+        # F3 in the game changes the file; the ticks follow it
+        known = {n for n, _, _, _ in sets}
+        changed = {n: on for n, on in codemods.read_switches(self.main.game.root).items()
+                   if n in known and sw.get(n) != on}
+        if changed:
+            sw.update(changed)
+            self.main.save_settings()
         for name, env, default, mod in sets:
             it = QListWidgetItem()
             w = QWidget()

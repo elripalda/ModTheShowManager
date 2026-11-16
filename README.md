@@ -44,13 +44,14 @@ New here? The [quick start](docs/QUICK_START.md) gets a mod into the game in abo
 | --- | --- |
 | **Textures** | Uniforms, bats, stadium signs, scorebugs, menus and loading screens. Preview, export, drop your own PNG in. |
 | **Uniforms** | See a uniform on a player with the cap, name and number. Set what each team wears and when. |
-| **Stadiums** | Every ad board and wall in each park, plus a 3D view you can orbit or fly through. |
+| **Stadiums** | Every ad board and wall in each park, plus a 3D view you can fly through. Click a sign to replace it. |
 | **Scorebug** | Move and scale the scorebug and other overlays. |
 | **Teams & Rosters** | Edit names, ratings, numbers and gear, move players, auto-fill lineups. Import and export rosters as a [plain file](docs/ROSTER_FILES.md) you can write by hand or with an AI. |
 | **Sounds** | Play and export every sound in the game, commentary included. Replace streams with your own WAV. |
 | **3D Models** | View bats, balls, gear and props with their textures. Export OBJ, bring one back in. |
 | **Code mods** | Gameplay changes built into the game and switched per launch: Auto PCI, moonshot home runs, a juiced ball, thin air and more. |
 | **Mods** | Each mod is a folder. Switch them on and off, set the order, apply. Restore puts the stock game back. |
+| **Discover** | Mods other people have shared, one click to add. [Share your own](community/README.md). |
 | **Launcher** | See what state the game is in and press Play. |
 
 <p align="center">
@@ -77,7 +78,7 @@ A mod is a folder in `<game>\mods`, so it can be zipped and shared:
 mods/My Mod/
   mod.json
   textures/NSW/STADIUMS/ARZ/TEXTURES_COLOR.TEX/rolling_sign_basecolor.png
-  romfs/FRONTEND/STATS/ROSTERS.BIN
+  rosters/my league.json
   code/my code mod.patch
 ```
 
@@ -91,6 +92,7 @@ Share your own work, not the game's original files.
 | [Modding guide](docs/MODDING_GUIDE.md) | Where everything lives in the game and how to find what you want. |
 | [Roster files](docs/ROSTER_FILES.md) | The roster file format, with every rating and gear slot. |
 | [Code mods](docs/CODE_MODS.md) | The samples, how to write your own, and the map of the gameplay code. |
+| [Sharing mods](community/README.md) | What a shared mod can hold, league packs, and how to send yours in. |
 | [What we've found](docs/DISCOVERIES.md) | How the game works inside: file formats, the audio codec, the databases, the code. |
 
 ## Building

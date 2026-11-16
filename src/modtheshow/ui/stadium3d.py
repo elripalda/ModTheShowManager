@@ -58,9 +58,74 @@ class StadiumView(QWidget):
         else:
             self.view = label('3D needs OpenGL 2.1, which this PC didn’t offer.', 'Sub', wrap=True)
         lay.addWidget(self.view, 1)
-        self.note = label('Drag to look around · right-drag to pan · scroll to zoom. In Fly Through, W A S D move, Q and '
-                          'E go down and up, hold Shift to go faster.', 'Sub', wrap=True)
+        self.note = label('Click anything to see which texture it uses. Drag to look around · right-drag to pan · '
+                          'scroll to zoom. In Fly Through, W A S D move, Q and E go down and up, hold Shift to go '
+                          'faster.', 'Sub', wrap=True)
         lay.addWidget(self.note)
+        # what was clicked, and what can be done with it
+        self.pick_bar = QWidget()
+        pb = QHBoxLayout(self.pick_bar)
+        pb.setContentsMargins(0, 0, 0, 0)
+        pb.setSpacing(8)
+        self.pick_text = label('', 'Soft')
+        pb.addWidget(self.pick_text, 1)
+        self.b_show = QPushButton('Show in Signs && Textures')
+        self.b_replace = QPushButton('Replace With PNG')
+        for b, fn in ((self.b_show, self._show_picked), (self.b_replace, self._replace_picked)):
+            b.setObjectName('Seg')
+            b.setCursor(Qt.PointingHandCursor)
+            b.setMinimumWidth(190)
+            b.clicked.connect(fn)
+            pb.addWidget(b)
+        lay.addWidget(self.pick_bar)
+        self.pick_bar.hide()
+        self.names, self.picked_tex, self.on_show = [], None, None
+        if self.gl:
+            self.view.picked.connect(self._picked)
+
+    def _picked(self, i):
+        self.view.set_highlight(i)
+        name = self.names[i] if 0 <= i < len(self.names) else ''
+        found = self.finder.find(self.folder + '/SCENE.MOD', name) if name and self.folder else None
+        self.picked_tex = found
+        self.pick_bar.setVisible(i >= 0)
+        if i < 0:
+            return
+        if found:
+            self.pick_text.setText(f'{found[1]}   ·   {found[0].rsplit("/", 1)[-1]}')
+        else:
+            self.pick_text.setText((name + ': ' if name else '') + 'this piece has no texture the manager can find.')
+        self.b_show.setEnabled(bool(found))
+        self.b_replace.setEnabled(bool(found))
+
+    def _show_picked(self):
+        if self.picked_tex and self.on_show:
+            self.on_show(self.picked_tex[1])
+
+    def _replace_picked(self):
+        if not self.picked_tex:
+            return
+        pack, name = self.picked_tex
+        path, _ = QFileDialog.getOpenFileName(self, 'Replace With PNG', self.main.last_dir(),
+                                              'Images (*.png *.jpg *.jpeg)')
+        if not path:
+            return
+        self.main.remember_dir(path)
+        tex = self.main.tex(pack)
+        entry = next((e for e in tex.entries if e['name'] == name), None) if tex else None
+        if entry is None or not tex.simple(entry):
+            self.main.toast('This texture can be exported but not replaced yet.')
+            return
+        mod = self.main.active_mod(ask=True)
+        if not mod:
+            return
+        from PIL import Image
+        img = Image.open(path).convert('RGBA')
+        if img.size != (entry['w'], entry['h']):
+            img = img.resize((entry['w'], entry['h']), Image.LANCZOS)
+        self.main.lib.add_texture(mod, pack, name, img)
+        self.main.changed(f'{name} saved to {mod.name}')
+        self.refresh()
 
     def _override(self, pack, name):
         hit = self.main.mod_png(pack, name)
@@ -125,6 +190,8 @@ class StadiumView(QWidget):
             meshes[-1].is_roof = 'roof' in low and 'sign' not in low
             meshes[-1].visible = not (self.roof.isChecked() and meshes[-1].is_roof)
         self._separate_ground(meshes)
+        self.names = names
+        self.pick_bar.hide()
         self.view.set_meshes(meshes, 'This park has no meshes the manager can read.')
         self._frame_on_park()
         self._walk(self.b_fly.isChecked())

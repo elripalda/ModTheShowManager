@@ -123,12 +123,15 @@ def _roster_mod(game, lib, current_file, name, description, change):
 
 
 def yankees_1927(game, lib, current_file):
-    def change(db):
-        rep = rosterjson.apply(db, YANKEES_1927)
-        return rep.text()
-    return _roster_mod(game, lib, current_file, 'Sample: 1927 Yankees',
-                       'Murderers’ Row takes over the Yankees. Ruth and Gehrig use the game’s own legends; the rest '
-                       'are new players with built faces.', change)
+    """A league pack in its shareable form: the mod holds the roster file, and Apply carries it out."""
+    mod = _mod(lib, 'Sample: 1927 Yankees',
+               'Murderers’ Row takes over the Yankees. Ruth and Gehrig use the game’s own legends; the rest are new '
+               'players with built faces.')
+    folder = os.path.join(mod.path, 'rosters')
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, '1927 Yankees.json'), 'w', encoding='utf-8') as f:
+        f.write(rosterjson.dump(YANKEES_1927))
+    return mod, '25 players in a roster file. Nothing from the game is in this mod, so it can be shared.'
 
 
 def moonshot_league(game, lib, current_file):
@@ -147,19 +150,17 @@ def moonshot_league(game, lib, current_file):
 def scorebug_corner(game, lib, current_file):
     if THEME not in game.file_set():
         raise ValueError('This install has no scorebug layout (THEME1.NSW).')
-    layout = uilayout.Layout.open(game.original(THEME))
-    asset = layout.find('Scorebar')
-    node = asset.container() if asset else None
-    if node is None:
+    asset = uilayout.Layout.open(game.original(THEME)).find('Scorebar')
+    if asset is None or asset.container() is None:
         raise ValueError('The scorebug was not found in the layout.')
-    layout.move(node, 40, 838)
     mod = _mod(lib, 'Sample: Scorebug Bottom Left', 'Moves the scorebug to the bottom left corner. Change it again in '
                'Scoreboards, Layout.')
-    tmp = os.path.join(tempfile.mkdtemp(prefix='mts_'), 'THEME1.NSW')
-    with open(tmp, 'wb') as f:
-        f.write(layout.bytes())
-    lib.add_file(mod, THEME, tmp)
-    return mod, 'Scorebug moved to 40, 838.'
+    folder = os.path.join(mod.path, 'layouts')
+    os.makedirs(folder, exist_ok=True)
+    import json
+    with open(os.path.join(folder, 'scorebug.json'), 'w', encoding='utf-8') as f:
+        json.dump([{'file': THEME, 'asset': 'Scorebar', 'x': 40, 'y': 838}], f, indent=2)
+    return mod, 'Scorebug moves to 40, 838 when applied.'
 
 
 def arcade_code(game, lib, current_file):

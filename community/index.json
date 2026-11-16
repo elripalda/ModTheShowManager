@@ -1,0 +1,37 @@
+{
+  "mods": [
+    {
+      "id": "1927-yankees",
+      "name": "1927 Yankees",
+      "author": "Ripalda",
+      "version": "1.0",
+      "kinds": [
+        "Roster"
+      ],
+      "description": "Murderers’ Row takes over the Yankees: 25 players, lineups set. Ruth and Gehrig are the game’s own legends.",
+      "url": "https://raw.githubusercontent.com/elripalda/ModTheShowManager/main/community/mods/1927-yankees.zip"
+    },
+    {
+      "id": "scorebug-bottom-left",
+      "name": "Scorebug Bottom Left",
+      "author": "Ripalda",
+      "version": "1.0",
+      "kinds": [
+        "Scorebug"
+      ],
+      "description": "Moves the scorebug to the bottom left corner.",
+      "url": "https://raw.githubusercontent.com/elripalda/ModTheShowManager/main/community/mods/scorebug-bottom-left.zip"
+    },
+    {
+      "id": "arcade-code-mods",
+      "name": "Arcade Code Mods",
+      "author": "Ripalda",
+      "version": "1.0",
+      "kinds": [
+        "Code mod"
+      ],
+      "description": "Auto PCI, Perfect-Perfect, moonshots, juiced ball, thin air and more. Tick them in Code Plugins.",
+      "url": "https://raw.githubusercontent.com/elripalda/ModTheShowManager/main/community/mods/arcade-code-mods.zip"
+    }
+  ]
+}

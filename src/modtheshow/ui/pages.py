@@ -312,6 +312,7 @@ class StadiumsPage(CollectionPage):
         super().__init__(main)
         from .stadium3d import StadiumView
         self.view3d = StadiumView(main)
+        self.view3d.on_show = self._show_texture
         self.add_modes(('Signs & Textures', '3D View'), [self.view3d])
 
     def mode_changed(self, i):
@@ -343,6 +344,11 @@ class StadiumsPage(CollectionPage):
         return [(nice.get(p.rsplit('/', 1)[1], p.rsplit('/', 1)[1][:-4].replace('_', ' ').title()), [p]) for p in packs] \
             or [('', [])]
 
+
+    def _show_texture(self, name):
+        """From the 3D view: back to the texture grid, filtered to the texture that was clicked."""
+        self.mode_group.button(0).click()
+        self.filter.edit.setText(name)
 
 class _ListOfPacks(CollectionPage):
     ROWS = staticmethod(lambda game: [])

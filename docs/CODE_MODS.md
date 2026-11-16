@@ -30,6 +30,12 @@ start the game. After that, ticking and unticking takes effect the next time the
 
 These are for offline play. None of them have been through a full season, so try one at a time first.
 
+## Switching while you play
+
+With the game window in front, **F2** steps through the code mods and **F3** turns the one shown on or off. The
+window title shows which one for a few seconds and a tone confirms it: high for on, low for off. What you set
+this way is remembered.
+
 ## Checking that one is on
 
 - **Code Plugins** says what the game had on the last time it started, and what its log recorded about your

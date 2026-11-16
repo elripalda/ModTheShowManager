@@ -16,12 +16,13 @@ from .home import HomePage
 from .models import ModelsPage
 from .sounds import SoundsPage
 from .teams import TeamsPage
+from .discover import DiscoverPage
 from .modspage import ModsPage
 from .plugins import PluginsPage
 from .settingspage import SettingsPage
 from .pages import BatsPage, MenusPage, ScoreboardsPage, StadiumsPage, UniformsPage
 
-NAV = [('START', [('Home', HomePage), ('Mods', ModsPage)]),
+NAV = [('START', [('Home', HomePage), ('Mods', ModsPage), ('Discover', DiscoverPage)]),
        ('CREATE', [('Uniforms', UniformsPage), ('Bats', BatsPage), ('Stadiums', StadiumsPage),
                    ('Scoreboards', ScoreboardsPage), ('Menus & Loading Screens', MenusPage), ('3D Models', ModelsPage),
                    ('Sounds', SoundsPage), ('Teams & Rosters', TeamsPage)]),

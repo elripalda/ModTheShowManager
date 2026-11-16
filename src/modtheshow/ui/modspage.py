@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayo
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
                                QProgressBar, QPushButton, QVBoxLayout, QWidget)
 
-from .. import codemods
+from .. import codemods, recipes
 from . import theme, workers
 from .common import badge, button, header, label, panel, section_title
 from .widgets import Toggle
@@ -121,7 +121,10 @@ class ModRow(QWidget):
         nc = len(codemods.mod_patches(mod))
         if nc:
             chips.addWidget(badge('Code mod'))
-        if not nt and not nf and not nc:
+        nr = recipes.count(mod.path)
+        if nr:
+            chips.addWidget(badge(f'{nr} recipe{"s" if nr != 1 else ""}'))
+        if not nt and not nf and not nc and not nr:
             chips.addWidget(badge('Empty: add textures from any section'))
         if overrides:
             chips.addWidget(badge(f'Overrides {", ".join(sorted(overrides))}', True))
@@ -232,7 +235,8 @@ class SamplesDialog(QDialog):
             except Exception as x:
                 self.notes.append(f'{name}: {x}')
                 continue
-            if new and (mod.textures() or mod.files()):      # a code-only mod changes nothing until it is built
+            if new and (mod.textures() or mod.files() or recipes.has_any(mod.path)):
+                # (a code-only mod stays on: it changes nothing until it is built and ticked)
                 lib.set_enabled(mod, False)
             self.made.append(name)
             self.notes.append(f'{name}: {note}')

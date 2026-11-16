@@ -85,7 +85,7 @@ class Mod:
         any_ = False
         for dp, _, fs in sorted(os.walk(self.path)):
             rel_dir = os.path.relpath(dp, self.path).replace('\\', '/')
-            if not legacy and rel_dir.split('/')[0] not in ('textures', 'romfs'):
+            if not legacy and rel_dir.split('/')[0] not in ('textures', 'romfs', 'rosters', 'layouts'):
                 continue
             for f in sorted(fs):
                 p = os.path.join(dp, f)
@@ -360,6 +360,23 @@ class Library:
             t.save(self.game.path(rel))
             changed.append(rel)
             log(f'{rel}  ({n} texture(s))')
+        # recipes last: they work on the files as the mods above left them
+        from . import recipes
+        on = [m for m in self.list() if m.enabled]
+        if any(recipes.files(m.path, 'rosters') for m in on):
+            for rel in recipes.roster_targets(self.game):
+                self._back_up(rel)
+            done = recipes.apply_rosters(self.game, on, problems)
+            changed += done
+            for rel in done:
+                log(f'{rel}  (roster recipes)')
+        for rel in recipes.layout_targets(on):
+            if os.path.exists(self.game.path(rel)):
+                self._back_up(rel)
+        done = recipes.apply_layouts(self.game, on, problems)
+        changed += done
+        for rel in done:
+            log(f'{rel}  (layout recipes)')
         self._fix_sizes(changed)
         os.makedirs(self.game.backup, exist_ok=True)
         with open(os.path.join(self.game.backup, APPLIED), 'w', encoding='utf-8') as f:
