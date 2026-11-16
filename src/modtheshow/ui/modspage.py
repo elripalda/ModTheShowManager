@@ -151,7 +151,14 @@ class ModRow(QWidget):
         self.toggle.setChecked(mod.enabled)
         self.toggle.setAccessibleName(f'{mod.name} on or off')
         self.toggle.toggled.connect(self._toggle)
-        lay.addWidget(self.toggle, 0, Qt.AlignVCenter)
+        if n and n == len(codemods.mod_patches(mod)):
+            # nothing in it but code: its switches are the ones in Code Mods, so that is where this row sends you
+            go = button('In Code Mods', on_click=lambda: page.main.go('Code Mods'))
+            go.setToolTip('This mod only carries code mods. They are switched on the Code Mods page.')
+            lay.addWidget(go, 0, Qt.AlignVCenter)
+            self.toggle.hide()
+        else:
+            lay.addWidget(self.toggle, 0, Qt.AlignVCenter)
         for text_, tip, d in (('▲', 'Move up', -1), ('▼', 'Move down', 1)):
             b = QPushButton(text_)
             b.setObjectName('Icon')
