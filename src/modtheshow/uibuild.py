@@ -12,6 +12,8 @@ A design is plain data:
         {"switch": "SCORER OUTS", "at": [500, 0, 60, 44], "looks": [[...], [...], [...]]},
         {"group": [...], "at": [0, 0, 100, 44], "clip": true}]}
 
+Any piece can carry a rule: "when": {"data": "SCORER OUTS", "is": ">=", "value": 2} draws it only while that holds.
+
 text holds ^d0^ ^d1^ where live values go and data names the game query for each (see docs/SCOREBUG_DATA.md); with no
 data it is fixed words. A switch draws the look numbered by its query's value. Everything is positioned inside its
 parent, in 1920 x 1080 screen pixels.
@@ -39,6 +41,7 @@ DATA = ['AWAY_TEAM TEAM_PROF SHORT_NAME', 'HOME_TEAM TEAM_PROF SHORT_NAME', 'SCO
         'CURRENT_BATTER SEASON_STATS RBI', 'PITCH_BAT_STATS PITCH_COUNT', 'SCOREBAR SPEED', 'SCORER PITCH_CLOCK',
         'BoxScore HITS [ 0 ]', 'BoxScore HITS [ 1 ]', 'BoxScore ERRORS [ 0 ]', 'BoxScore ERRORS [ 1 ]',
         'BoxScore INNING_VAL [ 0 , 0 ]', 'BoxScore INNING_VAL [ 1 , 0 ]']
+RULES = ['==', '>', '>=', '<', '<=']        # what a "when" rule can ask of a number
 SWITCHES = ['IG IS_BOTTOM', 'SCORER OUTS', 'SCOREBAR 1ST_BASE_TAB', 'SCOREBAR 2ND_BASE_TAB', 'SCOREBAR 3RD_BASE_TAB',
             'IG BALLS', 'IG STRIKES']
 
@@ -50,6 +53,8 @@ def kind_of(piece):
 
 def describe(piece):
     """A few words naming a piece, for a list."""
+    if piece.get('name'):
+        return str(piece['name'])
     k = kind_of(piece)
     if k == 'text':
         return f'Text  {piece["text"]}'
@@ -211,10 +216,19 @@ class Builder:
             raise ValueError(f'a piece needs "at": [x, y, width, height]: {s}')
         col = _rgba(s.get('color'), s.get('opacity'))
         start = len(self.tree)
-        if not s.get('_plain'):
+        if not s.get('_plain') and not s.get('_ruled'):
             self.where.append((s, start))
-        if s.get('enter'):
+        if s.get('enter') and not s.get('_ruled'):
             self.motions.append((start, [float(at[0]), float(at[1])], col[3], dict(s['enter'])))
+        rule = s.get('when')
+        if rule and rule.get('data') and not s.get('_ruled'):      # shown only while the rule holds
+            inner = dict(s, _ruled=True)
+            set_rect(inner, [0, 0, at[2], at[3]])
+            op = rule.get('is', '==')
+            if op not in RULES:
+                raise ValueError(f'a rule can compare with {" ".join(RULES)}, not {op}')
+            self.switch(at, f'QCOMP [ {rule["data"]} , {op} , {int(rule.get("value", 1))} ]', [[], [inner]])
+            return
         if 'tint' in s:
             side, kids, w, h = s['tint'], s.get('group') or [], at[2], at[3]
             if self.team_colors and not s.get('_plain'):

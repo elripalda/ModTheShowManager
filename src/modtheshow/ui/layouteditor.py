@@ -11,7 +11,8 @@ from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout,
                                QFrame, QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu,
-                               QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from .. import fontlib, recipes, samples, teamart, uibuild, uilang, uilayout, uiquery, uirender
 from . import theme
@@ -24,6 +25,58 @@ BACKDROP = (31, 77, 46, 255)
 MOTIONS = [('No motion', None), ('Fade in', {'frames': 20}), ('From the left', {'from': [-60, 0], 'frames': 20}),
            ('From the right', {'from': [60, 0], 'frames': 20}), ('From above', {'from': [0, -40], 'frames': 20}),
            ('From below', {'from': [0, 40], 'frames': 20})]
+
+
+class Layers(QTreeWidget):
+    """The pieces of a design as a tree, back to front, nested the way they are grouped."""
+    activated = Signal(int)
+    renamed = Signal(int)
+
+    def __init__(self):
+        super().__init__()
+        self.setHeaderHidden(True)
+        self.setRootIsDecorated(False)
+        self.setIndentation(theme.d(14))
+        self.setFixedHeight(theme.d(216))
+        self._rows, self._quiet = [], False
+        self.currentItemChanged.connect(lambda *_: None if self._quiet else self.activated.emit(self.currentIndex()))
+        self.itemDoubleClicked.connect(lambda *_: self.renamed.emit(self.currentIndex()))
+
+    def fill(self, rows):
+        """rows: [(words, depth)] in drawing order."""
+        self._quiet = True
+        self.clear()
+        self._rows, stack = [], []
+        for text, depth in rows:
+            it = QTreeWidgetItem([text])
+            del stack[depth:]
+            if stack:
+                stack[-1].addChild(it)
+            else:
+                self.addTopLevelItem(it)
+            stack.append(it)
+            self._rows.append(it)
+        self.expandAll()
+        self._quiet = False
+
+    def count(self):
+        return len(self._rows)
+
+    def currentIndex(self):
+        it = self.currentItem()
+        return next((i for i, r in enumerate(self._rows) if r is it), -1)
+
+    def setCurrentIndex(self, i):
+        self._quiet = True
+        self.setCurrentItem(self._rows[i] if 0 <= i < len(self._rows) else None)
+        self._quiet = False
+
+    def itemText(self, i):
+        return self._rows[i].text(0)
+
+    def currentText(self):
+        it = self.currentItem()
+        return it.text(0) if it else ''
 
 
 class Canvas(QWidget):
@@ -380,9 +433,15 @@ class LayoutEditor(QWidget):
         drow = QHBoxLayout()
         drow.setSpacing(8)
         drow.setContentsMargins(0, 0, 0, 0)
-        self.d_piece = QComboBox()
-        self.d_piece.setToolTip('The pieces of this design, back to front. Click one on the screen to pick it.')
+        self.d_piece = Layers()
+        self.d_piece.setToolTip('The pieces of this design, back to front. Click one here or on the screen to pick '
+                                'it. Double-click to name it.')
         self.d_piece.activated.connect(self._design_pick)
+        self.d_piece.renamed.connect(self._design_rename)
+        self.b_up = button('Move Back', on_click=lambda: self._design_move(-1))
+        self.b_up.setToolTip('Draw this piece earlier, so later pieces cover it')
+        self.b_down = button('Move Forward', on_click=lambda: self._design_move(1))
+        self.b_down.setToolTip('Draw this piece later, on top of the ones before it')
         drow.addWidget(self.d_piece, 3)
         for text, kind in (('+ Box', 'box'), ('+ Text', 'text'), ('+ Logo', 'logo'), ('+ Team Colour', 'team')):
             drow.addWidget(button(text, on_click=lambda _=False, k=kind: self._design_add(k)), 1)
@@ -443,6 +502,21 @@ class LayoutEditor(QWidget):
         menu2.addSeparator()
         menu2.addAction('From a file…', lambda: self._import_font())
         self.d_font_import.setMenu(menu2)
+        # a rule: the piece is drawn only while it holds
+        self.d_rule = QComboBox()
+        self.d_rule.setEditable(True)
+        self.d_rule.addItems([''] + uibuild.SWITCHES + ['SCORER AWAY_SCORE', 'SCORER HOME_SCORE', 'SCORER INNING'])
+        self.d_rule.lineEdit().setPlaceholderText('Always shown. Pick data to show it only when…')
+        self.d_rule.setToolTip('A rule: this piece is drawn only while the game data you pick matches')
+        self.d_rule.activated.connect(self._design_edit)
+        self.d_rule.lineEdit().editingFinished.connect(self._design_edit)
+        self.d_rule_op = QComboBox()
+        for text, op in (('is', '=='), ('is more than', '>'), ('is at least', '>='), ('is less than', '<'),
+                         ('is at most', '<=')):
+            self.d_rule_op.addItem(text, op)
+        self.d_rule_op.activated.connect(self._design_edit)
+        self.d_rule_val = self._spin(0, 99, 0)
+        self.d_rule_val.valueChanged.connect(self._design_edit)
         self.d_move = QComboBox()
         self.d_move.setToolTip('How this piece arrives when the scorebug first appears')
         for text, m in MOTIONS:
@@ -533,11 +607,12 @@ class LayoutEditor(QWidget):
         # the settings, grouped
         self.place_box = section('Place on screen', [[self.preset, self.sscale], [self.sx, self.sy]])
         add_box, add_text, add_logo, add_team, add_image, teams, copy_, delete, save = d_buttons
-        self.design_row = section('Your design', [[self.d_piece], [add_box, add_text], [add_logo, add_team],
-                                                  [add_image, teams], [copy_, delete], [save]])
+        self.design_row = section('Layers', [[self.d_piece], [self.b_up, self.b_down], [copy_, delete],
+                                             [add_box, add_text], [add_logo, add_team], [add_image, teams], [save]])
         self.design_props = section('Chosen piece', [self.d_at[0:2], self.d_at[2:4], [self.d_color, self.d_op],
                                                      [self.d_words], [self.d_data], [self.d_size, self.d_align],
-                                                     [self.d_font, self.d_font_import], [self.d_move]])
+                                                     [self.d_font], [self.d_font_import]])
+        self.rule_box = section('Rule and motion', [[self.d_rule], [self.d_rule_op, self.d_rule_val], [self.d_move]])
         self.tools_row = section('Chosen piece', [[self.b_tint, self.p_op], [self.p_dx, self.p_dy],
                                                   [self.p_size, self.b_hide], [self.b_piece]])
         self.text_row = section('Its text', [[self.t_font], [self.t_size, self.t_align],
@@ -553,15 +628,15 @@ class LayoutEditor(QWidget):
         self.switch_box = section('Force a look', [[self.state_node], [self.state_pick, self.b_states_reset]])
         for w in old:
             w.deleteLater()
-        for w in (self.design_row, self.design_props, self.text_row):
+        for w in (self.design_row, self.design_props, self.rule_box, self.text_row):
             w.hide()
         side = QWidget()
         side.setObjectName('Page')
         col = QVBoxLayout(side)
-        col.setContentsMargins(0, 0, theme.d(8), 0)
+        col.setContentsMargins(0, 0, theme.d(14), 0)
         col.setSpacing(theme.d(18))
-        for w in (self.place_box, self.design_row, self.design_props, self.tools_row, self.text_row, self.tex_box,
-                  self.switch_box):
+        for w in (self.place_box, self.design_row, self.design_props, self.rule_box, self.tools_row, self.text_row,
+                  self.tex_box, self.switch_box):
             col.addWidget(w)
         col.addStretch(1)
         scroll = QScrollArea()
@@ -569,7 +644,7 @@ class LayoutEditor(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(side)
-        scroll.setFixedWidth(theme.d(372))
+        scroll.setFixedWidth(theme.d(392))
         mid.addWidget(scroll)
         lay.addLayout(mid, 1)
         lay.addWidget(self.note)
@@ -781,6 +856,7 @@ class LayoutEditor(QWidget):
         self.design = None
         self.design_row.hide()
         self.design_props.hide()
+        self.rule_box.hide()
 
     def _design_build(self, keep=None):
         if self.design is None:
@@ -798,14 +874,11 @@ class LayoutEditor(QWidget):
         self._use(lay)
         self._pieces = list(uibuild.walk(self.design.get('pieces') or []))      # nested ones too, in drawing order
         pieces = self._pieces
-        self.d_piece.blockSignals(True)
-        self.d_piece.clear()
-        for p, depth, _home, where in pieces:
-            self.d_piece.addItem('      ' * depth + where + uibuild.describe(p))
+        self.d_piece.fill([(where + uibuild.describe(p), depth) for p, depth, _home, where in pieces])
         self.d_piece.setCurrentIndex(max(0, min(keep, len(pieces) - 1)) if pieces else -1)
-        self.d_piece.blockSignals(False)
         self.design_row.show()
         self.design_props.setVisible(bool(pieces))
+        self.rule_box.setVisible(bool(pieces))
         for w in (self.tools_row, self.text_row, self.tex_box, self.switch_box):
             w.hide()
         self._design_pick()
@@ -835,7 +908,14 @@ class LayoutEditor(QWidget):
         if p is None:
             return
         widgets = self.d_at + [self.d_op, self.d_words, self.d_data, self.d_size, self.d_align, self.d_move,
-                               self.d_font]
+                               self.d_font, self.d_rule, self.d_rule_op, self.d_rule_val]
+        rule = p.get('when') or {}
+        self.d_rule.blockSignals(True)
+        self.d_rule.setEditText(str(rule.get('data', '')))
+        self.d_rule_op.blockSignals(True)
+        self.d_rule_op.setCurrentIndex(max(0, self.d_rule_op.findData(rule.get('is', '=='))))
+        self.d_rule_val.blockSignals(True)
+        self.d_rule_val.setValue(int(rule.get('value', 1)))
         if 'text' in p:
             self._load_fonts()
         for w in widgets:
@@ -872,6 +952,11 @@ class LayoutEditor(QWidget):
         uibuild.set_rect(p, [sp.value() for sp in self.d_at])
         if self.d_op.value() < 100 or 'opacity' in p:
             p['opacity'] = self.d_op.value()
+        data = self.d_rule.currentText().strip()
+        if data:
+            p['when'] = {'data': data, 'is': self.d_rule_op.currentData(), 'value': int(self.d_rule_val.value())}
+        else:
+            p.pop('when', None)
         move = self.d_move.currentData()
         if move is None:
             p.pop('enter', None)
@@ -894,6 +979,30 @@ class LayoutEditor(QWidget):
             if self.d_font.currentData() is not None:
                 p['font'] = self.d_font.currentData()
         self._design_build()
+
+    def _design_rename(self, _i=0):
+        p = self._design_piece()
+        if p is None:
+            return
+        text, ok = QInputDialog.getText(self, 'Name the piece', 'A name for this piece in the list:',
+                                        text=str(p.get('name', '')))
+        if ok:
+            if text.strip():
+                p['name'] = text.strip()
+            else:
+                p.pop('name', None)
+            self._design_build()
+
+    def _design_move(self, step):
+        """Earlier or later in the drawing order, among the pieces it sits with."""
+        p, home = self._design_piece(), self._design_home()
+        if p is None or home is None:
+            return
+        i = next(k for k, x in enumerate(home) if x is p)
+        j = i + step
+        if 0 <= j < len(home):
+            home[i], home[j] = home[j], home[i]
+            self._design_build_on(p)
 
     def _design_color(self):
         p = self._design_piece()

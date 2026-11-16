@@ -421,6 +421,34 @@ def test_design_colour_and_motion():
     assert colours('SD', 'LAD', made.pose(0, 12))[0] == (0, 0, 200)
 
 
+def test_design_rule():
+    """A piece with a rule is drawn only while the rule holds."""
+    from modtheshow import uibuild, uilang, uiquery
+    design = {'name': 'MTS_T4', 'size': [100, 40], 'pieces': [
+        {'box': [0, 0, 100, 40], 'color': '#000000'},
+        {'box': [10, 10, 20, 20], 'color': '#ff0000', 'when': {'data': 'SCORER OUTS', 'is': '>=', 'value': 2}}]}
+    row = asset('Row', group(0, 0, 100, 40, [bytes(node(0x18, 0, 0, 30, 40))]))
+    use = bytes(node(0x1E, 0, 0, 100, 40, ref=H('Row'), size=0x58, extra=struct.pack('<HH', 0x58, 0)))
+    main = asset('PBInterface\\ScoreBar', group(0, 0, 1920, 1080, [group(0, 0, 100, 40, [use])]))
+    L = uilayout.Layout(directory([main, row]))
+    made = uibuild.install(L, design)
+    bar = L.by_hash[H('PBInterface\\ScoreBar')]
+    L.retarget(bar.container().children[0], made)
+    sw = next(n for n in made.nodes() if n.kind == 0x1C)
+    assert uiquery.text(L.selector(sw)) == '[ QCOMP [ SCORER OUTS , >= , 2 ] ]'
+    assert L.piece_at[id(design['pieces'][1])] == sw.off - made.body        # the piece is the whole rule, for picking
+    lang = uilang.Lang(struct.pack('<8I', 0x20, 0, 0x20, 0, 0, 0, 0x20, 2))
+    for outs, want in ((0, (0, 0, 0)), (1, (0, 0, 0)), (2, (255, 0, 0))):
+        img, _ = uirender.render(L, bar, lambda n: None, {}, situation=uiquery.Situation(outs=outs), lang=lang)
+        assert img.getpixel((20, 20))[:3] == want, outs
+    try:
+        uibuild.build({'name': 'X', 'size': [1, 1], 'pieces': [
+            {'box': [0, 0, 1, 1], 'when': {'data': 'SCORER OUTS', 'is': '!=', 'value': 1}}]})
+        assert False
+    except ValueError:
+        pass
+
+
 def test_design_own_pictures():
     """A picture of the design's own takes over a texture nothing draws, resized so it loses nothing."""
     from modtheshow import uibuild
@@ -467,6 +495,7 @@ if __name__ == '__main__':
     test_clone_and_mirror()
     test_build_a_design()
     test_design_colour_and_motion()
+    test_design_rule()
     test_design_own_pictures()
     test_team_art()
     print('ui layout ok')

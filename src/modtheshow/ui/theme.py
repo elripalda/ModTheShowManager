@@ -171,7 +171,8 @@ QTreeWidget, QListWidget {{ background: {S1}; border: 1px solid {LINE}; border-r
 QTreeWidget::item, QListWidget::item {{ padding: 5px 8px; border-radius: 8px; color: {SOFT}; }}
 QTreeWidget::item:hover, QListWidget::item:hover {{ background: {S2}; color: {TEXT}; }}
 QTreeWidget::item:selected, QListWidget::item:selected {{ background: {S2}; color: {TEXT}; }}
-QTreeWidget::branch {{ background: transparent; }}
+QTreeWidget {{ show-decoration-selected: 0; }}
+QTreeWidget::branch, QTreeWidget::branch:selected {{ background: transparent; }}
 QListWidget#Grid::item {{ border: 1px solid {LINE}; border-radius: 10px; margin: 4px; padding: 6px; }}
 QListWidget#Grid::item:selected {{ border-color: {TEXT}; background: {S2}; }}
 QListWidget#Mods {{ padding: 0; }}

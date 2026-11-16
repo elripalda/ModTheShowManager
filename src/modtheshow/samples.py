@@ -403,6 +403,43 @@ def replace_scorebug(lay, design, x=None, y=None):
     return a
 
 
+def _art_path(name):
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'scorebug', name)
+
+
+def diamond(x, y, size, on='#ffd24a', off='#ffffff', off_opacity=26):
+    """The three bases as a diamond: second on top, third and first below it, each lit while a runner is on it."""
+    art, half, gap = _art_path('base.png'), size / 2, 2
+    out = []
+    for name, tab, bx, by in (('Second base', '2ND', x + half + gap / 2, y), ('Third base', '3RD', x, y + half + gap / 2),
+                              ('First base', '1ST', x + size + gap, y + half + gap / 2)):
+        out.append({'name': name, 'image': art, 'at': [bx, by, size, size], 'color': off, 'opacity': off_opacity})
+        out.append({'name': name + ' (runner on)', 'image': art, 'at': [bx, by, size, size], 'color': on,
+                    'when': {'data': f'SCOREBAR {tab}_BASE_TAB', 'is': '==', 'value': 1}})
+    return out
+
+
+def out_dots(x, y, size, gap=6, on='#ffd24a', off='#ffffff', off_opacity=26, count=2):
+    """A dot for each out, lit as they are made."""
+    art, out = _art_path('dot.png'), []
+    for i in range(count):
+        at = [x + i * (size + gap), y, size, size]
+        out.append({'name': f'Out {i + 1}', 'image': art, 'at': at, 'color': off, 'opacity': off_opacity})
+        out.append({'name': f'Out {i + 1} (made)', 'image': art, 'at': at, 'color': on,
+                    'when': {'data': 'SCORER OUTS', 'is': '>=', 'value': i + 1}})
+    return out
+
+
+def half_inning(x, y, on='#ffd24a', off='#ffffff'):
+    """Two small bars, the top one lit in the top of an inning and the bottom one in the bottom."""
+    return [{'name': 'Top of the inning', 'box': [x, y, 14, 5], 'color': off, 'opacity': 26},
+            {'name': 'Bottom of the inning', 'box': [x, y + 31, 14, 5], 'color': off, 'opacity': 26},
+            {'name': 'Top (lit)', 'box': [x, y, 14, 5], 'color': on,
+             'when': {'data': 'IG IS_BOTTOM', 'is': '==', 'value': 0}},
+            {'name': 'Bottom (lit)', 'box': [x, y + 31, 14, 5], 'color': on,
+             'when': {'data': 'IG IS_BOTTOM', 'is': '==', 'value': 1}}]
+
+
 def _lit(on):
     return [{'box': [0, 0, 12, 12], 'color': '#ffd24a' if on else '#3a3a3a'}]
 
@@ -425,9 +462,7 @@ CLASSIC = {'name': 'MTS_Classic', 'size': [700, 46], 'pieces': [
     {'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [404, 5, 34, 36], 'size': 30, 'align': 'left',
      'color': '#ffd24a'},
     {'box': [446, 10, 2, 26], 'color': '#ffffff', 'opacity': 35},
-    {'switch': 'SCOREBAR 2ND_BASE_TAB', 'at': [474, 6, 12, 12], 'looks': [_lit(0), _lit(1)]},
-    {'switch': 'SCOREBAR 3RD_BASE_TAB', 'at': [460, 22, 12, 12], 'looks': [_lit(0), _lit(1)]},
-    {'switch': 'SCOREBAR 1ST_BASE_TAB', 'at': [488, 22, 12, 12], 'looks': [_lit(0), _lit(1)]},
+    *diamond(458, 6, 16, off_opacity=30),
     {'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [512, 5, 64, 36], 'size': 30},
     {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [584, 5, 104, 36], 'size': 26, 'align': 'right'},
 ]}
@@ -474,76 +509,71 @@ def _team_tiles():
 
     def tile(side, x, mirror):
         logo = [TW - 62, -4, 64, 64] if mirror else [-2, -4, 64, 64]
-        name = [TW - 150, 8, 84, 40] if mirror else [66, 8, 84, 40]
-        score = [10, 6, 64, 44] if mirror else [TW - 74, 6, 64, 44]
+        name = [TW - 152, 8, 84, 40] if mirror else [68, 8, 84, 40]
+        score = [6, 6, 76, 44] if mirror else [TW - 82, 6, 76, 44]
         return {'group': [
             {'tint': side, 'at': [0, 0, TW, H], 'group': [
                 {'box': [0, 0, TW, H], 'color': '#ffffff', 'opacity': 86},
-                {'box': [score[0] - 6, 0, 76, H], 'color': '#9a9a9a', 'opacity': 86}]},
+                {'box': [score[0] - 6, 0, 88, H], 'color': '#9a9a9a', 'opacity': 86}]},
             {'image': 'gradient_vertical', 'at': [0, 0, TW, H], 'color': '#ffffff', 'opacity': 10},
             {'box': [0, 0, TW, 2], 'color': '#ffffff', 'opacity': 55},
             {'logo': side, 'kind': 2, 'at': logo},
             {'text': '^d0^', 'data': [f'{side.upper()}_TEAM TEAM_PROF SHORT_NAME'], 'at': name, 'size': 30,
              'font': 25},
-            {'text': '^d0^', 'data': [f'SCORER {side.upper()}_SCORE'], 'at': score, 'size': 36, 'font': 37}],
+            {'text': '^d0^', 'data': [f'SCORER {side.upper()}_SCORE'], 'at': score, 'size': 34, 'font': 37}],
             'at': [x, 0, TW, H], 'clip': True,
             'enter': {'from': [60 if mirror else -60, 0], 'frames': 20, 'delay': 0 if not mirror else 4}}
     cx = TW + G
-    mid = {'group': [
+    mid = {'name': 'Game state', 'group': [
         {'box': [0, 0, CW, H], 'color': '#0b0f16', 'opacity': 62},
         {'box': [0, 0, CW, 2], 'color': '#ffffff', 'opacity': 55},
-        {'switch': 'IG IS_BOTTOM', 'at': [12, 6, 20, 44], 'looks': [
-            [{'box': [3, 6, 12, 5], 'color': '#ffd24a'}, {'box': [3, 33, 12, 5], 'color': '#ffffff', 'opacity': 25}],
-            [{'box': [3, 6, 12, 5], 'color': '#ffffff', 'opacity': 25}, {'box': [3, 33, 12, 5], 'color': '#ffd24a'}]]},
-        {'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [10, 12, 24, 32], 'size': 24},
-        {'switch': 'SCOREBAR 2ND_BASE_TAB', 'at': [62, 10, 14, 14], 'looks': [_base(0), _base(1)]},
-        {'switch': 'SCOREBAR 3RD_BASE_TAB', 'at': [46, 28, 14, 14], 'looks': [_base(0), _base(1)]},
-        {'switch': 'SCOREBAR 1ST_BASE_TAB', 'at': [78, 28, 14, 14], 'looks': [_base(0), _base(1)]},
-        {'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [100, 8, 60, 40], 'size': 30},
-        {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [160, 8, 62, 40], 'size': 20, 'align': 'right'}],
+        *half_inning(12, 10),
+        {'name': 'Inning', 'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [6, 12, 26, 32], 'size': 24},
+        *diamond(44, 8, 19),
+        {'name': 'Count', 'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [102, 4, 66, 32],
+         'size': 28},
+        *out_dots(119, 38, 11),
+        {'name': 'Outs', 'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [166, 10, 58, 36], 'size': 18,
+         'align': 'right'}],
         'at': [cx, 0, CW, H], 'enter': {'frames': 16, 'delay': 14}}
     return {'name': 'MTS_TeamTiles', 'size': [W, H], 'bars': True,
             'pieces': [tile('away', 0, False), mid, tile('home', cx + CW + G, True)]}
 
 
-def _art_path(name):
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'scorebug', name)
-
-
 def _glass_tiles():
-    """Rounded tiles of glass, drawn from the manager's own two pictures: each club's tile in its colour under a
-    sheen and a light rim, the game state on smoked glass between them."""
-    TW, CW, H, G = 270, 250, 64, 10
+    """Rounded tiles of glass, drawn from the manager's own pictures: each club's tile in its colour under a sheen
+    and a light rim, the game state on smoked glass between them."""
+    TW, CW, H, G = 280, 280, 68, 10
     W = 2 * TW + CW + 2 * G
     body, gloss = _art_path('glass_body.png'), _art_path('glass_gloss.png')
 
     def tile(side, x, mirror):
-        logo = [TW - 78, -3, 70, 70] if mirror else [8, -3, 70, 70]
-        name = [TW - 172, 10, 92, 44] if mirror else [80, 10, 92, 44]
-        score = [16, 6, 70, 52] if mirror else [TW - 86, 6, 70, 52]
-        return {'group': [
-            {'tint': side, 'at': [0, 0, TW, H], 'group': [{'image': body, 'at': [0, 0, TW, H], 'opacity': 90}]},
-            {'image': gloss, 'at': [0, 0, TW, H]},
-            {'logo': side, 'kind': 2, 'at': logo},
-            {'text': '^d0^', 'data': [f'{side.upper()}_TEAM TEAM_PROF SHORT_NAME'], 'at': name, 'size': 30,
-             'font': 25},
-            {'text': '^d0^', 'data': [f'SCORER {side.upper()}_SCORE'], 'at': score, 'size': 40, 'font': 37}],
+        logo = [TW - 82, -3, 74, 74] if mirror else [8, -3, 74, 74]
+        name = [TW - 180, 12, 96, 44] if mirror else [84, 12, 96, 44]
+        score = [22, 8, 84, 52] if mirror else [TW - 106, 8, 84, 52]
+        return {'name': f'{side.title()} tile', 'group': [
+            {'name': 'Glass in the club colour', 'tint': side, 'at': [0, 0, TW, H],
+             'group': [{'image': body, 'at': [0, 0, TW, H], 'opacity': 90}]},
+            {'name': 'Sheen and rim', 'image': gloss, 'at': [0, 0, TW, H]},
+            {'name': 'Logo', 'logo': side, 'kind': 2, 'at': logo},
+            {'name': 'Club', 'text': '^d0^', 'data': [f'{side.upper()}_TEAM TEAM_PROF SHORT_NAME'], 'at': name,
+             'size': 30, 'font': 25},
+            {'name': 'Score', 'text': '^d0^', 'data': [f'SCORER {side.upper()}_SCORE'], 'at': score, 'size': 38,
+             'font': 37}],
             'at': [x, 0, TW, H],
             'enter': {'from': [70 if mirror else -70, 0], 'frames': 22, 'delay': 0 if not mirror else 4}}
     cx = TW + G
-    lit = lambda on: [{'box': [0, 0, 14, 14], 'color': '#ffd24a' if on else '#ffffff', 'opacity': 100 if on else 22}]
-    mid = {'group': [
-        {'image': body, 'at': [0, 0, CW, H], 'color': '#0b0f16', 'opacity': 66},
-        {'image': gloss, 'at': [0, 0, CW, H], 'opacity': 70},
-        {'switch': 'IG IS_BOTTOM', 'at': [20, 10, 20, 44], 'looks': [
-            [{'box': [3, 4, 12, 5], 'color': '#ffd24a'}, {'box': [3, 35, 12, 5], 'color': '#ffffff', 'opacity': 25}],
-            [{'box': [3, 4, 12, 5], 'color': '#ffffff', 'opacity': 25}, {'box': [3, 35, 12, 5], 'color': '#ffd24a'}]]},
-        {'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [18, 16, 24, 32], 'size': 24},
-        {'switch': 'SCOREBAR 2ND_BASE_TAB', 'at': [72, 14, 14, 14], 'looks': [lit(0), lit(1)]},
-        {'switch': 'SCOREBAR 3RD_BASE_TAB', 'at': [56, 32, 14, 14], 'looks': [lit(0), lit(1)]},
-        {'switch': 'SCOREBAR 1ST_BASE_TAB', 'at': [88, 32, 14, 14], 'looks': [lit(0), lit(1)]},
-        {'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [108, 12, 64, 40], 'size': 30},
-        {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [170, 12, 62, 40], 'size': 20, 'align': 'right'}],
+    mid = {'name': 'Game state', 'group': [
+        {'name': 'Smoked glass', 'image': body, 'at': [0, 0, CW, H], 'color': '#0b0f16', 'opacity': 66},
+        {'name': 'Sheen and rim', 'image': gloss, 'at': [0, 0, CW, H], 'opacity': 70},
+        *half_inning(22, 16),
+        {'name': 'Inning', 'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [16, 18, 26, 32], 'size': 24},
+        *diamond(58, 11, 22),
+        {'name': 'Count', 'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [124, 8, 76, 34],
+         'size': 30},
+        *out_dots(146, 46, 12),
+        {'name': 'Outs', 'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [202, 16, 62, 36], 'size': 19,
+         'align': 'right'}],
         'at': [cx, 0, CW, H], 'enter': {'frames': 16, 'delay': 16}}
     return {'name': 'MTS_GlassTiles', 'size': [W, H], 'bars': True,
             'pieces': [tile('away', 0, False), mid, tile('home', cx + CW + G, True)]}
