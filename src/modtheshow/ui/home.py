@@ -165,9 +165,10 @@ class HomePage(QWidget):
         mods = lib.list()
         on = sum(m.enabled for m in mods)
         pending = lib.pending_count()
-        act = self.main.active_mod()
+        pinned = self.main.settings.get('active_mod')
+        act = next((m for m in mods if m.folder == pinned), None) if pinned else None
         parts = [f'{len(mods)} mod{"s" if len(mods) != 1 else ""}, {on} switched on.']
-        parts.append(f'New changes go into {act.name}.' if act else 'Pick a mod in Saving To before you start.')
+        parts.append(f'New changes go into {act.name}.' if act else 'New changes are sorted into a mod per type.')
         if pending:
             parts.append(f'{pending} change{"s" if pending != 1 else ""} waiting to go into the game.')
         else:

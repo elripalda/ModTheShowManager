@@ -116,7 +116,7 @@ class StadiumView(QWidget):
         if entry is None or not tex.simple(entry):
             self.main.toast('This texture can be exported but not replaced yet.')
             return
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, kind='Stadiums')
         if not mod:
             return
         from PIL import Image

@@ -129,7 +129,7 @@ class DiscoverPage(QWidget):
         """Packs the mod in Saving To for sharing, then opens the form to send it in."""
         from PySide6.QtWidgets import QFileDialog
         import os
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.pick_mod()
         if not mod:
             return
         path, _ = QFileDialog.getSaveFileName(self, 'Pack Mod for Sharing',

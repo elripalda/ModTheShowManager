@@ -84,7 +84,7 @@ class PlayerPreview(QWidget):
         self.finder = TextureFinder(main.game, self._override)
 
     def _override(self, pack, name):
-        mod = self.main.active_mod()
+        mod = self.main.active_mod(kind='Uniforms')
         if mod:
             p = self.main.lib.texture_path(mod, pack, name)
             if os.path.exists(p):
@@ -108,7 +108,7 @@ class PlayerPreview(QWidget):
         if i <= 0 or not self.folder:
             return
         name, src = self._font_rows[i - 1]
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, kind='Uniforms')
         if not mod:
             self.font.setCurrentIndex(0)
             return

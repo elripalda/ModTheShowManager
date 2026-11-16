@@ -334,9 +334,8 @@ class Inspector(QFrame):
         self.b_bat.setVisible(bat)
         if not bat and self.b_bat.isChecked():
             self.b_bat.setChecked(False)
-        self.b_revert.setEnabled(bool(self.main.active_mod() and self.main.lib.texture_path(
-            self.main.active_mod(), rel, e['name']) and os.path.exists(self.main.lib.texture_path(
-                self.main.active_mod(), rel, e['name']))))
+        self.b_revert.setEnabled(bool(self.main.active_mod(rel=rel) and os.path.exists(self.main.lib.texture_path(
+            self.main.active_mod(rel=rel), rel, e['name']))))
         self._render()
 
     def _render(self):
@@ -450,7 +449,7 @@ class Inspector(QFrame):
         if not tex.simple(e):
             QMessageBox.information(self, 'Not Yet', 'This texture format can be exported but not replaced yet.')
             return
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, rel=rel)
         if not mod:
             return
         from PIL import Image
@@ -480,7 +479,7 @@ class Inspector(QFrame):
         if not self.cur:
             return
         rel, tex, e = self.cur
-        mod = self.main.active_mod()
+        mod = self.main.active_mod(rel=rel)
         if mod:
             self.main.lib.remove_texture(mod, rel, e['name'])
             self.main.changed(f'{e["name"]} removed from {mod.name}')

@@ -230,7 +230,7 @@ class PluginsPage(QWidget):
         self.refresh()
 
     def new_patch(self):
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, kind='Code')
         if not mod:
             return
         folder = os.path.join(mod.path, 'code')

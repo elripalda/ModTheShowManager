@@ -40,8 +40,16 @@ def load_fonts():
         QFontDatabase.addApplicationFont(os.path.join(ASSETS, 'fonts', f))
 
 
+DENSITY = 0.9       # everything a touch smaller than the first builds: text, buttons, rows
+
+
 def px(n):
-    return f'{max(9, round(n * SCALE))}px'
+    return f'{max(9, round(n * SCALE * DENSITY))}px'
+
+
+def d(n):
+    """A control size (height, radius, side padding) at the current density."""
+    return max(1, round(n * DENSITY * min(1.15, max(0.9, SCALE))))
 
 
 _CHECK = ''
@@ -93,10 +101,10 @@ def build(name='Dark', scale=1.0):
 * {{ font-family: 'Poppins', 'Segoe UI', sans-serif; font-size: {px(13)}; color: {TEXT}; }}
 QMainWindow, QWidget#Root, QStackedWidget, QScrollArea, QWidget#Page {{ background: {BG}; }}
 QWidget#Sidebar {{ background: {BG}; border-right: 1px solid {LINE}; }}
-QLabel#Group {{ color: {MUTED}; font-size: {px(10)}; font-weight: 500; letter-spacing: 1.6px; padding: 0 12px; }}
+QLabel#Group {{ color: {MUTED}; font-size: {px(10)}; font-weight: 500; letter-spacing: 1.6px; padding: 0 {d(12)}px; }}
 QLabel#H1 {{ font-size: {px(30)}; font-weight: 500; }}
 QLabel#H2 {{ font-size: {px(17)}; font-weight: 500; }}
-QLabel#StripTitle {{ font-size: {px(13)}; font-weight: 500; padding: 0 16px; }}
+QLabel#StripTitle {{ font-size: {px(13)}; font-weight: 500; padding: 0 {d(16)}px; }}
 QLabel#StripLabel {{ color: {MUTED}; font-size: {px(11)}; font-weight: 500; }}
 QLabel#StripValue {{ font-size: {px(16)}; font-weight: 500; }}
 QLabel#StripValueHi {{ font-size: {px(16)}; font-weight: 500; color: {AMBER}; }}
@@ -107,12 +115,12 @@ QLabel#Badge {{ background: {S2}; border: none; border-radius: 11px; padding: 2p
 QLabel#BadgeMod {{ background: {mix(S1, RED, 0.2)}; border: none; border-radius: 11px; padding: 2px 10px;
                   color: {mix(RED, TEXT, 0.45)}; font-size: {px(11)}; font-weight: 500; }}
 QFrame#Strip {{ background: {BG}; border-bottom: 1px solid {LINE}; }}
-QFrame#Scorebug {{ background: {S1}; border: 1px solid {LINE}; border-radius: 19px; }}
+QFrame#Scorebug {{ background: {S1}; border: 1px solid {LINE}; border-radius: {d(19)}px; }}
 QFrame#ScoreCell {{ border-left: 1px solid {LINE}; }}
 QFrame#Panel {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; }}
 QFrame#Banner {{ background: {mix(S1, AMBER, 0.1)}; border: 1px solid {mix(S1, AMBER, 0.5)}; border-radius: {R}px; }}
 QFrame#Dashed {{ border: 1px dashed {LINE}; border-radius: {R}px; }}
-QPushButton {{ background: {S2}; border: 1px solid {S2}; border-radius: 20px; padding: 0 18px; min-height: 40px;
+QPushButton {{ background: {S2}; border: 1px solid {S2}; border-radius: {d(20)}px; padding: 0 {d(18)}px; min-height: {d(40)}px;
               font-weight: 500; }}
 QPushButton:hover {{ background: {HOVER}; border-color: {HOVER}; }}
 QPushButton:pressed {{ background: {PRESSED}; }}
@@ -120,23 +128,23 @@ QPushButton:disabled {{ color: {DIM}; border-color: {dis_bg}; background: {dis_b
 QPushButton#Primary {{ background: {RED}; border: 1px solid {RED}; color: {ON_RED}; }}
 QPushButton#Primary:hover {{ background: {RED_HI}; border-color: {RED_HI}; }}
 QPushButton#Primary:disabled {{ background: {red_dim}; border-color: {red_dim}; color: {mix(ON_RED, red_dim, 0.45)}; }}
-QPushButton#Nav {{ background: transparent; border: none; border-radius: 19px; text-align: left; padding: 0 14px;
-                  min-height: 38px; color: {MUTED}; font-size: {px(13)}; font-weight: 400; }}
+QPushButton#Nav {{ background: transparent; border: none; border-radius: {d(19)}px; text-align: left; padding: 0 {d(14)}px;
+                  min-height: {d(38)}px; color: {MUTED}; font-size: {px(13)}; font-weight: 400; }}
 QPushButton#Nav:hover {{ background: {S2}; color: {TEXT}; }}
 QPushButton#Nav:checked {{ background: {TEXT}; color: {BG}; font-weight: 500; }}
 QPushButton#Nav:disabled {{ color: {DIM}; background: transparent; }}
-QPushButton#Seg {{ min-height: 32px; border-radius: 16px; padding: 0 14px; background: transparent;
+QPushButton#Seg {{ min-height: {d(32)}px; border-radius: {d(16)}px; padding: 0 {d(14)}px; background: transparent;
                   border: 1px solid {LINE}; color: {MUTED}; font-size: {px(12)}; }}
 QPushButton#Seg:checked {{ background: {TEXT}; color: {BG}; border-color: {TEXT}; }}
-QPushButton#Chip {{ min-height: 30px; border-radius: 15px; padding: 0 14px; background: transparent;
+QPushButton#Chip {{ min-height: {d(30)}px; border-radius: {d(15)}px; padding: 0 {d(14)}px; background: transparent;
                    border: 1px solid {LINE}; color: {SOFT}; font-size: {px(12)}; font-weight: 400; }}
 QPushButton#Chip:hover {{ border-color: {LINE_HI}; }}
 QPushButton#Chip:checked {{ background: {TEXT}; color: {BG}; border-color: {TEXT}; font-weight: 500; }}
-QPushButton#Icon {{ min-height: 34px; min-width: 34px; padding: 0 8px; background: transparent;
+QPushButton#Icon {{ min-height: {d(34)}px; min-width: {d(34)}px; padding: 0 8px; background: transparent;
                    border-color: transparent; color: {MUTED}; }}
 QPushButton#Icon:hover {{ background: {S2}; border-color: {S2}; color: {TEXT}; }}
 QLineEdit, QComboBox, QPlainTextEdit, QDoubleSpinBox, QSpinBox, QDateEdit {{ background: {S2}; border: 1px solid {S2};
-    border-radius: {RC}px; padding: 0 12px; min-height: 38px; color: {TEXT}; selection-background-color: {RED};
+    border-radius: {RC}px; padding: 0 {d(12)}px; min-height: {d(38)}px; color: {TEXT}; selection-background-color: {RED};
     selection-color: {ON_RED}; }}
 QPlainTextEdit {{ padding: 8px; font-family: 'Consolas', monospace; font-size: {px(12)}; background: {S1};
     border-color: {LINE}; }}
@@ -170,9 +178,9 @@ QListWidget#Mods {{ padding: 0; }}
 QListWidget#Mods::item {{ padding: 0; border-radius: 0; border-bottom: 1px solid {LINE}; }}
 QListWidget#Mods::item:hover, QListWidget#Mods::item:selected {{ background: {mix(S1, S2, 0.5)}; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
-QScrollBar::handle:vertical {{ background: {mix(S2, TEXT, 0.15)}; border-radius: 3px; min-height: 30px; }}
+QScrollBar::handle:vertical {{ background: {mix(S2, TEXT, 0.15)}; border-radius: 3px; min-height: {d(30)}px; }}
 QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
-QScrollBar::handle:horizontal {{ background: {mix(S2, TEXT, 0.15)}; border-radius: 3px; min-width: 30px; }}
+QScrollBar::handle:horizontal {{ background: {mix(S2, TEXT, 0.15)}; border-radius: 3px; min-width: {d(30)}px; }}
 QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page {{ width: 0; height: 0;
     background: none; }}
 QProgressBar {{ background: {S2}; border: none; border-radius: 4px; max-height: 8px; text-align: center;
@@ -203,7 +211,7 @@ QFrame#Tile {{ background: {S2}; border: none; border-radius: {RC}px; }}
 QLabel#TileHead {{ color: {MUTED}; font-size: {px(11)}; font-weight: 700; letter-spacing: 1px; }}
 QLabel#TileValue {{ font-size: {px(16)}; font-weight: 500; }}
 QFrame#Step {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; }}
-QLabel#StepNum {{ background: {TEXT}; color: {BG}; border-radius: 17px; font-size: {px(14)}; font-weight: 700; }}
+QLabel#StepNum {{ background: {TEXT}; color: {BG}; border-radius: {d(17)}px; font-size: {px(14)}; font-weight: 700; }}
 QLabel#StepTitle {{ font-weight: 500; font-size: {px(14)}; }}
 QSlider::groove:horizontal {{ height: 6px; background: {S2}; border-radius: 3px; }}
 QSlider::sub-page:horizontal {{ background: {RED}; border-radius: 3px; }}

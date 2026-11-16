@@ -211,6 +211,39 @@ def test_layout_restyle():
     assert (n.rgba(), n.x, n.y, n.w, n.h) == ((255, 128, 0, 127), 13, 5, 80, 40) and table[n.ref] == 'other'
     assert lay.restyle(a, [{'texture': 'missing', 'opacity': 0}]) == 0
 
+def test_sorted_saves_and_tidy():
+    import tempfile
+    from modtheshow import mods as M
+    assert M.category_of('nsw/uniforms/al/bos/home/uniform.tex') == 'Uniforms'
+    assert M.category_of('NSW/UI/GAME/THEME1.NSW') == 'Scoreboards'
+    assert M.category_of('NSW/UI/ART/FONTS/FONTS.TEX') == 'Fonts'
+    assert M.category_of('NSW/UI/FRONTEND/MAIN.TEX') == 'Menus' and M.category_of('X/Y') == 'Other'
+    root = tempfile.mkdtemp()
+
+    class G:
+        mods = root
+    lib = M.Library(G())
+    code = lib.create('Arcade Code Mods')
+
+    def put(mod, *parts):
+        p = os.path.join(mod.path, *parts)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, 'w').write('x')
+    put(code, 'code', 'arcade.patch')
+    put(code, 'romfs', 'NSW', 'UI', 'GAME', 'THEME1.NSW')
+    put(code, 'textures', 'NSW', 'UNIFORMS', 'AL', 'BOS', 'HOME', 'UNIFORM.TEX', 'jersey.png')
+    assert code.categories() == ['Uniforms', 'Scoreboards', 'Code']
+    moved = lib.tidy()
+    assert sorted(c for _, c, _ in moved) == ['Scoreboards', 'Uniforms']
+    by = {m.name: m for m in lib.list()}
+    assert by['Arcade Code Mods'].categories() == ['Code']
+    assert by['My Uniforms'].categories() == ['Uniforms'] and by['My Scoreboards'].categories() == ['Scoreboards']
+    assert 'Uniforms' in by['My Uniforms'].changes() and lib.tidy() == []
+    assert lib.workspace('Uniforms').folder == by['My Uniforms'].folder and lib.workspace('Sounds') is None
+    lib.delete(by['My Uniforms'])
+    assert 'My Uniforms' not in {m.name for m in lib.list()}
+
+
 if __name__ == '__main__':
     test_apply_disable_restore()
     test_restore_exe()
@@ -222,4 +255,5 @@ if __name__ == '__main__':
     test_uniform_builder()
     test_name_hash()
     test_layout_restyle()
+    test_sorted_saves_and_tidy()
     print('ok')

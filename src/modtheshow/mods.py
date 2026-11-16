@@ -25,6 +25,35 @@ def norm(rel):
     return rel.replace('\\', '/').strip('/').upper()
 
 
+# what a game file is, by where it lives (first match wins)
+CATEGORIES = [('NSW/UI/ART/FONTS', 'Fonts'), ('NSW/UI/GAME', 'Scoreboards'), ('CROSS/MOVIES/SCOREBAR', 'Scoreboards'),
+              ('NSW/UNIFORMS', 'Uniforms'), ('NSW/CREATEUNIFORM', 'Uniforms'), ('NSW/STADIUMS', 'Stadiums'),
+              ('NSW/OBJECTS', 'Bats & Gear'), ('NSW/CHARACTERS', 'Bats & Gear'), ('NSW/AUDIO', 'Sounds'),
+              ('FRONTEND/STATS', 'Rosters'), ('NSW/LOADINGSCREEN', 'Menus'), ('NSW/UI', 'Menus'),
+              ('CROSS/LIVE', 'Card Art')]
+ORDER = ['Uniforms', 'Scoreboards', 'Stadiums', 'Bats & Gear', 'Rosters', 'Sounds', 'Fonts', 'Menus', 'Card Art',
+         'Code', 'Other']
+
+
+def category_of(rel):
+    r = norm(rel)
+    for prefix, name in CATEGORIES:
+        if r.startswith(prefix):
+            return name
+    return 'Other'
+
+
+def trash(path):
+    """Send a folder to the Recycle Bin when the system has one, else delete it."""
+    try:
+        from PySide6.QtCore import QFile
+        if QFile.moveToTrash(path):
+            return
+    except Exception:
+        pass
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def _put(src, dst):
     if os.path.exists(dst):
         os.chmod(dst, 0o666)
@@ -76,6 +105,36 @@ class Mod:
     def counts(self):
         t = self.textures()
         return sum(len(v) for v in t.values()), len(self.files())
+
+    def has(self, sub):
+        d = os.path.join(self.path, sub)
+        return os.path.isdir(d) and any(fs for _, _, fs in os.walk(d))
+
+    def categories(self):
+        """What kinds of thing this mod changes, in the usual order."""
+        cats = {category_of(r) for r in list(self.textures()) + list(self.files())}
+        if self.has('rosters'):
+            cats.add('Rosters')
+        if self.has('layouts'):
+            cats.add('Scoreboards')
+        if self.has('code'):
+            cats.add('Code')
+        return [c for c in ORDER if c in cats]
+
+    def changes(self):
+        """{category: [what changes]} for the View Changes list."""
+        out = {}
+        for pack, names in sorted(self.textures().items()):
+            for n in sorted(names):
+                out.setdefault(category_of(pack), []).append(f'{pack} › {n}')
+        for rel in sorted(self.files()):
+            out.setdefault(category_of(rel), []).append(rel)
+        for sub, cat in (('rosters', 'Rosters'), ('layouts', 'Scoreboards'), ('code', 'Code')):
+            d = os.path.join(self.path, sub)
+            if os.path.isdir(d):
+                for f in sorted(os.listdir(d)):
+                    out.setdefault(cat, []).append(f'{sub}/{f}')
+        return {c: out[c] for c in ORDER if c in out}
 
     def signature(self, legacy=False):
         """A fingerprint of what Apply installs from this mod: its textures and romfs files. '' when it has neither
@@ -161,8 +220,62 @@ class Library:
         return m
 
     def delete(self, mod):
-        shutil.rmtree(mod.path)
+        trash(mod.path)
         self.save_order(self.list())
+
+    def workspace(self, category, create=False, author=''):
+        """The mod your own edits of one kind go into ("My Uniforms"), made on first use."""
+        for m in self.list():
+            if m.meta.get('workspace') == category:
+                return m
+        if not create:
+            return None
+        name = 'My Code Mods' if category == 'Code' else 'My Other Changes' if category == 'Other' else f'My {category}'
+        m = next((x for x in self.list() if x.name == name), None) or self.create(
+            name, author, f'Your own {category.lower()} changes, saved here as you make them.')
+        m.meta['workspace'] = category
+        m.save_meta()
+        return m
+
+    def tidy(self):
+        """Code mods that picked up other edits (uniforms, layouts) hand them to the mod for that kind of change.
+        Returns [(from mod, category, how many files)]."""
+        moved = []
+        for m in self.list():
+            if not m.has('code') or m.meta.get('workspace'):
+                continue
+            jobs = []
+            for sub in ('textures', 'romfs'):
+                root = os.path.join(m.path, sub)
+                for dp, _, fs in os.walk(root):
+                    for f in fs:
+                        src = os.path.join(dp, f)
+                        rel = os.path.relpath(src, root)
+                        jobs.append((category_of(rel), sub, rel, src))
+            for sub, cat in (('rosters', 'Rosters'), ('layouts', 'Scoreboards')):
+                root = os.path.join(m.path, sub)
+                if os.path.isdir(root):
+                    for f in os.listdir(root):
+                        jobs.append((cat, sub, f, os.path.join(root, f)))
+            counts = {}
+            for cat, sub, rel, src in jobs:
+                new = self.workspace(cat) is None
+                w = self.workspace(cat, create=True, author=m.meta.get('author', ''))
+                if new and not m.enabled:
+                    self.set_enabled(w, False)
+                dst = os.path.join(w.path, sub, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                if os.path.exists(dst):
+                    os.remove(src)                      # the newer edit is already there
+                else:
+                    shutil.move(src, dst)
+                counts[cat] = counts.get(cat, 0) + 1
+            for sub in ('textures', 'romfs', 'rosters', 'layouts'):
+                root = os.path.join(m.path, sub)
+                if os.path.isdir(root) and not any(fs for _, _, fs in os.walk(root)):
+                    shutil.rmtree(root, ignore_errors=True)
+            moved += [(m.name, c, n) for c, n in counts.items()]
+        return moved
 
     def texture_path(self, mod, pack_rel, tex_name):
         return os.path.join(mod.path, 'textures', *norm(pack_rel).split('/'), tex_name + '.png')

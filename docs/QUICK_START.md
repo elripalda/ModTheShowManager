@@ -19,7 +19,9 @@ Switch it off and Apply again and the scorebug goes home.
 
 ## 3. Make your own
 
-1. Press **New Mod** and give it a name. It becomes the mod in **Saving To** at the top.
+1. Just start editing. Your changes sort themselves into a mod per kind: **My Uniforms**, **My Scoreboards**,
+   **My Stadiums** and so on. To keep everything in one mod of your own instead, press **New Mod** and pick it in
+   **Saving To** at the top.
 2. Open **Stadiums**, pick a park, click a sign.
 3. **Export PNG**, edit it in any image editor, then **Replace With PNG** (or drop the PNG on the preview).
 4. **Mods › Apply Changes**.

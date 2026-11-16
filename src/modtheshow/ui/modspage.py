@@ -4,19 +4,14 @@ import os
 
 from PySide6.QtCore import QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QImage, QPixmap
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
-                               QProgressBar, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QButtonGroup, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
+                               QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
+                               QProgressBar, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import codemods, recipes
 from . import theme, workers
 from .common import badge, button, header, label, panel, section_title
 from .widgets import Toggle
-
-CATEGORY = [('NSW/UNIFORMS', 'Uniforms'), ('NSW/STADIUMS', 'Stadiums'), ('NSW/UI/GAME', 'Scoreboards'),
-            ('NSW/OBJECTS/BAT', 'Bats'), ('NSW/LOADINGSCREEN', 'Loading Screens'), ('NSW/UI', 'Menus'),
-            ('CROSS/LIVE', 'Card Art')]
-
 
 def open_folder(path):
     QDesktopServices.openUrl(QUrl.fromLocalFile(path))
@@ -66,71 +61,92 @@ def mod_cover(mod):
 
 
 def mod_categories(mod):
-    rels = list(mod.textures().keys()) + list(mod.files().keys())
-    cats = []
-    for prefix, name in CATEGORY:
-        if any(r.startswith(prefix) for r in rels) and name not in cats:
-            cats.append(name)
-    return cats
+    return mod.categories()
+
+
+class ChangesDialog(QDialog):
+    """Everything one mod changes, grouped by kind."""
+
+    def __init__(self, parent, mod):
+        super().__init__(parent)
+        self.setWindowTitle(f'{mod.name}: changes')
+        self.resize(620, 520)
+        lay = QVBoxLayout(self)
+        lay.setSpacing(10)
+        changes = mod.changes()
+        total = sum(len(v) for v in changes.values())
+        if mod.meta.get('description'):
+            lay.addWidget(label(mod.meta['description'], 'Soft', wrap=True))
+        lay.addWidget(label(f'{total} change{"s" if total != 1 else ""} in {len(changes)} '
+                            f'kind{"s" if len(changes) != 1 else ""}.' if total else 'This mod is empty.', 'Sub'))
+        tree = QTreeWidget()
+        tree.setHeaderHidden(True)
+        for cat, items in changes.items():
+            top = QTreeWidgetItem([f'{cat}  ({len(items)})'])
+            groups = {}
+            for it in items:                          # NSW/UNIFORMS/NL/ARZ/HOME/UNIFORM.TEX › jersey
+                head, _, leaf = it.partition(' › ')
+                parts = head.split('/')
+                key = '/'.join(parts[2:-1]) if len(parts) > 3 else head
+                groups.setdefault(key or head, []).append(f'{parts[-1]} › {leaf}' if leaf else parts[-1])
+            for key, leaves in groups.items():
+                node = QTreeWidgetItem([f'{key}  ({len(leaves)})'])
+                for leaf in leaves:
+                    node.addChild(QTreeWidgetItem([leaf]))
+                top.addChild(node)
+            tree.addTopLevelItem(top)
+            top.setExpanded(True)
+        lay.addWidget(tree, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.reject)
+        bb.accepted.connect(self.accept)
+        open_btn = bb.addButton('Open Folder', QDialogButtonBox.ActionRole)
+        open_btn.clicked.connect(lambda: open_folder(mod.path))
+        lay.addWidget(bb)
 
 
 class ModRow(QWidget):
+    """One mod on one line: cover, name, what it changes, switch, order, more."""
     changed = Signal()
 
     def __init__(self, page, mod, overrides):
         super().__init__()
         self.page, self.mod = page, mod
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(16, 14, 12, 14)
-        lay.setSpacing(16)
+        lay.setContentsMargins(12, 5, 8, 5)
+        lay.setSpacing(10)
         cover = QLabel()
-        cover.setFixedSize(96, 60)
+        cover.setFixedSize(46, 30)
         cover.setAlignment(Qt.AlignCenter)
-        cover.setStyleSheet(f'background: {theme.S2}; border: none; border-radius: 10px;')
+        cover.setStyleSheet(f'background: {theme.S2}; border: none; border-radius: 6px;')
         pm = mod_cover(mod)
         if pm:
-            cover.setPixmap(pm)
+            cover.setPixmap(pm.scaled(46, 30, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         lay.addWidget(cover)
-        text = QVBoxLayout()
-        text.setSpacing(5)
-        top = QHBoxLayout()
-        top.setSpacing(10)
         name = label(mod.name)
-        name.setStyleSheet('font-size: 15px; font-weight: 600;')
-        top.addWidget(name)
+        name.setStyleSheet(f'font-size: {theme.px(13.5)}; font-weight: 600;')
+        lay.addWidget(name)
         meta = []
         if mod.meta.get('version'):
             meta.append('v' + mod.meta['version'])
         if mod.meta.get('author'):
             meta.append(mod.meta['author'])
         if meta:
-            top.addWidget(label(' · '.join(meta), 'Sub'))
-        top.addStretch(1)
-        text.addLayout(top)
-        if mod.meta.get('description'):
-            text.addWidget(label(mod.meta['description'], 'Soft', wrap=True))
-        chips = QHBoxLayout()
-        chips.setSpacing(6)
+            lay.addWidget(label(' · '.join(meta), 'Sub'))
+        cats = mod.categories()
+        for c in cats:
+            lay.addWidget(badge(c))
         nt, nf = mod.counts()
-        for c in mod_categories(mod):
-            chips.addWidget(badge(c))
-        if nt:
-            chips.addWidget(badge(f'{nt} texture{"s" if nt != 1 else ""}'))
-        if nf:
-            chips.addWidget(badge(f'{nf} file{"s" if nf != 1 else ""}'))
-        nc = len(codemods.mod_patches(mod))
-        if nc:
-            chips.addWidget(badge('Code mod'))
-        nr = recipes.count(mod.path)
-        if nr:
-            chips.addWidget(badge(f'{nr} recipe{"s" if nr != 1 else ""}'))
-        if not nt and not nf and not nc and not nr:
-            chips.addWidget(badge('Empty: add textures from any section'))
+        n = nt + nf + recipes.count(mod.path) + len(codemods.mod_patches(mod))
+        if not n:
+            lay.addWidget(badge('Empty'))
         if overrides:
-            chips.addWidget(badge(f'Overrides {", ".join(sorted(overrides))}', True))
-        chips.addStretch(1)
-        text.addLayout(chips)
-        lay.addLayout(text, 1)
+            b = badge('Overrides', True)
+            b.setToolTip('Wins over ' + ', '.join(sorted(overrides)))
+            lay.addWidget(b)
+        lay.addStretch(1)
+        if n:
+            lay.addWidget(label(f'{n} change{"s" if n != 1 else ""}', 'Sub'))
         self.toggle = Toggle()
         self.toggle.setChecked(mod.enabled)
         self.toggle.setAccessibleName(f'{mod.name} on or off')
@@ -148,6 +164,10 @@ class ModRow(QWidget):
         more.setAccessibleName(f'More for {mod.name}')
         more.clicked.connect(self._menu)
         lay.addWidget(more, 0, Qt.AlignVCenter)
+        tip = mod.meta.get('description') or ''
+        self.setToolTip((tip + '\n' if tip else '') + 'Right-click for View Changes, Remove and more')
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(lambda _p: self._menu())
         if not mod.enabled:
             for w in (cover, name):
                 w.setEnabled(False)
@@ -160,18 +180,26 @@ class ModRow(QWidget):
         self.page.lib.move(self.mod, d)
         self.changed.emit()
 
+    def mouseDoubleClickEvent(self, e):
+        self._view()
+
     def _menu(self):
         m = QMenu(self)
-        m.addAction('Save New Changes Here', lambda: self.page.main.set_active_mod(self.mod.folder))
+        m.addAction('View Changes', self._view)
         m.addAction('Edit Info', self._edit)
         m.addAction('Open Folder', lambda: open_folder(self.mod.path))
         m.addAction('Export as .zip', self._export)
         m.addSeparator()
+        if not (self.mod.has('code') and not self.mod.meta.get('workspace')):
+            m.addAction('Save All New Changes Here', lambda: self.page.main.set_active_mod(self.mod.folder))
         m.addAction('Move to Top', lambda: self._move(-10000))
         m.addAction('Move to Bottom (wins conflicts)', lambda: self._move(10000))
         m.addSeparator()
-        m.addAction('Delete', self._delete)
+        m.addAction('Remove', self._delete)
         m.exec(self.cursor().pos())
+
+    def _view(self):
+        ChangesDialog(self, self.mod).exec()
 
     def _edit(self):
         dlg = ModInfoDialog(self, 'Edit Mod', self.mod.meta)
@@ -187,9 +215,14 @@ class ModRow(QWidget):
             self.page.main.toast(f'Exported {os.path.basename(path)}')
 
     def _delete(self):
-        if QMessageBox.question(self, 'Delete Mod', f'Delete "{self.mod.name}" and all its files?') == QMessageBox.Yes:
+        extra = '\n\nIf it is in the game now, press Apply afterwards to take it out.' if self.mod.enabled else ''
+        if QMessageBox.question(self, 'Remove Mod', f'Remove "{self.mod.name}" from the list? Its files go to the '
+                                f'Recycle Bin.{extra}') == QMessageBox.Yes:
+            if self.page.main.settings.get('active_mod') == self.mod.folder:
+                self.page.main.settings['active_mod'] = ''
+                self.page.main.save_settings()
             self.page.lib.delete(self.mod)
-            self.changed.emit()
+            self.page.main.changed(f'{self.mod.name} removed')
 
 
 class SamplesDialog(QDialog):
@@ -253,10 +286,10 @@ class ModsPage(QWidget):
         self.lib = None
         self.setAcceptDrops(True)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(28, 24, 28, 20)
-        lay.setSpacing(18)
+        lay.setContentsMargins(24, 18, 24, 16)
+        lay.setSpacing(12)
         lay.addWidget(header('Mods', 'Switch mods on, set the order, then apply. When two mods change the same texture, '
-                             'the lower one wins.', [button('Sample Mods', on_click=self.samples),
+                             'the lower one wins. Right-click a mod to see what it changes.', [button('Sample Mods', on_click=self.samples),
                                                     button('Import Mod', on_click=self.import_zip),
                                                     button('New Mod', on_click=self.new_mod)]))
         self.banner = QFrame()
@@ -269,8 +302,14 @@ class ModsPage(QWidget):
         self.banner_text = label('Apply to put them in the game.', 'Soft')
         bl.addWidget(self.banner_text, 1)
         lay.addWidget(self.banner)
+        self.filter = 'All'
+        self.chips = QHBoxLayout()
+        self.chips.setSpacing(6)
+        self.chip_group = QButtonGroup(self)
+        self.chip_group.setExclusive(True)
+        lay.addLayout(self.chips)
         body = QHBoxLayout()
-        body.setSpacing(20)
+        body.setSpacing(16)
         self.listbox = panel()
         lb = QVBoxLayout(self.listbox)
         lb.setContentsMargins(0, 0, 0, 0)
@@ -287,10 +326,10 @@ class ModsPage(QWidget):
         lb.addWidget(self.empty)
         body.addWidget(self.listbox, 3)
         aside = QVBoxLayout()
-        aside.setSpacing(20)
+        aside.setSpacing(12)
         self.conf_panel = panel()
         cp = QVBoxLayout(self.conf_panel)
-        cp.setContentsMargins(18, 18, 18, 18)
+        cp.setContentsMargins(14, 12, 14, 12)
         cp.setSpacing(10)
         cp.addWidget(section_title('Conflicts'))
         self.conf_text = label('', 'Soft', wrap=True)
@@ -298,7 +337,7 @@ class ModsPage(QWidget):
         aside.addWidget(self.conf_panel)
         self.game_panel = panel()
         gp = QVBoxLayout(self.game_panel)
-        gp.setContentsMargins(18, 18, 18, 18)
+        gp.setContentsMargins(14, 12, 14, 12)
         gp.setSpacing(10)
         gp.addWidget(section_title('In the Game Now'))
         self.game_text = label('', 'Soft', wrap=True)
@@ -307,14 +346,14 @@ class ModsPage(QWidget):
         aside.addStretch(1)
         aw = QWidget()
         aw.setLayout(aside)
-        aw.setMinimumWidth(280)
-        aw.setMaximumWidth(360)
+        aw.setMinimumWidth(230)
+        aw.setMaximumWidth(300)
         body.addWidget(aw, 1)
         lay.addLayout(body, 1)
         bar = panel()
         bb = QHBoxLayout(bar)
-        bb.setContentsMargins(16, 12, 16, 12)
-        bb.setSpacing(12)
+        bb.setContentsMargins(12, 8, 12, 8)
+        bb.setSpacing(8)
         self.status = label('', 'Sub')
         bb.addWidget(self.status, 1)
         self.progress = QProgressBar()
@@ -323,6 +362,9 @@ class ModsPage(QWidget):
         bb.addWidget(self.progress)
         bb.addWidget(button('All Off', on_click=lambda: self.set_all(False)))
         bb.addWidget(button('All On', on_click=lambda: self.set_all(True)))
+        self.remove_btn = button('Remove…', on_click=self._remove_menu)
+        self.remove_btn.setToolTip('Take mods off the list')
+        bb.addWidget(self.remove_btn)
         self.restore_btn = button('Restore Original Game', on_click=self.restore)
         bb.addWidget(self.restore_btn)
         self.apply_btn = button('Apply Mods', True, self.apply)
@@ -344,11 +386,15 @@ class ModsPage(QWidget):
             for loser in names[:-1]:
                 beats.setdefault(names[-1], set()).add(loser)
         mods = self.lib.list()
+        cats = {m.folder: (m.categories() or ['Other']) for m in mods}
+        self._fill_chips(mods, cats)
         for m in mods:
+            if self.filter != 'All' and self.filter not in cats[m.folder]:
+                continue
             row = ModRow(self, m, beats.get(m.name, set()))
             row.changed.connect(self.refresh)
             it = QListWidgetItem()
-            it.setSizeHint(QSize(100, row.sizeHint().height()))
+            it.setSizeHint(QSize(100, max(40, row.sizeHint().height())))
             self.list.addItem(it)
             self.list.setItemWidget(it, row)
         self.empty.setVisible(not mods)
@@ -370,6 +416,77 @@ class ModsPage(QWidget):
         if not self.progress.isVisible():
             self.status.setText(f'{on} of {len(mods)} mods on. Applying takes a few seconds; close the game first.')
         self.main.update_strip()
+
+    def _fill_chips(self, mods, cats):
+        from ..mods import ORDER
+        while self.chips.count():
+            w = self.chips.takeAt(0).widget()
+            if w:
+                self.chip_group.removeButton(w)
+                w.deleteLater()
+        counts = {}
+        for m in mods:
+            for c in cats[m.folder]:
+                counts[c] = counts.get(c, 0) + 1
+        if self.filter != 'All' and self.filter not in counts:
+            self.filter = 'All'
+        for name, n in [('All', len(mods))] + [(c, counts[c]) for c in ORDER if c in counts]:
+            b = QPushButton(f'{name.replace("&", "&&")}  {n}')
+            b.setObjectName('Chip')
+            b.setCheckable(True)
+            b.setChecked(name == self.filter)
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, c=name: self._set_filter(c))
+            self.chip_group.addButton(b)
+            self.chips.addWidget(b)
+        self.chips.addStretch(1)
+
+    def _set_filter(self, name):
+        self.filter = name
+        self.refresh()
+
+    def _remove_menu(self):
+        if not self.lib:
+            return
+        mods = self.lib.list()
+        off = [m for m in mods if not m.enabled]
+        m = QMenu(self)
+        a = m.addAction(f'Remove Switched-Off Mods ({len(off)})', lambda: self.remove_mods(off, False))
+        a.setEnabled(bool(off))
+        a = m.addAction(f'Remove All Mods and Restore the Game ({len(mods)})', lambda: self.remove_mods(mods, True))
+        a.setEnabled(bool(mods))
+        m.exec(self.cursor().pos())
+
+    def remove_mods(self, mods, restore):
+        if not mods:
+            return
+        text = (f'Remove all {len(mods)} mods from the list and put the original game back?' if restore else
+                f'Remove the {len(mods)} switched-off mod{"s" if len(mods) != 1 else ""} from the list?')
+        if QMessageBox.question(self, 'Remove Mods', text + '\n\nTheir files go to the Recycle Bin, so you can get '
+                                'them back from there.') != QMessageBox.Yes:
+            return
+        if restore and not self._check_game():
+            return
+        self._busy(True, 'Removing...')
+        lib, main = self.lib, self.main
+
+        def work(j):
+            if restore:
+                lib.restore(log=j.log)
+                if codemods.restore_exe(main.game.root):
+                    main.settings['code_built'] = ''
+            for m in mods:
+                lib.delete(m)
+            main.settings['active_mod'] = ''
+            main.save_settings()
+            return len(mods)
+
+        job = workers.Job(work)
+        job.sig.done.connect(lambda n: (self._busy(False), main.cache_clear(), main.changed(), self.applied.emit(),
+                                        self.status.setText(f'{n} mod{"s" if n != 1 else ""} removed.' + (
+                                            ' The game is back to stock.' if restore else ''))))
+        job.sig.failed.connect(self._failed)
+        self._job = workers.start(job)
 
     def _applied_text(self):
         try:
@@ -438,6 +555,7 @@ class ModsPage(QWidget):
     def _busy(self, on, text=''):
         self.apply_btn.setEnabled(not on)
         self.restore_btn.setEnabled(not on)
+        self.remove_btn.setEnabled(not on)
         self.progress.setVisible(on)
         self.progress.setValue(0)
         if text:

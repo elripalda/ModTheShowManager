@@ -149,6 +149,7 @@ class MainWindow(QMainWindow):
         self.game = gamemod.Game(path)
         self.game.index()
         self.lib = Library(self.game)
+        self._tidy_note = self._tidy_once()
         self.root_lay.addWidget(self._sidebar())
         right = QWidget()
         rl = QVBoxLayout(right)
@@ -174,6 +175,8 @@ class MainWindow(QMainWindow):
         self.toast_box.hide()
         self.update_strip()
         self.go(show)
+        if self._tidy_note:
+            QTimer.singleShot(900, lambda: self.toast(self._tidy_note))
         QTimer.singleShot(1500, self.check_updates)
 
     def _sidebar(self):
@@ -340,8 +343,8 @@ class MainWindow(QMainWindow):
         return files.get(rel.upper())
 
     def current_file(self, rel):
-        """Where a whole-file edit should start from: the active mod's copy, else whatever mod wins, else the game."""
-        mod = self.active_mod()
+        """Where a whole-file edit should start from: your own mod's copy, else whatever mod wins, else the game."""
+        mod = self.active_mod(rel=rel)
         if mod:
             own = os.path.join(mod.path, 'romfs', *rel.upper().split('/'))
             if os.path.exists(own):
@@ -350,9 +353,9 @@ class MainWindow(QMainWindow):
         return hit[1] if hit and os.path.exists(hit[1]) else self.game.original(rel)
 
     def save_file(self, rel, write, message):
-        """Write a whole file into the active mod. write(path) produces it."""
+        """Write a whole file into the mod for that kind of change. write(path) produces it."""
         import tempfile
-        mod = self.active_mod(ask=True)
+        mod = self.active_mod(ask=True, rel=rel)
         if not mod:
             return False
         tmp = os.path.join(tempfile.mkdtemp(prefix='mts_'), os.path.basename(rel))
@@ -361,45 +364,68 @@ class MainWindow(QMainWindow):
         self.changed(message.format(mod=mod.name))
         return True
 
-    def active_mod(self, ask=False):
+    def active_mod(self, ask=False, rel=None, kind=None):
+        """The mod an edit is saved to. Normally that is sorted by what the edit is: a uniform goes to My Uniforms,
+        a scorebug to My Scoreboards (made on first use when ask is on). Saving To can pin one mod instead."""
+        from ..mods import category_of
         folder = self.settings.get('active_mod')
-        for m in self.lib.list():
-            if m.folder == folder:
-                return m
-        if not ask:
-            return None
+        if folder:
+            for m in self.lib.list():
+                if m.folder == folder:
+                    return m
+        cat = kind or (category_of(rel) if rel else 'Other')
+        return self.lib.workspace(cat, create=ask, author=self.settings.get('author', ''))
+
+    def pick_mod(self):
+        """Ask which mod (for sharing one)."""
         dlg = PickModDialog(self, self.lib.list())
         if not dlg.exec() or not dlg.choice:
             return None
         kind, val = dlg.choice
         if kind == 'new':
-            m = self.lib.create(val, self.settings.get('author', ''))
-        else:
-            m = next(x for x in self.lib.list() if x.folder == val)
-        self.set_active_mod(m.folder)
-        return m
+            return self.lib.create(val, self.settings.get('author', ''))
+        return next(x for x in self.lib.list() if x.folder == val)
 
     def set_active_mod(self, folder):
-        self.settings['active_mod'] = folder
+        self.settings['active_mod'] = folder or ''
         self.save_settings()
         self._fill_mods_combo()
-        self.toast('New changes now go into ' + next((m.name for m in self.lib.list() if m.folder == folder), folder))
+        name = next((m.name for m in self.lib.list() if m.folder == folder), None)
+        self.toast(f'New changes now go into {name}' if name else
+                   'New changes are sorted by type: uniforms into My Uniforms, scorebugs into My Scoreboards')
 
     def _fill_mods_combo(self):
         self.mods_combo.blockSignals(True)
         self.mods_combo.clear()
         cur = self.settings.get('active_mod')
-        sel = -1
-        for i, m in enumerate(self.lib.list()):
+        self.mods_combo.addItem('Sorted by type', '')
+        self.mods_combo.setItemData(0, 'Each edit goes into a mod for its kind: My Uniforms, My Scoreboards, My Stadiums…',
+                                    Qt.ToolTipRole)
+        sel = 0
+        for m in self.lib.list():
+            if m.has('code') and not m.meta.get('workspace'):
+                continue                              # code mods don't collect other edits
             self.mods_combo.addItem(m.name, m.folder)
             if m.folder == cur:
-                sel = i
+                sel = self.mods_combo.count() - 1
         self.mods_combo.addItem('New Mod…', '__new__')
-        if sel < 0:
-            self.mods_combo.insertItem(0, 'Pick a mod', None)
-            sel = 0
         self.mods_combo.setCurrentIndex(sel)
         self.mods_combo.blockSignals(False)
+
+    def _tidy_once(self):
+        """Edits go to a mod per kind from now on; ones that landed in a code mod are moved out."""
+        if not self.settings.get('sorted_v1'):
+            self.settings['sorted_v1'] = True
+            self.settings['active_mod'] = ''
+            self.save_settings()
+        try:
+            moved = self.lib.tidy()
+        except Exception:
+            moved = []
+        if moved:
+            kinds = sorted({c for _, c, _ in moved})
+            return f'Moved your {", ".join(k.lower() for k in kinds)} edits out of {moved[0][0]} into their own mods'
+        return ''
 
     def _combo_picked(self, i):
         data = self.mods_combo.itemData(i)
@@ -407,8 +433,8 @@ class MainWindow(QMainWindow):
             m = self.pages['Mods'].new_mod()
             if not m:
                 self._fill_mods_combo()
-        elif data:
-            self.set_active_mod(data)
+        else:
+            self.set_active_mod(data or '')
 
     def changed(self, message=''):
         """A mod's contents changed."""

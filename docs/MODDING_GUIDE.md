@@ -96,6 +96,13 @@ and carry progressive LODs and cloth data that a swap has to rebuild.
 itself. Sound banks, AT9 files and the few ATRAC9 clips inside archives go through vgmstream. Pick an archive and
 its samples are listed by name; tutorial lines show what is being said.
 
+## The Mods list
+
+Filter the list by kind with the chips on top (Uniforms, Scoreboards, Stadiums, Code…). Right-click a mod, or
+double-click it, for **View Changes**: everything it touches, grouped by kind and team. **Remove** takes a mod off the
+list and sends its files to the Recycle Bin. **Remove…** at the bottom clears the switched-off ones, or all of them
+with the original game put back. Code mods only ever hold code: anything else you edit goes to the mod for its kind.
+
 ## Scorebug layout
 
 **Scoreboards › Layout** draws a theme's overlays (the scorebug, the bottom ticker, transitions) the way the game

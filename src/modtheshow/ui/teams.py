@@ -284,7 +284,7 @@ class TeamsPage(QWidget):
         from .. import rosterjson as J
         if not self.db or self.team is None:
             return
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, kind='Rosters')
         if not mod:
             return
         doc = J.export(self.db, [self.team.index])
@@ -714,7 +714,7 @@ class TeamsPage(QWidget):
     def save(self):
         if not self.db or not self.db.dirty():
             return
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, kind='Rosters')
         if not mod:
             return
         sources = {}
@@ -748,7 +748,7 @@ class TeamsPage(QWidget):
             r = QMessageBox.question(self, 'Throw Away Changes?', 'Drop the roster changes you haven’t saved?')
             if r != QMessageBox.Yes:
                 return
-        mod = self.main.active_mod()
+        mod = self.main.active_mod(kind='Rosters')
         removed = 0
         if mod:
             for base in (R.ROSTERS, R.PLAYERS):

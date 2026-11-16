@@ -350,7 +350,7 @@ class ModelsPage(QWidget):
     # ---------------------------------------------------------- loading
     def _own(self, rel):
         """The active mod's copy of a file, even when that mod is switched off."""
-        mod = self.main.active_mod()
+        mod = self.main.active_mod(rel=rel)
         if mod:
             p = os.path.join(mod.path, 'romfs', *rel.split('/'))
             if os.path.exists(p):
@@ -632,7 +632,7 @@ class ModelsPage(QWidget):
         self.main.toast(f'Exported {os.path.basename(out)} ({len(visible) or len(self.model.draws)} meshes)')
 
     def _save(self, message):
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, rel=self.rel)
         if not mod:
             return False
         d, g = self.editor.save()

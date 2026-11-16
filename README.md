@@ -65,7 +65,8 @@ New here? The [quick start](docs/QUICK_START.md) gets a mod into the game in abo
 
 ## Making a mod
 
-1. Pick the mod your changes go into from **Saving To** at the top (or make a new one).
+1. Start editing. Changes are sorted into a mod per kind (My Uniforms, My Scoreboards…), or pick one mod in
+   **Saving To** at the top.
 2. Change something: replace a texture, edit a roster, move the scorebug.
 3. Go to **Mods** and press **Apply**. Close the game first.
 

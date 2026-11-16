@@ -219,7 +219,7 @@ class JerseyBuilder(QWidget):
             tex = self.main.tex(rel)
             entry = next((e for e in tex.entries if e['name'] == name), None) if tex else None
             if entry is not None and tex.simple(entry):
-                mod = self.main.active_mod()
+                mod = self.main.active_mod(kind='Uniforms')
                 png = self.main.lib.texture_path(mod, rel, name) if mod else None
                 try:
                     img = Image.open(png).convert('RGBA') if png and os.path.exists(png) else tex.image(entry)
@@ -410,7 +410,7 @@ class JerseyBuilder(QWidget):
         if not todo:
             self.main.toast('Nothing changed yet. Pick a colour, pinstripes or a logo first.')
             return
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, kind='Uniforms')
         if not mod:
             return
         want = (1, 2, 4)[self.quality.currentIndex()]

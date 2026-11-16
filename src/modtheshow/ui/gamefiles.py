@@ -92,7 +92,7 @@ class FileView(QFrame):
         if not path:
             return
         self.main.remember_dir(path)
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, rel=self.rel)
         if not mod:
             return
         if up.endswith(IMAGE_EXT) and not path.upper().endswith(os.path.splitext(up)[1]):
@@ -114,7 +114,7 @@ class FileView(QFrame):
     def edit_copy(self):
         if not self.rel:
             return
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, rel=self.rel)
         if not mod:
             return
         dst = os.path.join(mod.path, 'romfs', *self.rel.upper().split('/'))

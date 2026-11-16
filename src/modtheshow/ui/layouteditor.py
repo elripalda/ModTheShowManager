@@ -386,7 +386,7 @@ class LayoutEditor(QWidget):
         img = None
         try:
             from PIL import Image
-            mod = self.main.active_mod()
+            mod = self.main.active_mod(rel=self._pack)
             own = self.main.lib.texture_path(mod, self._pack, name) if mod else None
             hit = self.main.mod_png(self._pack, name)
             if own and os.path.exists(own):
@@ -651,7 +651,7 @@ class LayoutEditor(QWidget):
         if not path:
             return
         self.main.remember_dir(path)
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, rel=self._pack)
         if not mod:
             return
         try:
@@ -689,7 +689,7 @@ class LayoutEditor(QWidget):
 
     def _sheet_img(self):
         from PIL import Image
-        mod = self.main.active_mod()
+        mod = self.main.active_mod(rel=fontlib.SHEETS)
         own = self.main.lib.texture_path(mod, fontlib.SHEETS, 'english') if mod else None
         hit = self.main.mod_png(fontlib.SHEETS, 'english')
         if own and os.path.exists(own):
@@ -767,7 +767,7 @@ class LayoutEditor(QWidget):
         if not path:
             return
         self.main.remember_dir(path)
-        mod = self.main.active_mod(ask=True)
+        mod = self.main.active_mod(ask=True, rel=fontlib.SHEETS)
         if not mod:
             return
         slot = self.layout.text_font(t[0])
