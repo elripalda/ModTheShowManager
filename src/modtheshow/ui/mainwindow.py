@@ -12,16 +12,18 @@ from ..texlib import Tex
 from . import theme, workers
 from .common import PickModDialog, button, label
 from .gamefiles import GameFilesPage
+from .home import HomePage
 from .models import ModelsPage
 from .sounds import SoundsPage
+from .teams import TeamsPage
 from .modspage import ModsPage
 from .pages import BatsPage, MenusPage, ScoreboardsPage, StadiumsPage, UniformsPage
 
-NAV = [('LIBRARY', [('Mods', ModsPage), ('Game Files', GameFilesPage)]),
+NAV = [('START', [('Home', HomePage), ('Mods', ModsPage)]),
        ('CREATE', [('Uniforms', UniformsPage), ('Bats', BatsPage), ('Stadiums', StadiumsPage),
                    ('Scoreboards', ScoreboardsPage), ('Menus & Loading Screens', MenusPage), ('3D Models', ModelsPage),
-                   ('Sounds', SoundsPage)]),
-       ('LATER', [('Code Plugins', None)])]
+                   ('Sounds', SoundsPage), ('Teams & Rosters', TeamsPage)]),
+       ('TOOLS', [('Game Files', GameFilesPage), ('Code Plugins', None)])]
 
 
 class Setup(QWidget):
@@ -113,7 +115,13 @@ class MainWindow(QMainWindow):
         self.pages['Mods'].set_library(self.lib)
         self.pages['Mods'].applied.connect(self.update_strip)
         self._fill_mods_combo()
-        self.go('Mods')
+        self.toast_box = QLabel(self.centralWidget())
+        self.toast_box.setObjectName('Toast')
+        self.toast_box.setWordWrap(True)
+        self.toast_box.setAlignment(Qt.AlignCenter)
+        self.toast_box.hide()
+        self.update_strip()
+        self.go('Home')
 
     def _sidebar(self):
         side = QWidget()
@@ -199,10 +207,7 @@ class MainWindow(QMainWindow):
             bl.addWidget(cell)
         bug.setMinimumWidth(bug.sizeHint().width() + 40)
         lay.addWidget(bug)
-        lay.addSpacing(8)
-        self.toast_label = label('', 'Sub')
-        self.toast_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        lay.addWidget(self.toast_label, 1)
+        lay.addStretch(1)
         self.progress = QProgressBar()
         self.progress.setFixedWidth(160)
         self.progress.hide()
@@ -213,6 +218,9 @@ class MainWindow(QMainWindow):
         self.mods_combo.setAccessibleName('Mod that new changes are saved to')
         self.mods_combo.activated.connect(self._combo_picked)
         lay.addWidget(self.mods_combo)
+        self.apply_btn = button('Apply Changes', True, self.apply)
+        self.apply_btn.setToolTip('Put the mods that are switched on into the game')
+        lay.addWidget(self.apply_btn)
         play = button('Launch Game', on_click=self.launch)
         lay.addWidget(play)
         return strip
@@ -359,6 +367,7 @@ class MainWindow(QMainWindow):
         if hasattr(cur, 'refresh_overrides'):
             cur.refresh_overrides()
         self._fill_mods_combo()
+        self.update_strip()
         if message:
             self.toast(message)
 
@@ -372,12 +381,40 @@ class MainWindow(QMainWindow):
         self.cells['NOT APPLIED'].setText(str(n))
         self.cells['NOT APPLIED'].setObjectName('StripValueHi' if n else 'StripValue')
         self.cells['NOT APPLIED'].setStyleSheet('')
+        self.apply_btn.setEnabled(bool(n))
+        self.apply_btn.setText(f'Apply {n} Change{"s" if n != 1 else ""}' if n else 'Game Up to Date')
         self._winners = None
+        home = self.pages.get('Home')
+        if home is not None and self.stack.currentWidget() is home:
+            home.refresh()
+
+    def apply(self):
+        self.go('Mods')
+        self.pages['Mods'].apply()
 
     def toast(self, text):
-        self.toast_label.setText(text)
-        self.toast_label.setToolTip(text)
-        QTimer.singleShot(8000, lambda t=text: self.toast_label.text() == t and self.toast_label.setText(''))
+        b = self.toast_box
+        b.setText(text)
+        w = b.fontMetrics().horizontalAdvance(text) + 44
+        b.setFixedWidth(min(640, max(240, w)))
+        b.adjustSize()
+        self._place_toast()
+        b.show()
+        b.raise_()
+        QTimer.singleShot(6000, lambda t=text: b.text() == t and b.hide())
+
+    def _place_toast(self):
+        b = getattr(self, 'toast_box', None)
+        if b is None:
+            return
+        c = self.centralWidget()
+        side = 248
+        x = side + (c.width() - side - b.width()) // 2
+        b.move(max(side + 12, x), c.height() - b.height() - 28)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._place_toast()
 
     def run(self, fn, text, done=None):
         self.toast(text)

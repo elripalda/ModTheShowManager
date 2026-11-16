@@ -116,4 +116,14 @@ QMenu::separator {{ height: 1px; background: {LINE}; margin: 4px 8px; }}
 QToolTip {{ background: {S2}; border: 1px solid {LINE}; color: {TEXT}; padding: 6px; }}
 QDialog, QMessageBox {{ background: {BG}; }}
 QCheckBox {{ spacing: 8px; }}
+QLabel#Toast {{ background: {S2}; border: 1px solid {LINE_HI}; border-radius: {R}px; padding: 12px 18px; color: {TEXT};
+    font-weight: 600; }}
+QFrame#Card {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; }}
+QFrame#Card:hover {{ border-color: {LINE_HI}; background: #101c33; }}
+QFrame#Card:disabled {{ background: #0b1424; }}
+QLabel#CardTitle {{ font-family: 'Anton'; font-size: 20px; letter-spacing: 0.5px; }}
+QLabel#CardTag {{ color: {SOFT}; font-weight: 600; }}
+QFrame#Step {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; }}
+QLabel#StepNum {{ background: {RED}; color: white; border-radius: 17px; font-family: 'Anton'; font-size: 16px; }}
+QLabel#StepTitle {{ font-weight: 600; font-size: 14px; }}
 """
