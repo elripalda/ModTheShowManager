@@ -174,8 +174,8 @@ error, each hit's type, power, spin and air density. That log is how a code mod 
   `bat_collegeRing` shapes in `NSW/OBJECTS/G4GAMEBAT.MOD` and their own skins in `G4BATTEXTURES.TEX`.
 - **The ping is a sound bank, not a bat.** The game asks for the same sounds whatever the bat is (`BAT_HIT`,
   `HIT_BALL_NORM`...). A regular game loads `NSW/AUDIO/GAMEFX_EXTERIOR_STADIUMS.BNK`; a high school or college
-  game loads `GAMEFX_AMATEUR.BNK`, where the contact sounds under those names are aluminum recordings. Put the
-  second file in the first one's place and every game pings.
+  game loads `GAMEFX_AMATEUR.BNK`, where the contact sounds under those names are different recordings. The
+  Aluminum Bats sample puts the second file in the first one's place.
 - **The body is one model** (`NSW/CHARACTERS/MASTERFILES/BODIES/STANDARDMALE/MALEBODY24.MOD`) on 27 bones:
   hips, waist, back, neck, head, and four or six bones a limb. Caps, helmets, gloves and hands are separate
   models attached to it. `BODYMETA_*.XML` beside it lists the attachments.
