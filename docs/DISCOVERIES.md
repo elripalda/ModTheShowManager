@@ -96,6 +96,10 @@ player card asks whether the team is number ten and, if so, takes the second col
 The colour is the cap's, so it follows the uniform. `UI ACTUAL_TEAM_CLR` is the club's fixed colour and
 `TEAM_UI IS_CITY_CONNECT_ACTIVE` says whether a team is in City Connect. No query names any other uniform.
 
+What makes a uniform City Connect is its `unitype` in `MLBUNIS.JSON`: 2 for City Connect, 3 for a throwback. Each
+club has one uniform of kind 2, and a club's older City Connect set is filed as a throwback. Change a jersey's
+kind to 2 and it should get the City Connect treatment.
+
 ## Stadium boards are layouts
 
 Every park's scoreboards sit in `NSW/STADIUMS/<PARK>/SCOREBOARD/` as a layout, a texture pack and a text file, the

@@ -242,6 +242,20 @@ def test_layout_restyle():
         json.dump([entry], f)
     recipes.apply_layouts(G(), [Mo()], problems)
     assert len(problems) == 1 and 'different version' in problems[0]
+    # a package's palette recipe: the file's painted colours moved onto a scorebug's, with none of the file in the mod
+    from modtheshow import boards
+    with open(live, 'wb') as f:
+        f.write(lay.bytes())
+    with open(os.path.join(Mo.path, 'layouts', 's.json'), 'w') as f:
+        json.dump([{'file': 'T.NSW', 'match': ['#ffffff', '#ffd24a', '#0a0c10'], 'keep': False}], f)
+    want = uilayout.Layout(lay.bytes())
+    plan = boards.match(want, ['#ffffff', '#ffd24a', '#0a0c10'], keep_main=False)
+    problems = []
+    recipes.apply_layouts(G(), [Mo()], problems)
+    with open(live, 'rb') as f:
+        got = f.read()
+    assert not problems and got == want.bytes(), problems
+    assert plan
 
 def test_sorted_saves_and_tidy():
     import tempfile

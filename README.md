@@ -46,6 +46,7 @@ New here? The [quick start](docs/QUICK_START.md) gets a mod into the game in abo
 | **Uniforms** | Build a look with colours, pinstripes and your own logo, and see it on a player with the cap, name and number. Set what each team wears and when. |
 | **Stadiums** | Every ad board and wall in each park, plus a 3D view you can fly through. Click a sign to replace it. |
 | **Scorebug** | See the scorebug drawn with its real art. Move it, flip its looks, tint, resize, hide or repaint any piece, change any text's font, size and colour, bring in your own fonts, play its animations and save the result as a style. Or build one from nothing: describe the pieces and the live data they show, and the manager compiles it for the game. Team colours follow the uniform worn, with your own colours per club and for City Connect. |
+| **Packages** | One mod with a whole look: your scorebug, every ballpark's boards and the lineup and other broadcast screens in its colours. |
 | **Stadium boards** | Every ballpark's scoreboards open in the same builder. Repaint a park by colour, or match all of them to your scorebug in one click. |
 | **Teams & Rosters** | Edit names, ratings, numbers and gear, move players, auto-fill lineups. Import and export rosters as a [plain file](docs/ROSTER_FILES.md) you can write by hand or with an AI. |
 | **Sounds** | Play and export every sound in the game, commentary included. Replace streams with your own WAV. |

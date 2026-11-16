@@ -104,8 +104,11 @@ A rule can ask about uniforms too:
 `CAP_CLR_BRIGHTNESS_TAB [ AWAY_TEAM_ID ]` is 1 when that team's colour is a light one, which is how the game
 decides between dark and white words on a team's box.
 
-City Connect is the only uniform the game lets a layout ask about by name. For the others the colour itself
-follows the uniform, but a design cannot say "only in the throwback".
+City Connect is the only uniform the game lets a layout ask about by name, but which jerseys count as City
+Connect is yours to choose. The game's uniform list gives every uniform a kind, and City Connect is one of them.
+In **Uniforms**, open a team's uniform list and tick **City Connect Look** on any jersey, a throwback say. The game
+then treats that jersey as City Connect: the scorebug shows the City Connect logo and the colour you kept for
+`"HOU CC"`. Untick it on the real City Connect set if you want the look on the other jersey only.
 
 A PNG of your own is drawn at whatever size its piece is, so export it large and let the piece set the size. Inside
 a `tint` group it takes the team's colour, so paint a plate in white and keep its gloss and rim as a second picture
@@ -190,14 +193,47 @@ A flat picture is enough to copy a layout: where things sit, how big, what colou
   rise, so the bar has to sit low enough to leave them room.
 - **Transitions.** The wipes between plays are Bink videos (`CROSS/MOVIES/PRESENTATION/THEMEn/*.BK2`), not
   layouts. Replacing them means encoding a video, which the manager does not do.
-- **A colour for one throwback.** Colours follow the uniform on their own, and City Connect can have a colour of
-  yours, but the game has no question for "is this the 1980s throwback".
+- **Two special looks for one club.** A club has its usual colour and its City Connect one. Any jersey can be
+  given the City Connect look, but there is no third.
 - **The stock bugs of Themes 2 to 4.** A design can go on any of the four themes, but the previews of those
   three stock scorebugs are still missing pieces, and the batter and pitcher bars only stay under a design on
   Theme 1.
 
 Starting lineups, the pre-game matchup, due up and the lower thirds are layouts like the scorebug
 (`NSW/UI/GAME/PRES/PRESOSDSn`). They open in the same sandbox, without their lists filled in.
+
+## The graph view
+
+Tick **Graph view** under the picture and the design is drawn as a graph: game data on the left, rules in the
+middle, pieces on the right, with a wire for everything a piece shows or waits on. It edits the same design as the
+Layers list, so use whichever you like.
+
+- Click a piece, or a rule, to pick it. Its settings are on the right as usual.
+- Drag a data box onto a text and the text shows it. Drag it onto anything else and that piece is drawn only
+  while the data is 1. A second drag adds a second condition.
+- Drag **Away team** or **Home team** onto a team colour, a tint group or a logo to switch its side.
+- **Add a data box…** brings in data the design does not use yet.
+
+## Data by name
+
+**Add live data…** in the Chosen piece section lists the data by plain names: the pitcher and batter (last name,
+full name, "G. Springer"), pitch speed, pitch count, average, home runs, today's hits and the rest. Pick one with a
+text chosen and the text shows it. With anything else chosen, a new text is made for it. The Matchup Deck design
+in Styles uses them: who is pitching to whom, the pitch count and the last pitch's speed.
+
+## Broadcast screens
+
+The starting lineup, due-up, matchup, lower-third and the other full-screen graphics are under **Broadcast
+Presentation** in Scoreboards. They open in Layout like a board does, with the same **Match a scorebug** and
+colour swatches, and every piece can be clicked and changed.
+
+## A package: the whole look in one mod
+
+**Make a Package…** in the Layers section builds one mod from the design you have open: the scorebug on the theme
+you are on, every ballpark's boards and the broadcast screens repainted in its colours, and the design file
+itself. Switch that one mod on and the game wears the look everywhere. Export it from Mods to share it; whoever
+gets it can open the design inside and change it. The boards and screens travel as a palette, not as copies of the
+game's files, so a package stays small.
 
 ## Stadium boards
 
