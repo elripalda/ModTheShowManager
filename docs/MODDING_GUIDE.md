@@ -102,6 +102,10 @@ its samples are listed by name; tutorial lines show what is being said.
 screen. Drag the box or type X and Y, then save. The layout file (`NSW/UI/GAME/THEMEn.NSW`) goes into your mod
 with only those numbers changed. Scale is there too, but not every theme honours it yet.
 
+Under the screen is a strip of every texture that overlay draws: the frame, the base diamonds, the sponsor logo.
+Pick one and **Replace This Piece** to repaint it, which is how a scorebug gets a new look without hunting through
+320 textures for the right ones.
+
 ## Jersey builder
 
 **Uniforms › Builder** changes a uniform without an image editor. Pick a part (jersey, sleeves, undershirt, pants,
@@ -181,7 +185,8 @@ and walk around with W A S D (Q and E for down and up). Hide Roof opens up cover
 
 ## Not cracked yet
 
-- Texture names inside UI layouts. They use a hash nobody has matched yet, so the Layout view draws boxes.
+- The full node tree of UI layouts. Names are solved (below), but how every node nests isn't, so the Layout view
+  can list an overlay's pieces and not yet draw the whole thing as the game does.
 - Head meshes. The `HEADS` folders hold hair and eyebrow models plus the face textures; the head shape is built at
   runtime.
 - Saves. A fresh profile only holds settings (`profile/save/<id>/SETT...`) and a marker (`PLYA...`); franchise and
@@ -287,6 +292,22 @@ keeps 28 career rows per player.
 ## UI layouts (IFF0ASSH)
 
 A table of (hash, offset) pairs, then one `VOIDASS0` chunk per asset. Nodes nest by subtree size. Node fields: +0
-size, +4 type, +8 ARGB colour, +0xC x, y, z, width, height (floats, 1920×1080 space), +0x2A scale x/y (0x80 = 1.0).
+size, +4 type, +8 ARGB colour, +0xC x, y, z, width, height (floats, 1920×1080 space), +0x2A scale x/y (0x80 = 1.0),
++0x38 the hash of the texture or sub-layout it draws (a second one at +0x40).
+
+Names are stored as a 32-bit hash: start at 0; for each character of the lower-cased name, rotate left 8 bits and
+XOR the character in; set the top bit at the end. In Python:
+
+```python
+def name_hash(name):
+    h = 0
+    for c in name.lower().encode():
+        h = (c ^ ((h << 8) | (h >> 24))) & 0xFFFFFFFF
+    return h | 0x80000000
+```
+
+An asset's id is the hash of its name (`PBInterface\ScoreBar` is `F3657054`), a texture's is the hash of its name
+in the `.TEX` pack beside the layout, and animations are looked up by the hash of an action name
+(`ACT_SCOREBAR_OFF`, `ACT_BATTER_BAR_IN`, `ACT_PITCH_CLOCK_ON`...). The game's own function is at `main+0x18a23e0`.
 - `.BNK`: Sony Scream bank, `SBlk` at 0x20, bank name at 0x40.
 - `.SKX` with `.CTL` (`SCTL`), `.TBL` (`STBL`) and `.KEY` (XML sample list).

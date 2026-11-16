@@ -365,8 +365,8 @@ class _ListOfPacks(CollectionPage):
 
 class ScoreboardsPage(_ListOfPacks):
     TITLE = 'Scoreboards'
-    SUB = "Scorebug themes, broadcast graphics and every other in-game overlay. Reskin any piece; moving pieces comes " \
-          "with Layout."
+    SUB = "Scorebug themes, broadcast graphics and every other in-game overlay. Layout shows the pieces a scorebug is " \
+          "made of and lets you move it."
     SEARCH = 'Find a theme'
     MODE_HIDES_INSPECTOR = (1,)
 

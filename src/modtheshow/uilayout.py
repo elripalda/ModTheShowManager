@@ -14,16 +14,28 @@ tree of nodes on a 1920x1080 canvas. A node record holds:
   +0x2A u16   scale x, 0x80 = 1.0      (marker 80 00 80 00 .. .. 84 01 at +0x2A)
   +0x2C u16   scale y
 
-Texture and string references use the game's own 32-bit name hash, which isn't cracked yet, so pieces are drawn as
-boxes in their real colours. Moving and scaling a whole asset (the scorebug's container) works today.
+Names are a 32-bit hash: for every character of the lower-cased name, rotate the hash left 8 bits and XOR the
+character in; then set the top bit (name_hash). An asset's id is the hash of its name ("PBInterface\\ScoreBar"), a
+texture's the hash of its name in the .TEX pack next to the layout, and an animation's the hash of its action name
+("ACT_SCOREBAR_OFF"). A node draws the texture or sub-layout whose hash sits at +0x38 (a second one at +0x40).
 """
 import re
 import struct
 
 
 
+def name_hash(name):
+    """The game's name hash, as used for layout assets, textures and animation actions."""
+    h = 0
+    for c in name.lower().encode('latin1', 'replace'):
+        if c >= 0x80:
+            c |= 0xFFFFFF00
+        h = (c ^ ((h << 8) | (h >> 24))) & 0xFFFFFFFF
+    return h | 0x80000000
+
+
 class Node:
-    __slots__ = ('off', 'size', 'type', 'color', 'x', 'y', 'w', 'h', 'sx', 'sy', 'children', 'parent')
+    __slots__ = ('off', 'size', 'type', 'color', 'x', 'y', 'w', 'h', 'sx', 'sy', 'children', 'parent', 'ref', 'ref2')
 
     def abs_rect(self):
         x, y, n = self.x, self.y, self.parent
@@ -67,6 +79,7 @@ class Asset:
             n.off, n.size, n.type, n.color = p, size, typ, color
             n.x, n.y, n.w, n.h, n.sx, n.sy = x, y, w, h, sx, sy
             n.children, n.parent = [], None
+            n.ref, n.ref2 = struct.unpack_from('<I4xI', d, p + 0x38) if p + 0x44 <= end else (0, 0)
             out.append(n)
         # nest by subtree size: a node contains the nodes that start inside its byte span
         stack = []
@@ -112,6 +125,26 @@ class Layout:
             if a.name.lower() == name.lower():
                 return a
         return None
+
+    @staticmethod
+    def texture_table(names):
+        """{hash: texture name} for the names of the texture pack that goes with a layout."""
+        return {name_hash(n): n for n in names}
+
+    def true_names(self, extra=()):
+        """{asset hash: its real name} for the assets whose name can be found: any text in the file, or in extra."""
+        ids = {a.hash for a in self.assets}
+        out = {}
+        for s in list(extra) + [m.decode('latin1') for m in re.findall(rb'[ -~]{2,64}', bytes(self.d))]:
+            h = name_hash(s)
+            if h in ids:
+                out.setdefault(h, s)
+        return out
+
+    def retexture(self, node, name):
+        """Point a node at another texture of the pack (by name)."""
+        struct.pack_into('<I', self.d, node.off + 0x38, name_hash(name))
+        node.ref = name_hash(name)
 
     def move(self, node, x, y):
         struct.pack_into('<ff', self.d, node.off + 0x0C, float(x), float(y))

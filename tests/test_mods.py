@@ -171,6 +171,14 @@ def test_uniform_builder():
     assert out.getpixel((192, 64))[:3] == (0, 0, 255)                         # the logo
 
 
+def test_name_hash():
+    from modtheshow import uilayout
+    assert uilayout.name_hash('PBInterface\\ScoreBar') == 0xF3657054          # a layout asset
+    assert uilayout.name_hash('ACT_SCOREBAR_OFF') == 0xA80D1C39                # an animation action
+    assert uilayout.name_hash('circle_32x32') == uilayout.name_hash('CIRCLE_32X32') == 0xBD741E62   # a texture
+    assert uilayout.name_hash('') == 0x80000000
+
+
 if __name__ == '__main__':
     test_apply_disable_restore()
     test_restore_exe()
@@ -180,4 +188,5 @@ if __name__ == '__main__':
     test_layout_recipe_targets()
     test_roster_keys()
     test_uniform_builder()
+    test_name_hash()
     print('ok')
