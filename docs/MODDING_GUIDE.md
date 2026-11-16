@@ -274,8 +274,7 @@ and walk around with W A S D (Q and E for down and up). Hide Roof opens up cover
 
 - Layout animations. The tree, the looks, the rules that pick them and the text are read; the keyframes aren't,
   so which pop-up is up at a given moment is picked by hand in the sandbox.
-- Team colours and logos in overlays: the game paints them in from the team while it runs. The sandbox stands in
-  a flat colour and leaves logo slots empty.
+- Themes 2 to 4 in the sandbox: their scorebugs draw, but team rows and a few panels are not filled in yet.
 - Head meshes. The `HEADS` folders hold hair and eyebrow models plus the face textures; the head shape is built at
   runtime.
 - Saves. A fresh profile only holds settings (`profile/save/<id>/SETT...`) and a marker (`PLYA...`); franchise and

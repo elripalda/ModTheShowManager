@@ -706,6 +706,10 @@ class LayoutEditor(QWidget):
         self.bd_font = button('Use Its Font', on_click=self._board_font)
         self.bd_font.setToolTip('Give the board’s main font the font the scorebug uses most')
         self.bd_font.setEnabled(False)
+        self.bd_all = button('Match Every Park…', on_click=self._board_all)
+        self.bd_all.setToolTip('Repaint the boards of every ballpark in the scorebug you matched, and save them '
+                               'into your mod in one go')
+        self.bd_all.setEnabled(False)
         self._board_design = None
         self.bd_swatches = []
         for i in range(8):
@@ -803,7 +807,7 @@ class LayoutEditor(QWidget):
         self.rule_box = section('Rule and motion', [[self.d_rule], [self.d_rule_op, self.d_rule_val], [self.d_join],
                                                     [self.d_rule2], [self.d_rule2_op, self.d_rule2_val],
                                                     [self.d_move]])
-        self.board_box = section('Match a scorebug', [[self.bd_match], [self.bd_keep, self.bd_font]])
+        self.board_box = section('Match a scorebug', [[self.bd_match], [self.bd_keep, self.bd_font], [self.bd_all]])
         self.board_colours = section('Colours of the board', [self.bd_swatches[0:4], self.bd_swatches[4:8]])
         self.tools_row = section('Chosen piece', [[self.b_tint, self.p_op], [self.p_dx, self.p_dy],
                                                   [self.p_size, self.b_hide], [self.b_piece]])
@@ -924,6 +928,7 @@ class LayoutEditor(QWidget):
         self.board_colours.setVisible(self.board)
         self._board_design = None
         self.bd_font.setEnabled(False)
+        self.bd_all.setEnabled(False)
         if self.board:
             self._fill_board()
         self._asset_changed()
@@ -2233,6 +2238,7 @@ class LayoutEditor(QWidget):
             QMessageBox.warning(self, 'Could Not Match', str(x))
             return
         self._board_design = design
+        self.bd_all.setEnabled(True)
         self.bd_font.setEnabled(any(uibuild.kind_of(p) == 'text' for p, *_ in uibuild.walk(design.get('pieces') or [])))
         self._fill_board()
         self._redraw()
@@ -2256,6 +2262,43 @@ class LayoutEditor(QWidget):
         self._redraw()
         self.note.setText(f'{n} text boxes of this park’s boards now use game font {font}, the scorebug’s. '
                           'A font you imported for the scorebug comes along with the scorebug’s own mod.')
+
+    def _board_all(self):
+        """Every park's boards in the matched scorebug's colours, written into the mod."""
+        from .. import catalog
+        design = self._board_design
+        if not (self.board and design):
+            return
+        rows = [p for g, rs in catalog.board_groups(self.main.game) for _n, p in rs]
+        name = design.get('name', 'the design')
+        if QMessageBox.question(self, 'Match Every Park', f'Repaint {len(rows)} board files, every ballpark’s and '
+                                f'the shared ones, in the colours of {name} and save them into your mod?\n\n'
+                                'Boards you already changed in that mod are repainted from where you left them.') \
+                != QMessageBox.Yes:
+            return
+        mod = self.main.active_mod(ask=True, rel=self.rel)
+        if not mod:
+            return
+        import tempfile
+        palette, keep = uibuild.colours(design), self.bd_keep.isChecked()
+        tmp, done, failed = tempfile.mkdtemp(prefix='mts_'), 0, []
+        for pack in rows:
+            rel = pack[:-4] + '.NSW'
+            try:
+                lay = uilayout.Layout.open(self.main.current_file(rel))
+                if rel.upper() == self.rel.upper():
+                    lay = self.layout                     # the one on screen, as you have it
+                elif not boards.match(lay, palette, keep_main=keep):
+                    continue
+                out = os.path.join(tmp, os.path.basename(rel))
+                with open(out, 'wb') as f:
+                    f.write(lay.bytes())
+                self.main.lib.add_file(mod, rel, out)
+                done += 1
+            except Exception as x:
+                failed.append(f'{os.path.basename(rel)}: {x}')
+        self.main.changed(f'{done} board files now follow {name}, saved into {mod.name}. Apply, then look around a '
+                          'ballpark.' + (f' {len(failed)} could not be read and were left alone.' if failed else ''))
 
     def _board_recolour(self, i):
         palette = getattr(self, '_board_palette', [])

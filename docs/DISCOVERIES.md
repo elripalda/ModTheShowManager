@@ -90,7 +90,18 @@ are Bink videos under `CROSS/MOVIES/PRESENTATION`.
 Nothing on the scorebug has a team's colour painted in. A group of pieces carries a question, `UI CAP_TEAM_CLR`
 with a team, and the game draws the plain art inside it in the answer. The batting team's colour reaches the
 batter bar that way and the fielding team's the pitcher bar. A design of your own asks the same question, and can
-ask "is this club number ten?" first to swap in a colour of its own.
+ask "is this club number ten?" first to swap in a colour of its own. The game does that itself in one place: its
+player card asks whether the team is number ten and, if so, takes the second colour.
+
+The colour is the cap's, so it follows the uniform. `UI ACTUAL_TEAM_CLR` is the club's fixed colour and
+`TEAM_UI IS_CITY_CONNECT_ACTIVE` says whether a team is in City Connect. No query names any other uniform.
+
+## Stadium boards are layouts
+
+Every park's scoreboards sit in `NSW/STADIUMS/<PARK>/SCOREBOARD/` as a layout, a texture pack and a text file, the
+same three as a scorebug theme. `SCOREBOARD.SCR` beside them is plain text: each block names a sign in the park's
+model, the screen drawn on it and the size of the picture. Boards read the same queries as the scorebug, so the
+count, the line score and the batter's stats fill in the same way. Their colours are painted in, not asked.
 [Layouts](MODDING_GUIDE.md#ui-layouts-iff0assh)
 
 ## How a scorebug knows the score

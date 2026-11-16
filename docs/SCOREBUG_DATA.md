@@ -136,6 +136,17 @@ Home runs, strikeouts, speed, the end of an inning.
 `{"logo": "away", "kind": 2}` draws that team's logo. Kinds 1 to 5 are the game's five logo sets: wordmark, flat
 primary, large 3D, tile, large flat. `{"team": "home"}` fills a box with the team's colour.
 
+| Query | Answer |
+|---|---|
+| `UI CAP_TEAM_CLR [ AWAY_TEAM_ID ]` | The colour of the uniform that team has on. Add `, 1` for its second colour |
+| `UI ACTUAL_TEAM_CLR [ HOME_TEAM_ID , 0 ]` | The club's own colour, whatever it wears. `1` for its second |
+| `TEAM_UI IS_CITY_CONNECT_ACTIVE [ AWAY_TEAM_ID ]` | 1 while that team wears City Connect |
+| `CAP_CLR_BRIGHTNESS_TAB [ HOME_TEAM_ID ]` | 1 when that team's colour is a light one |
+| `HAS_CAP_LOGO [ AWAY_TEAM_ID ]` | 1 when the team has a cap logo to show |
+| `AWAY_TEAM TEAM_PROF TEAM_INX` | The club's number, 0 to 29 |
+
+`OFF_TEAM_ID` and `DEF_TEAM_ID` stand for the team batting and the team in the field.
+
 ## Finding more
 
 Every query the manager can name is in `src/modtheshow/assets/querynames.txt`, one word per line. A query only

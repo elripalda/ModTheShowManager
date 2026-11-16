@@ -58,7 +58,8 @@ Say what a designer would say. The more of these you pin down, the less you fix 
 - **What it shows.** "Both clubs with logos and scores, the inning with an arrow for top or bottom, the three bases,
   balls and strikes, outs as two dots."
 - **The look.** "Flat black at 85% with a thin white line on top. Scores in yellow. Club names in white."
-- **Team colour.** "Each club's name sits on a box of its own colour."
+- **Team colour.** "Each club's name sits on a box of its own colour." Say so if a club should get a colour of
+  yours ("the Astros in orange, navy in City Connect") or if the colour should stay the club's in every uniform.
 - **What changes.** "The first-base diamond turns yellow when a runner is on. Show FULL COUNT under the strip
   when it is 3-2."
 - **Motion.** "The whole strip fades in. The FULL COUNT tag drops down 14 pixels as it appears."

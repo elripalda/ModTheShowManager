@@ -79,13 +79,41 @@ you can show is listed in [Game data for a scorebug](SCOREBUG_DATA.md).
 
 `"bars": true` at the top keeps the game's batter and pitcher bars, rising from the design's top edge.
 
-`"team_colors": {"HOU": "#eb6e1f"}` at the top gives a club a colour of your own. It replaces the game's colour
-for that club everywhere the design uses `team` or `tint`, whichever side the club is on.
+### Team colours and uniforms
+
+A `team` or `tint` piece takes its colour from the uniform the team has on. The game keeps a colour for every
+uniform, the colour of its cap, so an alternate, a throwback or a City Connect set each change the scorebug with
+no work from you.
+
+- `"team_color": "club"` at the top asks for the club's fixed colour instead, whatever it wears. One piece can
+  choose for itself with `"source": "club"` or `"source": "uniform"`.
+- `"shade": 1` on a `team` or `tint` piece asks for the second colour.
+- `"team_colors": {"HOU": "#eb6e1f"}` gives a club a colour of your own, in every uniform, whichever side it is on.
+- `"team_colors": {"HOU CC": "#1d2a5e"}` gives it one only while it wears City Connect. Use both keys to set both.
+
+In the sandbox, **Team Colours…** is a grid of the thirty clubs with a swatch for every uniform and one for City
+Connect. Tick **CC** beside a team in the Game row to preview it in City Connect.
+
+A rule can ask about uniforms too:
+
+```json
+{"text": "CITY CONNECT", "at": [0, 44, 160, 18], "size": 14,
+ "when": {"data": "TEAM_UI IS_CITY_CONNECT_ACTIVE [ HOME_TEAM_ID ]", "is": "==", "value": 1}}
+```
+
+`CAP_CLR_BRIGHTNESS_TAB [ AWAY_TEAM_ID ]` is 1 when that team's colour is a light one, which is how the game
+decides between dark and white words on a team's box.
+
+City Connect is the only uniform the game lets a layout ask about by name. For the others the colour itself
+follows the uniform, but a design cannot say "only in the throwback".
 
 A PNG of your own is drawn at whatever size its piece is, so export it large and let the piece set the size. Inside
 a `tint` group it takes the team's colour, so paint a plate in white and keep its gloss and rim as a second picture
 outside the group. A design can carry twelve pictures. Each one takes the place of an equipment brand mark in the
 theme's pack, which the scorebug never draws. Paths that are not full ones are looked for beside the design file.
+
+**Save Design…** writes one `.mtsbug` file with the design, its pictures and any font file of its own inside.
+Send that one file to someone and they open it from Styles › Open a Design File.
 
 `"enter"` on a piece brings it in when the scorebug first appears:
 `{"from": [-60, 0], "fade": true, "frames": 20, "delay": 4}` starts it 60 pixels to the left and clear, and moves
@@ -155,8 +183,28 @@ A flat picture is enough to copy a layout: where things sit, how big, what colou
   rise, so the bar has to sit low enough to leave them room.
 - **Transitions.** The wipes between plays are Bink videos (`CROSS/MOVIES/PRESENTATION/THEMEn/*.BK2`), not
   layouts. Replacing them means encoding a video, which the manager does not do.
-- **Per-uniform colours.** A design can give a club its own colour, but tying a look to a City Connect or
-  throwback uniform is not worked out. The preview still takes the game's colours from a table.
+- **A colour for one throwback.** Colours follow the uniform on their own, and City Connect can have a colour of
+  yours, but the game has no question for "is this the 1980s throwback".
+- **Themes 2 to 4.** The designs replace Theme 1's scorebug. The other three are laid out differently and their
+  previews are still missing pieces.
 
 Starting lineups, the pre-game matchup, due up and the lower thirds are layouts like the scorebug
 (`NSW/UI/GAME/PRES/PRESOSDSn`). They open in the same sandbox, without their lists filled in.
+
+## Stadium boards
+
+The scoreboards inside each ballpark are layouts too, so they open in the same builder. In **Scoreboards**, scroll
+to **Stadium Boards**, pick a park and switch to **Layout**. The list at the top holds that park's screens: the
+jumbotron first, then the lineup boards and ribbons. The line under the picture says which sign each one is drawn
+onto and at what size.
+
+- **Click a piece** to tint, fade, move, resize or hide it, change its text or repaint its texture, the same as
+  on a scorebug.
+- **Colours of the board** shows the eight colours the park's boards use most. Click one to change it everywhere
+  in that park.
+- **Match a scorebug** repaints the park in a scorebug's colours: its dark behind everything, its light for the
+  words, its accent colours for the board's own. **Keep the park's colour** leaves the home club's colour alone.
+  **Use Its Font** gives the board the scorebug's main font. **Match Every Park…** does all the parks at once.
+- The Game row works here too: set the teams, score and count and the board fills in.
+
+A board's colours are painted in, not asked of the game, so a park shows the same colours whoever plays there.
