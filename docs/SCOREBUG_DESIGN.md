@@ -94,15 +94,20 @@ and fades it into place over 20 frames after waiting 4. The game runs 60 frames 
 You don't have to write the file by hand. **Styles › New Blank Design** starts one in the sandbox, and so do
 **Classic Line** (one line of text along the bottom), **Line Score** (runs by inning, hits and errors),
 **Team Tiles** (each club on a tile of its own colour, sliding in) and **Glass Tiles** (rounded glass plates drawn
-from two pictures that come with the manager). In a design the right-hand column changes to **Your design** and **Chosen piece**:
+from two pictures that come with the manager). In a design the right-hand column changes to **Layers**, **Chosen piece** and **Rule and motion**:
 
 - **+ Box, + Text, + Logo, + Team Colour, + Image** add a piece. **+ Image** takes a PNG of your own. **Copy**
   and **Delete** act on the chosen one.
 - For text, **Font** picks one of the game's fonts and **Import Font…** draws another font into the game in its
   place.
+- **Layers** lists every piece, back to front, nested the way they are grouped. **Move Back** and **Move
+  Forward** change what covers what. Double-click a layer to name it.
+- **Rule** draws a piece only while something is true: pick the data, then "is", "is at least" and so on, and a
+  number. An out light is a dot with the rule *SCORER OUTS is at least 1*. A lit base is a diamond with the rule
+  *SCOREBAR 1ST_BASE_TAB is 1*.
 - Pick a piece from the list or click it on the screen. **Chosen piece** sets its place and size, colour and
   opacity, and for text its words, the data it shows, its size and alignment.
-- The last box under **Chosen piece** sets how the piece arrives: fade in, or slide in from a side. Play it from the
+- The last box under **Rule and motion** sets how the piece arrives: fade in, or slide in from a side. Play it from the
   Animation row, under **Design: entrance**.
 - **Team Colours…** gives clubs a colour of your own: `HOU=#eb6e1f, SD=#ffc425`. Type a club in the Game row to
   see it.
@@ -111,8 +116,8 @@ from two pictures that come with the manager). In a design the right-hand column
 - Drag the red box to place the whole bug.
 - **Save Design…** writes the file. **Save to My Mod** and **Save as Style…** work as they do for any layout.
 
-Pieces inside a group are listed under it, indented, and a new piece goes into the group you have chosen. The looks
-of a switch are still set in the file. **Styles › Open a Design File…** loads one.
+A new piece goes into the group you have chosen. In the file a rule is
+`"when": {"data": "SCORER OUTS", "is": ">=", "value": 2}` on any piece, and `"name"` is what the layer is called. **Styles › Open a Design File…** loads one.
 
 ## What a mockup needs if you hand it over
 
