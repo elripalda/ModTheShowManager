@@ -1098,27 +1098,6 @@ def big_heads(game, lib, current_file):
                        'Tools, Arcade Rosters.', change)
 
 
-BODY = 'NSW/CHARACTERS/MASTERFILES/BODIES/STANDARDMALE/MALEBODY24.MOD'
-MASCOT = 'AND/CHARACTERS/MASCOTS/{team}/{team}_MASCOT_A.MOD'
-
-
-def mascot_bodies(game, lib, current_file, team='ARZ'):
-    """An experiment for mascot mode: the players' body model swapped for a team mascot's. The mascot is built on
-    the same 27 bones as the player body, in the same order, so the players' animations should drive it. Heads,
-    hands and textures are not dealt with yet."""
-    from . import modellib
-    fs = game.file_set()
-    src = MASCOT.format(team=team)
-    need = [BODY, modellib.gpu_path(BODY), src, modellib.gpu_path(src)]
-    if any(rel not in fs for rel in need):
-        raise ValueError('This install is missing the body or mascot model files.')
-    mod = _mod(lib, 'Experiment: Mascot Bodies', 'A first try at mascot mode: every player’s body is the D-backs '
-                    'mascot’s. Expect it to look wrong, and switch it off if the game won’t load.')
-    lib.add_file(mod, BODY, game.original(src))
-    lib.add_file(mod, modellib.gpu_path(BODY), game.original(modellib.gpu_path(src)))
-    return mod, 'Apply, start an exhibition game and send a screenshot, whatever it looks like.'
-
-
 SAMPLES = [
     ('aluminum', 'Sample: Aluminum Bats', 'Every player swings a metal bat, with the ping to go with it.',
      aluminum_bats),
@@ -1149,8 +1128,6 @@ SAMPLES = [
     ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',
      scorebug_flat),
     ('fireball', 'Sample: Fireball', 'A texture mod: the ball burns.', fireball),
-    ('mascot', 'Experiment: Mascot Bodies', 'A model swap: players wear the D-backs mascot’s body. Untested.',
-     mascot_bodies),
 ]
 
 

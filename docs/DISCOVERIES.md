@@ -181,10 +181,18 @@ error, each hit's type, power, spin and air density. That log is how a code mod 
   models attached to it. `BODYMETA_*.XML` beside it lists the attachments.
 - **Mascots** (`AND/CHARACTERS/MASCOTS/<TEAM>/<TEAM>_MASCOT_A.MOD`, textures under `NSW`) are built on those same
   27 bones, in the same order. That is what makes a mascot mode thinkable: a player's animations can drive a
-  mascot's body. The sample "Experiment: Mascot Bodies" swaps one in to see what the game does with it.
-- **Fire and fireworks** are not particles. A firework is a model whose vertices are animated by a texture
-  (`NSW/STADIUMS/PROPS/FW_*.MOD` with its `.XML` and `.TEX`), set off by a park's plain-text `EFFECTS.SCR`. A
-  flame that follows the ball would be one of those models tied to the ball from code, which nobody has done yet.
+  mascot's body.
+- **The game's own fire and fireworks** are not particles. A firework is a model whose vertices are animated by a
+  texture (`NSW/STADIUMS/PROPS/FW_*.MOD` with its `.XML` and `.TEX`), set off by a park's plain-text
+  `EFFECTS.SCR`, and the only cue those scripts take from play is a home run.
+- **Drawing your own over the game.** The recomp's overlay will call a mod back once a frame, the ball and the
+  camera can be read while the game runs, and the game's world-to-screen sum is short. That is enough to simulate
+  your own particles in the game's space and draw them where they belong. The Effects code mods do it;
+  [CODE_MODS.md](CODE_MODS.md) has the addresses.
+- **The body file is only skin.** Swapping `MALEBODY24.MOD` for a mascot's body took the players' arms away and
+  nothing else: the jersey, pants, head and hands are separate pieces laid over it, and the game shows named
+  parts of the body file, which a mascot's doesn't have. Mascots as players will have to come from the code that
+  puts a player together.
 
 ## Still open
 
@@ -194,4 +202,5 @@ error, each hit's type, power, spin and air density. That log is how a code mod 
 - Franchise and Road to the Show saves.
 - Runner speed, fielding and the pitch speed shown on screen, in the code.
 - Where Road to the Show keeps its tokens.
-- Tying a flame to the ball, and taking caps, helmets and gloves off.
+- Taking caps, helmets and gloves off, and building a player the way the game builds a mascot.
+- What pulls the outer PCI in on a swing (see Contact in CODE_MODS.md), and the size of the ball.

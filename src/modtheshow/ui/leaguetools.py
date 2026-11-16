@@ -1,6 +1,6 @@
 """Arcade rosters: push ratings, body shapes and bats for many players at once."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QSlider, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QSlider, QVBoxLayout
 
 from .common import button, label
 
@@ -19,7 +19,7 @@ SHAPE_PRESETS = [('Big Heads', {'Head': 255}), ('Tiny Heads', {'Head': 0}),
                  ('Giants', {'Neck': 255, 'Shoulders and arms': 255, 'Torso': 255, 'Hips and legs': 255}),
                  ('Noodle Arms', {'Shoulders and arms': 0}),
                  ('Gym Rats', {'Head': 60, 'Neck': 255, 'Shoulders and arms': 255, 'Torso': 255, 'Hips and legs': 70}),
-                 ('Never Skip Leg Day', {'Shoulders and arms': 40, 'Torso': 60, 'Hips and legs': 255}),
+                 ('Leg Day', {'Shoulders and arms': 40, 'Torso': 60, 'Hips and legs': 255}),
                  ('Little League', {'Head': 220, 'Neck': 60, 'Shoulders and arms': 0, 'Torso': 0, 'Hips and legs': 0})]
 PRESETS = [('Moonshot League', {'Power': 125}), ('Track Meet', {'Speed': 125}),
            ('Gold Gloves', {'Fielding': 125, 'Arm': 125}), ('Everyone Maxed', {g: 125 for g, _ in GROUPS})]
@@ -68,7 +68,9 @@ class LeagueTools(QDialog):
         pre2 = QGridLayout()                 # rows of four, so every button is the same width
         pre2.setSpacing(8)
         for i, (name, vals) in enumerate(SHAPE_PRESETS):
-            pre2.addWidget(button(name, on_click=lambda _=False, v=vals: self._preset(v, self.shapes)), i // 4, i % 4)
+            b = button(name, on_click=lambda _=False, v=vals: self._preset(v, self.shapes))
+            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            pre2.addWidget(b, i // 4, i % 4)
         for col in range(4):
             pre2.setColumnStretch(col, 1)
         lay.addLayout(pre2)

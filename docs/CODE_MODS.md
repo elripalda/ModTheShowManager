@@ -31,6 +31,7 @@ comes off the bat; Air's is how much air it flies through.
 | Up, Down | Move |
 | Enter | Switch the mod on or off |
 | Left, Right | Turn its dial (on a mod without one: off and on) |
+| F6 | Fireworks, when that mod is on |
 
 The game draws the list itself, the way it draws its own F1 menu, so it shows in fullscreen too. Changes take
 effect at once and are remembered. While the list is open the game ignores the controller, the same
@@ -50,13 +51,22 @@ the one shown.
 | Power Bunts (dial) | A bunt comes off the bat like a real swing. Experimental. |
 | Air (dial) | How much air the ball flies through. Low and fly balls carry forever; high and they die early. |
 | Bouncy Ball (dial) | How much the ball bounces off the ground and the walls. Experimental. |
+| Gravity (dial) | How hard the ball is pulled down while it flies. Low is moon ball. Experimental. |
 | Rocket Arms | Thrown balls travel 1.25x faster. Experimental. |
 | Pitch Speed (dial) | How fast every pitch gets to the plate. Experimental. |
 | Pitch Break (dial) | How hard spin bends the ball. Turn it up for wiffle ball. Experimental. |
 | Iron Arms | Pitchers tire four times slower. Experimental. |
+| Fireball (dial) | A pitch thrown hard enough catches fire: flames, a glow, embers and smoke. Experimental. |
+| On Fire | Streaks. Three whiffs in a row heat up the pitcher; three hard-hit balls in a row heat up the lineup. Experimental. |
+| Fireworks (dial) | Fireworks over the field on F6, and for a rocket off the bat. Experimental. |
 
 Experimental means it is built from reading the code and hasn't been confirmed in a game yet. These are for
 offline play.
+
+The last three are **Effects**. Nothing in them is the game's art: the manager simulates its own particles in the
+game's space and draws them over the picture every frame. They are drawn on the frames the game's overlay lays
+out, so they show while its fps readout is on. The manager switches that on for them; F10 is the readout's own
+key, and switching it off there puts the effects out too.
 
 ## Checking that one works
 
@@ -102,6 +112,8 @@ site big_fly main 167d0b8 bd404a60 bd404a60 $big_fly:s1 1e210800 bd004a60
   Experimental` adds a mark beside the name.
 - `#dial <name> <start> <lowest> <highest> <step> <label>` makes a dial, and `$name:s1` in a site loads its number
   into float register `s1` (any `s` register the code isn't using at that point).
+- `#turns <set> <dial>` gives a set a dial that no site loads. The Effects use it for numbers their own code reads,
+  like the speed a pitch has to reach before it burns.
 
 The rules the recomp's builder enforces: the original word must match, a replacement may only branch in its last
 word, and it must write the same flags the original did. That last one matters: a replacement for a plain
@@ -118,6 +130,11 @@ filled in and a baked-in patch would stay off for good. The manager adds one C f
 code at it. A dial is written into the table as an instruction no real patch uses; after the recomp translates
 it, the manager swaps that number for the live one. If that ever fails, the dials are built in at their current
 numbers instead and the build still works.
+
+A site can also just watch. One whose replacement is the original word changes nothing, and its counter still
+goes up each time the game gets there: On Fire counts swings that way. And one whose replacement starts with
+`mov x16, xN` (`aa0003f0` for `x0`) hands that register to the manager's own code each time it runs, which is how
+Fireball gets hold of the ball. `x16` is only free to use like that on the first instruction of a function.
 
 ## The map so far
 
@@ -162,6 +179,31 @@ Hit record: `+0x1c` late/inside rating, `+0x20` early/outside rating, `+0x28` to
 | `1688088` | 1.4667 again, for a thrown ball's speed. |
 | `166a6e4` | 1.4667 in the release setup shared by pitches and throws (speed and distance in, flight time out). |
 | `24ada4`, `24adb0` | The low and high ends of a pitch speed multiplier (about 0.95 and 1.05). Not confirmed in a game. |
+
+**Where things are, for drawing over the game**
+
+| Where | What |
+| --- | --- |
+| `166a2a4` | Releases the ball (it prints `ACTUAL RELEASE MAT`). The ball is in `x0`. |
+| ball `+0x560` | The ball's object on the field. Its place in the world is three floats at `+0xe0`, in feet. |
+| ball `+0x454`, `+0x458` | The pitch's speed in mph; the first wins when it is set. |
+| `28f51f8` | A pointer to the camera. Its matrix is at `+0x110` (rows: right, up, forward, where it stands), its two projection scales at `+0x500`. |
+| `119e918` | The game's world-to-screen routine: take the point relative to the camera, dot it with the three rows for x, y and z, and the spot on screen is `0.5 - 0.5 * scale * x / z` across and the same with y down, from the top left. It is in front of the camera when z is above 0. |
+
+The field is measured from the pitching rubber. Towards the plate is +z (the plate is at 60.5), up is +y, and a
+pitch is let go around z = 9.
+
+**Gravity** is not a setting: it is a flat 32 added to the ball's fall at `16571c0`, in the forces function.
+
+**Contact** (function at `358744`, read from the code, not tried in a game)
+
+| Where | What |
+| --- | --- |
+| swing `+0x60`, `+0x64` | The inner and outer PCI sizes for this swing, set at `3568f4`. |
+| `358744` | The chance of contact: the aim error against those two sizes. Inside the inner one is 1 to 2, between them 1 down to 0. The game logs it as `Hitchance`. |
+| `356a18` | Pulls the outer size in towards the inner one, by an amount that depends on the swing and, for one kind of swing, on Competitive. What drives it is not traced yet. |
+| `1680bcc` to `1680c30` | In Competitive, contact on a pitch outside the zone loses up to 10% of its power, by how far outside. One game mode takes it off a second time. The game logs it as `Outside SZ`. |
+| `aa760`, `aa7f0`, `aa7c0` | Competitive, Simulation, Casual. The flags the hitting code reads are copied at `abb2c` (`+0x2b` and `+0x35` Competitive, `+0x22` Simulation, `+0x23` Casual). |
 
 **Stamina**
 
