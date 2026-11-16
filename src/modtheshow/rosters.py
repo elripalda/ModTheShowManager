@@ -70,6 +70,8 @@ class Equipment:
     def choices(self, slot_type):
         """[(style, label)] for a slot, enabled items only (plus 'None' for 0 where the game uses it)."""
         out = [(st, lab) for st, lab, en, _ in self.by_type.get(slot_type, []) if en and lab]
+        if slot_type == 0:      # bats: the metal ones are switched off in the list but a player can still be given one
+            out += [(st, f'Aluminum: {lab}') for st, lab in self.metal_bats()]
         seen, uniq = set(), []
         for st, lab in out:
             if st not in seen:
