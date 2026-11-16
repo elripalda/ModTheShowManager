@@ -573,6 +573,7 @@ class LayoutEditor(QWidget):
         if self.rel and self.rel.upper() == samples.THEME:
             self.styles.addItem('Wide Top Bar', ('built-in', 'wide'))
             self.styles.addItem('Split Bar', ('built-in', 'split'))
+            self.styles.addItem('Glass Bar', ('built-in', 'glass'))
         try:
             for m in self.main.lib.list():
                 for path in recipes.files(m.path, 'layouts'):
@@ -597,7 +598,9 @@ class LayoutEditor(QWidget):
             return
         try:
             lay = uilayout.Layout.open(self.main.game.original(self.rel))
-            if what[0] == 'built-in':
+            if what == ('built-in', 'glass'):
+                samples.glass_bar(lay, self._table)
+            elif what[0] == 'built-in':
                 samples.wide_top_bar(lay, split=what[1] == 'split')
             else:
                 with open(what[1], encoding='utf-8') as f:

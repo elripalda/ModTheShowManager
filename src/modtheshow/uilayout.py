@@ -732,7 +732,8 @@ class Layout:
     def repaint(self, asset, rules, table=None):
         """Recolour an overlay by colour: each rule names a colour the game uses ('from': '#cecece') and gives
         'to' ('#rrggbb') and/or 'opacity' (0-100). 'texture' narrows a rule to pieces drawing that texture ('' for
-        plain pieces), 'kind' to 'image' or 'text'. Covers the overlays it draws too. Returns how many changed."""
+        plain pieces), 'kind' to 'image' or 'text', 'solid' to pieces that are not see-through already. Covers the
+        overlays it draws too. Returns how many changed."""
         table = table or {}
         kinds = {'image': (0x18, 0x01, 0x04), 'text': (0x22,)}
         done = set()
@@ -744,6 +745,8 @@ class Layout:
             for a in self.family(asset):
                 for n in a.nodes():
                     if n.off in done or n.kind not in ks or n.rgba()[:3] != want:
+                        continue
+                    if rule.get('solid') and (n.color >> 24) < 0xF0:
                         continue
                     if tex is not None:
                         name = '' if n.ref == NONE else table.get(n.ref, '?')

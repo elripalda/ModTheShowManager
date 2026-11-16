@@ -135,7 +135,7 @@ hiding a piece carries its animation with it, so a piece you moved still slides 
 
 **Styles** (bottom row) starts you from a whole look. **Wide Top Bar** turns Theme 1 into one strip across the top
 of the screen. **Split Bar** puts the teams at either end with the game state between them and mirrors the home
-side. **Save as Style…** keeps whatever you have built as its own small mod called `Scorebug: <name>`: it
+side. **Glass Bar** is the same shape as three floating tiles of smoked glass, each team tinted its own colour. **Save as Style…** keeps whatever you have built as its own small mod called `Scorebug: <name>`: it
 shows in the Styles list to come back to, and in the Mods list to switch on or share. A style holds only what
 differs from the game's layout, plus any pieces you repainted.
 

@@ -236,16 +236,34 @@ def scorebug_brick(game, lib, current_file):
                            BRICK_SAND)
 
 
+# smoked glass: the light plates go dark and see-through, the dark lines and letters go white
+GLASS = [
+ {'from': '#cecece', 'kind': 'image', 'texture': '', 'solid': True, 'to': '#0b0f16', 'opacity': 52},
+ {'from': '#c0c0c0', 'kind': 'image', 'texture': '', 'solid': True, 'to': '#0b0f16', 'opacity': 52},
+ {'from': '#e0e0e0', 'kind': 'image', 'texture': '', 'solid': True, 'to': '#0b0f16', 'opacity': 46},
+ {'from': '#dbdbdb', 'kind': 'image', 'texture': '', 'solid': True, 'to': '#0b0f16', 'opacity': 46},
+ {'from': '#ffffff', 'texture': 't2_texture_chalk', 'opacity': 5},
+ {'from': '#6e6e6e', 'texture': 'gradient_radial', 'opacity': 0},
+ {'from': '#323232', 'kind': 'image', 'texture': '', 'to': '#ffffff'},
+ {'from': '#2f3641', 'to': '#ffffff'},
+ {'from': '#8c8c8c', 'kind': 'image', 'texture': '', 'to': '#ffffff', 'opacity': 20},
+ {'from': '#000000', 'kind': 'text', 'to': '#ffffff'},
+ {'from': '#252c34', 'kind': 'text', 'to': '#ffffff'},
+ {'from': '#323232', 'kind': 'text', 'to': '#ffffff'},
+ {'from': '#252c34', 'texture': 't1_outbkg', 'to': '#05070b'},
+]
+
 ROW = 0xDC303B63          # Theme 1's team row: one template, drawn for each team
 
 
-def wide_top_bar(lay, split=False):
+def wide_top_bar(lay, split=False, gap=0):
     """Rearrange Theme 1's scorebug into one wide strip across the top: away row, home row, then inning, bases,
     count and outs in a line. The pitcher and batter bars keep rising above it, so the strip sits low enough for
     the tallest of them. Works on the stock layout.
 
     split puts the inning-to-outs block in the middle and gives the home team a mirrored row (score inside, logo
-    on the outer edge), which takes a second copy of the row template."""
+    on the outer edge), which takes a second copy of the row template. gap (with split) parts the three blocks
+    into separate tiles, the frame shrinking to sit behind the middle one."""
     mirrored = None
     if split:
         if ROW not in lay.by_hash:
@@ -257,7 +275,8 @@ def wide_top_bar(lay, split=False):
     if c is None or not c.children or not c.children[0].children:
         raise ValueError('The scorebug was not found in the layout.')
     H, RW, IW = 62, 315, 260                 # strip height, team row width, width of the inning-to-outs block
-    W = 2 * RW + IW
+    gap = gap if split else 0
+    W = 2 * RW + IW + 2 * gap
     TOP = 148                                # the strip's top edge on screen: room for the batter panel above it
 
     def at(rel, kind=None):
@@ -272,27 +291,30 @@ def wide_top_bar(lay, split=False):
         raise ValueError('This scorebug has already been rearranged. Start from the stock layout.')
     lay.move(c, (1920 - W) / 2, TOP - 55)              # the strip starts 55 below the container's own top
     lay.resize(c, W + 10, c.h)
-    # the frame behind everything
-    lay.resize(panel, W, H + 4)
+    # the frame behind everything (behind the middle tile only, when the blocks are parted)
+    block = 5 + (RW + gap if split else 2 * RW)
+    FW = IW if gap else W
+    if gap:
+        lay.move(panel, block, panel.y)
+    lay.resize(panel, FW, H + 4)
     for k in panel.children:
         if k.kind == 0x1E or (k.kind == 0x0F and k.w > 400):
-            lay.resize(k, W, H + 4 if k.kind == 0x1E else H + 2)
+            lay.resize(k, FW, H + 4 if k.kind == 0x1E else H + 2)
         elif k.kind == 0x18 and k.w > 400:
-            lay.resize(k, W - (473 - k.w), k.h)
+            lay.resize(k, FW - (473 - k.w), k.h)
         elif k.kind == 0x18:                               # the shade down the right edge
-            lay.move(k, W - 40, k.y)
+            lay.move(k, FW - 40, k.y)
             lay.resize(k, k.w, H - 2)
             if split:
                 lay.recolor(k, alpha=0)
     # the two team rows, side by side
-    for row, x in ((away, 5), (home, 5 + RW + (IW if split else 0))):
+    for row, x in ((away, 5), (home, 5 + RW + (IW + 2 * gap if split else 0))):
         lay.move(row, x, 14)
         lay.resize(row, RW, H)
         lay.resize(row.children[0], RW, H)
     if split:
         lay.retarget(home.children[0], mirrored)
     # inning, bases, count, outs in one line
-    block = 5 + (RW if split else 2 * RW)
     lay.move(info, block, 14)
     lay.resize(info, IW, H)
     slide = info.children[0]
@@ -328,12 +350,23 @@ def wide_top_bar(lay, split=False):
     return a
 
 
-def _style_sample(game, lib, name, description, slug, split):
+def glass_bar(lay, table):
+    """Three floating tiles of smoked glass: a team at each end, tinted its own colour, and the game state between
+    them. table is the theme pack's texture names by hash (Layout.texture_table)."""
+    a = wide_top_bar(lay, split=True, gap=10)
+    lay.repaint(a, GLASS, table)
+    return a
+
+
+def _style_sample(game, lib, name, description, slug, split, glass=False):
     if THEME not in game.file_set():
         raise ValueError('This install has no scorebug layout (THEME1.NSW).')
     from . import recipes
     lay = uilayout.Layout.open(game.original(THEME))
-    wide_top_bar(lay, split=split)
+    if glass:
+        glass_bar(lay, recipes._texture_table(game, THEME))
+    else:
+        wide_top_bar(lay, split=split)
     mod = _mod(lib, name, description)
     folder = os.path.join(mod.path, 'layouts')
     os.makedirs(folder, exist_ok=True)
@@ -351,6 +384,11 @@ def scorebug_wide(game, lib, current_file):
 def scorebug_split(game, lib, current_file):
     return _style_sample(game, lib, 'Sample: Split Bar', 'A wide strip with the teams at either end and the '
                          'inning, bases, count and outs between them. The home side is mirrored.', 'split-bar', True)
+
+
+def scorebug_glass(game, lib, current_file):
+    return _style_sample(game, lib, 'Sample: Glass Bar', 'Three floating tiles of smoked glass across the top: each '
+                         'team tinted its own colour, the game state between them.', 'glass-bar', True, glass=True)
 
 
 def scorebug_text_test(game, lib, current_file):
@@ -393,6 +431,7 @@ SAMPLES = [
      scorebug_wide),
     ('split', 'Sample: Split Bar', 'A scorebug layout: teams at either end, the game state in the middle.',
      scorebug_split),
+    ('glass', 'Sample: Glass Bar', 'A scorebug style: three floating tiles of smoked glass.', scorebug_glass),
     ('texttest', 'Test: Scorebug Text', 'A check: scorebug text bigger, red and in another font.',
      scorebug_text_test),
     ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',
