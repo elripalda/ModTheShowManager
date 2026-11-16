@@ -117,8 +117,10 @@ class Game:
             return False
         return 'mlb.exe' in out.lower()
 
-    def launch(self):
+    def launch(self, env=None):
+        full = dict(os.environ, **env) if env else None
         if sys.platform == 'win32':
-            subprocess.Popen([self.exe], cwd=self.root, creationflags=getattr(subprocess, 'DETACHED_PROCESS', 0))
+            subprocess.Popen([self.exe], cwd=self.root, env=full,
+                             creationflags=getattr(subprocess, 'DETACHED_PROCESS', 0))
         else:
-            subprocess.Popen([self.exe], cwd=self.root)
+            subprocess.Popen([self.exe], cwd=self.root, env=full)

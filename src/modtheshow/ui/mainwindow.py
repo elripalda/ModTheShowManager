@@ -17,13 +17,14 @@ from .models import ModelsPage
 from .sounds import SoundsPage
 from .teams import TeamsPage
 from .modspage import ModsPage
+from .plugins import PluginsPage
 from .pages import BatsPage, MenusPage, ScoreboardsPage, StadiumsPage, UniformsPage
 
 NAV = [('START', [('Home', HomePage), ('Mods', ModsPage)]),
        ('CREATE', [('Uniforms', UniformsPage), ('Bats', BatsPage), ('Stadiums', StadiumsPage),
                    ('Scoreboards', ScoreboardsPage), ('Menus & Loading Screens', MenusPage), ('3D Models', ModelsPage),
                    ('Sounds', SoundsPage), ('Teams & Rosters', TeamsPage)]),
-       ('TOOLS', [('Game Files', GameFilesPage), ('Code Plugins', None)])]
+       ('TOOLS', [('Game Files', GameFilesPage), ('Code Plugins', PluginsPage)])]
 
 
 class Setup(QWidget):
@@ -446,7 +447,7 @@ class MainWindow(QMainWindow):
                 self.go('Mods')
                 return
         try:
-            self.game.launch()
+            self.game.launch(self.pages['Code Plugins'].env())
             self.toast('Launching MLB The Show 26...')
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Launch', str(x))

@@ -113,6 +113,30 @@ copies too. Moving players is in beta: rotations and lineups aren't rebuilt, so 
 The **Face** tab shows the player's face texture from `NSW/CHARACTERS/HEADS/<LAST_FIRST>/`. Players with the
 same name get a letter on the end (`BELL_JOSHE`). Young players without a scan use the generic creator faces.
 
+Each player also has a **Gear** tab (bat, grip, batting gloves, glove, cleats, guards, sleeve, eyewear, catcher
+gear) and his jersey number, height and handedness. Moving a player takes him out of his old team's rotation and
+lineups and puts him on the new team's bench or in its bullpen. **Team Builder Names** edits the names and cities
+the game's custom team builder offers.
+
+## Code mods
+
+**Code Plugins** builds instruction patches into `mlb.exe` with the recomp's own tools. A mod carries them in
+`code/*.patch`:
+
+```
+set  <name> <SWITCH> <default 0/1>
+site <set> <main|sdk> <offset hex> <original word hex> <replacement word hex> ...
+```
+
+Rebuild Game runs the recomp's generator and build (about two minutes) and keeps your old exe as
+`mlb.original.exe`. Each set stays switchable when you launch from the manager. Finding what to patch is the hard
+part: offsets are for game version 1.0.15.
+
+## Replacing sounds
+
+Stream files (`.XVAG`) have **Replace With WAV (Beta)**. The replacement is written as PS ADPCM (XVAG codec 6),
+which the sound engine lists next to its own codec. Try it in the game before you build a mod around it.
+
 ## Stadiums in 3D
 
 **Stadiums › 3D View** draws the park's `SCENE.MOD` with its textures. Orbit around it, or switch to Fly Through
@@ -120,8 +144,9 @@ and walk around with W A S D (Q and E for down and up). Hide Roof opens up cover
 
 ## Not cracked yet
 
-- The `.XVAG` 0x0E codec and the `.SKX` archive layout. Cracking these comes before sound replacement. What's
-  known about 0x0E is in the format reference below.
+- Playing the game's own `.XVAG` streams. Codec 0x0E is Sony's SADPCM (the game's name for it); the frame layout
+  is in the format reference below, the predictor isn't solved. `.SKX` archives are XVAG clips at 0x800-aligned
+  offsets, named by the `.KEY` file.
 - Texture names inside UI layouts. They use a hash nobody has matched yet, so the Layout view draws boxes.
 - Head meshes. The `HEADS` folders hold hair and eyebrow models plus the face textures; the head shape is built at
   runtime.
@@ -190,7 +215,13 @@ tangents), `kFP_0_0_8` (unorm8), `kUInt_8` (bone indices). The bat stores its le
 - `.XVAG`: `XVAG` header with an `fmat` chunk: channels, codec, samples, …, sample rate at +0x1C. Codec 0x0E on Switch.
   Its data is 96-byte frames: four 4-byte group headers, then 80 bytes of 4-bit codes. Each header packs two
   12-bit history samples (bits 0–11 and 12–23) and a byte whose low nibble looks like a filter index (0–4) and
-  high nibble a scale. 42 samples per group. The filter table and scale rule are still unknown.
+  high nibble a scale. The two header samples start the group and 40 codes follow: 42 samples per group. Mono files
+  run the four groups one after another; multichannel files give one group to each channel. The filter table is
+  still unknown.
+- In `PLAYERS.BIN`, `D_PLAYER_ACC` holds gear as the item's `style` from `FRONTEND/EQUIPMENT/MLBEQUIPMENT.JSON`.
+  `UNSIGNED_PACK` bits: height 9–15 (inches), bats 23–24 (R, L, S), jersey number 128–134 and again 135–141.
+  `SIGNED_PACK` bit 30 is throws left. `ROSTERS.BIN` `D_ROSTER_HLPR.PLAYER_NUMS` is 95 u32 slots of player
+  number + 1 (0–4 rotation, 5 closer, 6–29 bullpen, 30+ position players); `D_LINEUP` maps positions to slots.
 
 ## Stats databases (LE90)
 

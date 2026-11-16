@@ -1,0 +1,178 @@
+"""Code mods: instruction patches baked into mlb.exe by the recomp's own builder, switched per launch.
+
+The game's code is lifted to C when the recomp is installed, so it cannot be byte-patched afterwards. The recomp's
+generator takes a patch table instead (recomp/patches.py in mlbts-native):
+
+    set  <name> <ENV_SWITCH> <default 0/1>
+    site <set> <module> <offset hex> <original word hex> <replacement word hex> [...]
+
+A mod carries such a table in  <mod>/code/*.patch . The manager joins the tables of the mods that are switched on,
+runs the generator and the build from the recomp folder (the one MLBTS-Setup.exe lives in), and swaps mlb.exe. Each
+set stays switchable: the manager starts the game with the set's switch in the environment.
+"""
+import os
+import re
+import shutil
+import subprocess
+
+HEX = re.compile(r'^[0-9a-fA-F]{1,8}$')
+
+
+class PatchError(ValueError):
+    pass
+
+
+def find_recomp(hint=None):
+    cands = [hint] if hint else []
+    home = os.path.expanduser('~')
+    cands += [os.path.join(home, 'Desktop', 'RL', 'mlbts-native'), os.path.join(home, 'Desktop', 'mlbts-native'),
+              os.path.join(home, 'Downloads', 'mlbts-native'), r'C:\mlbts-native']
+    for c in cands:
+        if c and is_recomp(c):
+            return c
+    return None
+
+
+def is_recomp(path):
+    return bool(path) and all(os.path.exists(os.path.join(path, *p)) for p in
+                              (('recomp', 'gen.py'), ('tools', 'build.py'), ('python', 'python.exe')))
+
+
+def parse(text, where=''):
+    """[(name, env, default)], [site line], problems."""
+    sets, lines, bad = [], [], []
+    names = set()
+    for no, raw in enumerate(text.splitlines(), 1):
+        f = raw.split('#', 1)[0].split()
+        if not f:
+            continue
+        at = f'{where}:{no}'
+        if f[0] == 'set' and len(f) == 4 and f[3] in ('0', '1') and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', f[1]) \
+                and re.fullmatch(r'[A-Z_][A-Z0-9_]*', f[2]):
+            if f[1] in names:
+                bad.append(f'{at}: set {f[1]} is defined twice')
+            names.add(f[1])
+            sets.append((f[1], f[2], int(f[3])))
+            lines.append(' '.join(f))
+        elif f[0] == 'site' and len(f) >= 6 and f[2] in ('main', 'sdk') and HEX.match(f[3]) and HEX.match(f[4]) \
+                and all(HEX.match(w) or re.fullmatch(r'@page:x\d{1,2}', w) for w in f[5:]):
+            if f[1] not in names:
+                bad.append(f'{at}: site uses set {f[1]} before it is defined')
+            lines.append(' '.join(f))
+        else:
+            bad.append(f'{at}: cannot read "{raw.strip()}"')
+    return sets, lines, bad
+
+
+def mod_patches(mod):
+    """[(path, text)] of a mod's code/*.patch files."""
+    folder = os.path.join(mod.path, 'code')
+    out = []
+    if os.path.isdir(folder):
+        for f in sorted(os.listdir(folder)):
+            if f.lower().endswith('.patch'):
+                p = os.path.join(folder, f)
+                with open(p, encoding='utf-8', errors='replace') as fh:
+                    out.append((p, fh.read()))
+    return out
+
+
+def collect(mods):
+    """Joined table of the enabled mods: sets [(name, env, default, mod name)], text, problems."""
+    sets, lines, bad, seen = [], [], [], {}
+    for m in mods:
+        if not m.enabled:
+            continue
+        for path, text in mod_patches(m):
+            s, l, b = parse(text, f'{m.name}/{os.path.basename(path)}')
+            bad += b
+            for name, env, default in s:
+                if name in seen:
+                    bad.append(f'{m.name}: set {name} is also in {seen[name]}')
+                seen[name] = m.name
+                sets.append((name, env, default, m.name))
+            lines.append(f'# {m.name}: {os.path.basename(path)}')
+            lines += l
+    return sets, '\n'.join(lines) + '\n', bad
+
+
+def signature(text):
+    import hashlib
+    body = '\n'.join(l for l in text.splitlines() if not l.startswith('#'))
+    return hashlib.sha1(body.encode()).hexdigest()[:16] if body.strip() else ''
+
+
+def rebuild(recomp, game_root, patch_text, log=print):
+    """Run the recomp's generator and build with the patch table, then swap mlb.exe (the old one is kept once as
+    mlb.original.exe). Raises PatchError with the tool's last lines when a step fails."""
+    if not is_recomp(recomp):
+        raise PatchError('That is not the recomp folder (the one with MLBTS-Setup.exe).')
+    py = os.path.join(recomp, 'python', 'python.exe')
+    work = os.path.join(recomp, 'temp', 'modtheshow')
+    gen, out = os.path.join(work, 'gen'), os.path.join(work, 'build')
+    os.makedirs(work, exist_ok=True)
+    table = os.path.join(work, 'patches.txt')
+    with open(table, 'w', encoding='utf-8') as f:
+        f.write(patch_text)
+    exefs = os.path.join(game_root, 'game', 'exefs')
+    steps = [('Translating the game code', [py, '-I', '-X', 'utf8', os.path.join(recomp, 'recomp', 'gen.py'),
+                                           '--exefs', exefs, '--out', gen, '--modules', 'main,sdk'] +
+              (['--patches', table] if signature(patch_text) else [])),
+             ('Compiling', [py, '-I', '-X', 'utf8', os.path.join(recomp, 'tools', 'build.py'),
+                            '--toolchain', os.path.join(recomp, 'llvm'),
+                            '--deps', os.path.join(recomp, 'runtime', 'deps'),
+                            '--ninja', os.path.join(recomp, 'bin', 'ninja.exe'),
+                            '--runtime-lib', os.path.join(recomp, 'runtime', 'libmlbrt.a'), '--portable',
+                            '--gen', gen, '--out', out])]
+    for title, cmd in steps:
+        log(title + '...')
+        p = subprocess.Popen(cmd, cwd=recomp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                             errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        tail = []
+        for line in p.stdout:
+            line = line.rstrip()
+            if line:
+                tail = (tail + [line])[-12:]
+                if re.match(r'emitted \d+/\d+ chunks|\[\d+/\d+\]', line):
+                    log(f'{title}: {line.split("]")[0].lstrip("[") if line.startswith("[") else line}')
+        if p.wait():
+            raise PatchError(f'{title} failed:\n' + '\n'.join(tail))
+    built = os.path.join(out, 'mlb.exe')
+    if not os.path.exists(built):
+        raise PatchError('The build finished without an mlb.exe.')
+    exe = os.path.join(game_root, 'mlb.exe')
+    keep = os.path.join(game_root, 'mlb.original.exe')
+    if os.path.exists(exe) and not os.path.exists(keep):
+        shutil.copy2(exe, keep)
+    tmp = exe + '.new'
+    shutil.copy2(built, tmp)
+    try:
+        os.replace(tmp, exe)
+    except PermissionError:
+        os.remove(tmp)
+        raise PatchError('mlb.exe is in use. Close the game and try again.') from None
+    log('Done')
+    return exe
+
+
+def restore_exe(game_root):
+    keep = os.path.join(game_root, 'mlb.original.exe')
+    if not os.path.exists(keep):
+        return False
+    os.replace(keep, os.path.join(game_root, 'mlb.exe'))
+    return True
+
+
+TEMPLATE = '''# A code mod for MLB The Show 26 (PC recomp). Lines starting with # are notes.
+#
+# set  <name> <SWITCH> <default>      one switchable group of patches. SWITCH is upper case, e.g. MLB_MOD_MYCHEAT
+# site <set> <module> <offset> <original> <replacement> [<replacement> ...]
+#
+# <module> is main or sdk. <offset> is where the instruction sits in that module (hex). <original> is the ARM64
+# instruction word that is there now (hex); the build stops if it does not match, so a patch made for another game
+# version cannot land in the wrong place. Each <replacement> is the ARM64 instruction word to run instead.
+#
+# Example (not a real patch):
+# set  example MLB_MOD_EXAMPLE 1
+# site example main 123456 1e202008 1e204008
+'''

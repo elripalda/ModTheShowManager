@@ -19,7 +19,9 @@ drop in your own art and switch mods on and off.
 - **Sounds** – every sound file in the game. Sound banks and AT9 clips play and export as WAV.
 - **Scorebug layout** – move the scorebug and other overlays anywhere on screen.
 - **Uniform schedule** – choose what each team wears and when, rename uniforms, hide them from the picker.
-- **Teams & Rosters** – rename teams, edit players and ratings, move players, swap face textures.
+- **Teams & Rosters** – rename teams, edit players, ratings, numbers and gear, move players, swap face textures,
+  and edit the custom team builder's names.
+- **Code Plugins** – build instruction patches from mods into the game and switch them per launch.
 - **Stadiums in 3D** – orbit a ballpark or fly through it.
 - Replaced textures keep the game's format: BC1, BC3, BC4 and BC7, with mip levels and loading previews rebuilt.
 

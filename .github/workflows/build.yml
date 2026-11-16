@@ -26,7 +26,7 @@ jobs:
           pip install -r requirements.txt pyinstaller
 
       - name: Check the texture engine
-        run: python tests/test_texlib.py && python tests/test_modellib.py && python tests/test_rosters.py
+        run: python tests/test_texlib.py && python tests/test_modellib.py && python tests/test_rosters.py && python tests/test_codemods.py
 
       - name: Fetch the audio decoder (vgmstream)
         shell: pwsh

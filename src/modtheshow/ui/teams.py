@@ -36,7 +36,8 @@ class TeamsPage(QWidget):
         self.b_reset = button('Back to Default', on_click=self.reset)
         self.b_save = button('Save to My Mod', True, self.save)
         outer.addWidget(header('Teams & Rosters', 'Rename any team, fix player names and ratings, or move a player to '
-                               'another club. Saves go into your mod like everything else.', [self.b_reset, self.b_save]))
+                               'another club. Saves go into your mod like everything else.',
+                               [button('Team Builder Names', on_click=self.team_builder), self.b_reset, self.b_save]))
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
         split.setHandleWidth(16)
@@ -198,6 +199,14 @@ class TeamsPage(QWidget):
         split.setStretchFactor(1, 1)
         split.setSizes([250, 640, 420])
         outer.addWidget(split, 1)
+
+    def team_builder(self):
+        from .teambuilder import NAMES, PLACES, TeamBuilderDialog
+        fs = self.main.game.file_set()
+        if NAMES not in fs or PLACES not in fs:
+            QMessageBox.information(self, 'Not Found', 'This install has no custom team name lists.')
+            return
+        TeamBuilderDialog(self.main).exec()
 
     # ---- loading
     def activate(self):

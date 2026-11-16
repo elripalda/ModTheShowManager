@@ -91,9 +91,13 @@ class SoundsPage(QWidget):
         self.b_stop = button('Stop', on_click=self.stop)
         self.b_wav = button('Export WAV', on_click=self.export_wav)
         self.b_raw = button('Export Original File', on_click=self.export_raw)
+        self.b_rep = button('Replace With WAV (Beta)', on_click=self.replace_wav)
+        self.b_rep.setToolTip('Stream files (.XVAG) only. Written in the classic VAG codec the sound engine also '
+                              'carries; check it in the game.')
         for b in (self.b_play, self.b_stop, self.b_wav, self.b_raw):
             row.addWidget(b, 1)
         rl.addLayout(row)
+        rl.addWidget(self.b_rep)
         split.addWidget(right)
         split.setStretchFactor(1, 1)
         split.setSizes([380, 900])
@@ -152,6 +156,7 @@ class SoundsPage(QWidget):
         self.b_stop.setEnabled(on and self.player.ok)
         self.b_wav.setEnabled(on and playable and self.dec.ok)
         self.b_raw.setEnabled(on)
+        self.b_rep.setEnabled(on and bool(self.rel) and self.rel.endswith('.XVAG'))
 
     # ---------------------------------------------------------- details
     def _picked(self, cur, _prev):
@@ -278,6 +283,22 @@ class SoundsPage(QWidget):
         if out:
             shutil.copyfile(self.main.game.original(self.rel), out)
             self.main.toast(f'Saved {os.path.basename(out)}')
+
+    def replace_wav(self):
+        if not self.rel or not self.rel.endswith('.XVAG'):
+            return
+        wav, _ = QFileDialog.getOpenFileName(self, 'Replacement Sound', self.main.last_dir(), 'WAV (*.wav)')
+        if not wav:
+            return
+        self.main.remember_dir(wav)
+        from .. import xvagwrite
+        rel, orig = self.rel, self.main.game.original(self.rel)
+        try:
+            self.main.save_file(rel, lambda p: xvagwrite.build(orig, wav, p),
+                                rel.rsplit('/', 1)[-1] + ' replaced in {mod}. Apply, then listen for it in a game.')
+        except Exception as x:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, 'Could Not Replace', str(x))
 
     def refresh_overrides(self):
         pass

@@ -161,7 +161,10 @@ class LayoutEditor(QWidget):
         self.which.clear()
         if rel not in self.main.game.file_set():
             self.layout = None
+            self.asset = self.node = None
             self.canvas.rect_ = None
+            self.canvas.pieces = []
+            self._enable(False)
             self.note.setText('This pack has no layout file.')
             self.which.blockSignals(False)
             self.canvas.update()
@@ -176,14 +179,30 @@ class LayoutEditor(QWidget):
             return
         names = []
         for a in self.layout.assets:
-            c = a.container()
-            if c is not None and a.name.startswith(('Scorebar', 'BottomTicker', 'Trans', 'PitcherBatter', 'ManagerSuggests')):
+            if not a.name.startswith('asset_') and a.container() is not None:
                 names.append(a.name)
-        names = sorted(set(names), key=lambda n: (n != 'Scorebar', n))
+        first = ('Scorebar', 'BottomTicker')
+        names = sorted(set(names), key=lambda n: (first.index(n) if n in first else len(first), n))
+        if not names:
+            self.layout = None
+            self.asset = self.node = None
+            self.canvas.rect_ = None
+            self.canvas.pieces = []
+            self.note.setText('This pack’s layout has no overlays the manager can place yet.')
+            self.which.blockSignals(False)
+            self.canvas.update()
+            self._enable(False)
+            return
+        self._enable(True)
+        self.note.setText('Drag the red box or type a position. Save writes this layout into your mod.')
         for n in names:
             self.which.addItem(n)
         self.which.blockSignals(False)
         self._asset_changed()
+
+    def _enable(self, on):
+        for w in (self.which, self.preset, self.sx, self.sy, self.sscale, self.b_reset, self.b_save):
+            w.setEnabled(on)
 
     def _asset_changed(self, *_):
         if not self.layout or not self.which.currentText():
