@@ -10,8 +10,8 @@ import time
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout,
-                               QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-                               QSlider, QSpinBox, QVBoxLayout, QWidget)
+                               QFrame, QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu,
+                               QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget)
 
 from .. import fontlib, recipes, samples, teamart, uibuild, uilang, uilayout, uiquery, uirender
 from . import theme
@@ -458,6 +458,107 @@ class LayoutEditor(QWidget):
         bottom.addWidget(self.b_reset)
         bottom.addWidget(self.b_save)
         lay.addLayout(bottom)
+        self._arrange(lay)
+
+    def _arrange(self, lay):
+        """Lay the editor out: what you are making and saving along the top, the screen with the pretend game and
+        playback under it on the left, and one column of settings on the right, grouped by what they change."""
+        d_buttons = self.design_row.findChildren(QPushButton)          # + Box, + Text, + Logo, + Team Colour, ...
+        old = [self.tools_row, self.text_row, self.design_row, self.design_props]
+        while lay.count():
+            it = lay.takeAt(0)
+            if it.layout() is not None:
+                it.layout().setParent(None)
+
+        def section(title, rows):
+            box = QWidget()
+            v = QVBoxLayout(box)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(6)
+            v.addWidget(label(title.upper(), 'StripLabel'))
+            for r in rows:
+                if len(r) == 1:
+                    v.addWidget(r[0])
+                    continue
+                h = QHBoxLayout()
+                h.setSpacing(6)
+                for w in r:
+                    h.addWidget(w, 1)
+                v.addLayout(h)
+            return box
+        # along the top: which overlay, the look to start from, and saving
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        self.which.setMinimumWidth(theme.d(220))
+        self.styles.setMinimumWidth(theme.d(220))
+        top.addWidget(self.which)
+        top.addWidget(self.styles)
+        top.addStretch(1)
+        for w in (self.b_reset, self.b_style, self.b_save):
+            top.addWidget(w)
+        lay.addLayout(top)
+        mid = QHBoxLayout()
+        mid.setSpacing(12)
+        # the screen, with the moment of the game it shows and what is playing
+        left = QVBoxLayout()
+        left.setSpacing(8)
+        left.addWidget(self.canvas, 1)
+        self.game_row.layout().addStretch(1)
+        left.addWidget(self.game_row)
+        play = QHBoxLayout()
+        play.setSpacing(8)
+        play.addWidget(self.scene, 2)
+        play.addWidget(self.popup, 2)
+        play.addWidget(self.anim, 3)
+        play.addWidget(self.frame, 4)
+        play.addWidget(self.frame_at, 0)
+        play.addWidget(self.b_play, 1)
+        play.addWidget(self.fx, 0)
+        play.addWidget(self.zoom, 0)
+        left.addLayout(play)
+        mid.addLayout(left, 1)
+        # the settings, grouped
+        self.place_box = section('Place on screen', [[self.preset, self.sscale], [self.sx, self.sy]])
+        self.design_row = section('Your design', [[self.d_piece], d_buttons[0:2], d_buttons[2:4], d_buttons[5:7],
+                                                  [d_buttons[4], d_buttons[7]]])
+        self.design_props = section('Chosen piece', [self.d_at[0:2], self.d_at[2:4], [self.d_color, self.d_op],
+                                                     [self.d_words], [self.d_data], [self.d_size, self.d_align],
+                                                     [self.d_move]])
+        self.tools_row = section('Chosen piece', [[self.b_tint, self.p_op], [self.p_dx, self.p_dy],
+                                                  [self.p_size, self.b_hide], [self.b_piece]])
+        self.text_row = section('Its text', [[self.t_font], [self.t_size, self.t_align],
+                                             [self.b_tcolor, self.b_font_import]])
+        self.strip.setWrapping(True)
+        self.strip.setFlow(QListView.LeftToRight)
+        self.strip.setResizeMode(QListView.Adjust)
+        self.strip.setGridSize(QSize(theme.d(104), theme.d(74)))
+        self.strip.setFixedHeight(theme.d(232))
+        self.strip.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.strip.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tex_box = section('Its textures', [[self.strip]])
+        self.switch_box = section('Force a look', [[self.state_node], [self.state_pick, self.b_states_reset]])
+        for w in old:
+            w.deleteLater()
+        for w in (self.design_row, self.design_props, self.text_row):
+            w.hide()
+        side = QWidget()
+        side.setObjectName('Page')
+        col = QVBoxLayout(side)
+        col.setContentsMargins(0, 0, theme.d(8), 0)
+        col.setSpacing(theme.d(18))
+        for w in (self.place_box, self.design_row, self.design_props, self.tools_row, self.text_row, self.tex_box,
+                  self.switch_box):
+            col.addWidget(w)
+        col.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(side)
+        scroll.setFixedWidth(theme.d(372))
+        mid.addWidget(scroll)
+        lay.addLayout(mid, 1)
+        lay.addWidget(self.note)
 
     @staticmethod
     def _spin(lo, hi, dec):
@@ -661,7 +762,8 @@ class LayoutEditor(QWidget):
 
     def _design_stop(self):
         if self.design is not None:
-            self.tools_row.show()
+            for w in (self.tools_row, self.tex_box, self.switch_box):
+                w.show()
         self.design = None
         self.design_row.hide()
         self.design_props.hide()
@@ -678,30 +780,39 @@ class LayoutEditor(QWidget):
             self.note.setText(f'This design does not build: {x}')
             return
         self._use(lay)
-        pieces = self.design.get('pieces') or []
+        self._pieces = list(uibuild.walk(self.design.get('pieces') or []))      # nested ones too, in drawing order
+        pieces = self._pieces
         self.d_piece.blockSignals(True)
         self.d_piece.clear()
-        for i, p in enumerate(pieces):
-            self.d_piece.addItem(f'{i + 1}.  {uibuild.describe(p)}')
+        for p, depth, _home, where in pieces:
+            self.d_piece.addItem('      ' * depth + where + uibuild.describe(p))
         self.d_piece.setCurrentIndex(max(0, min(keep, len(pieces) - 1)) if pieces else -1)
         self.d_piece.blockSignals(False)
         self.design_row.show()
         self.design_props.setVisible(bool(pieces))
-        self.tools_row.hide()
-        self.text_row.hide()
+        for w in (self.tools_row, self.text_row, self.tex_box, self.switch_box):
+            w.hide()
         self._design_pick()
 
     def _design_piece(self):
-        pieces = (self.design or {}).get('pieces') or []
+        pieces = getattr(self, '_pieces', []) if self.design else []
         i = self.d_piece.currentIndex()
-        return pieces[i] if 0 <= i < len(pieces) else None
+        return pieces[i][0] if 0 <= i < len(pieces) else None
+
+    def _design_home(self):
+        """The list the chosen piece sits in (the design's own, or a group's)."""
+        pieces = getattr(self, '_pieces', []) if self.design else []
+        i = self.d_piece.currentIndex()
+        return pieces[i][2] if 0 <= i < len(pieces) else None
 
     def _design_node(self, index):
-        """The node a top-level piece of the design was compiled into."""
-        made = self.layout.find(self.design['name']) if self.layout and self.design else None
-        root = made.root() if made else None
-        kids = root.children[0].children if root and root.children else []
-        return kids[index] if 0 <= index < len(kids) else None
+        """The node a piece of the design was compiled into."""
+        made = self._design_asset()
+        pieces = getattr(self, '_pieces', [])
+        if made is None or not (0 <= index < len(pieces)):
+            return None
+        rel = getattr(self.layout, 'piece_at', {}).get(id(pieces[index][0]))
+        return self.layout.node_at(made, rel) if rel is not None else None
 
     def _design_pick(self, *_):
         p = self._design_piece()
@@ -805,8 +916,13 @@ class LayoutEditor(QWidget):
         if kind in ('logo', 'team'):                       # the second one you add is the other team's
             seen = [p[kind] for p in self.design['pieces'] if kind in p]
             new[kind] = 'home' if seen.count('away') > seen.count('home') else 'away'
-        self.design.setdefault('pieces', []).append(new)
-        self._design_build(len(self.design['pieces']) - 1)
+        home, chosen = self._design_home(), self._design_piece()
+        if chosen is not None and 'group' in chosen:       # a group is chosen: the new piece goes inside it
+            home = chosen['group']
+        elif home is None:
+            home = self.design.setdefault('pieces', [])
+        home.append(new)
+        self._design_build_on(new)
 
     def _design_copy(self):
         import copy
@@ -815,13 +931,20 @@ class LayoutEditor(QWidget):
             twin = copy.deepcopy(p)
             at = uibuild.rect(twin)
             uibuild.set_rect(twin, [at[0] + 12, at[1] + 12, at[2], at[3]])
-            self.design['pieces'].append(twin)
-            self._design_build(len(self.design['pieces']) - 1)
+            self._design_home().append(twin)
+            self._design_build_on(twin)
+
+    def _design_build_on(self, piece):
+        """Rebuild, then choose this piece."""
+        self._design_build()
+        k = next((k for k, p in enumerate(self._pieces) if p[0] is piece), 0)
+        self.d_piece.setCurrentIndex(k)
+        self._design_pick()
 
     def _design_delete(self):
-        i = self.d_piece.currentIndex()
-        if self.design and 0 <= i < len(self.design.get('pieces') or []):
-            del self.design['pieces'][i]
+        p, home, i = self._design_piece(), self._design_home(), self.d_piece.currentIndex()
+        if p is not None and home is not None:
+            home[:] = [x for x in home if x is not p]
             self._design_build(max(0, i - 1))
 
     def _design_save(self):
@@ -1017,7 +1140,10 @@ class LayoutEditor(QWidget):
                     vw = vh * 16 / 9
                 else:
                     vh = vw * 9 / 16
-                self.canvas.view = (ax + w / 2 - vw / 2, ay + h / 2 - vh / 2, vw, vh)
+                vw, vh = min(vw, 1920), min(vh, 1080)
+                vx = max(0, min(1920 - vw, ax + w / 2 - vw / 2))       # stay on the screen: no dead space past its edge
+                vy = max(0, min(1080 - vh, ay + h / 2 - vh / 2))
+                self.canvas.view = (vx, vy, vw, vh)
             else:
                 self.canvas.view = (0, 0, 1920, 1080)
         else:
@@ -1249,14 +1375,17 @@ class LayoutEditor(QWidget):
             return
         h = self._hits[i]
         if self.design is not None:                       # in a design: pick the piece this belongs to
-            made = self.layout.find(self.design['name'])
-            wrap = made.root().children[0] if made and made.root() and made.root().children else None
+            made = self._design_asset()
+            at = getattr(self.layout, 'piece_at', {})
+            by_rel = {at[id(p[0])]: k for k, p in enumerate(getattr(self, '_pieces', [])) if id(p[0]) in at}
             n = h.node
-            while n is not None and n.parent is not wrap:
+            while n is not None and made is not None:
+                k = by_rel.get(n.off - made.body) if n.asset is made else None
+                if k is not None:
+                    self.d_piece.setCurrentIndex(k)
+                    self._design_pick()
+                    break
                 n = n.parent
-            if n is not None and wrap is not None:
-                self.d_piece.setCurrentIndex(wrap.children.index(n))
-                self._design_pick()
             return
         self.strip.blockSignals(True)
         self.strip.setCurrentRow(-1)

@@ -47,6 +47,7 @@ def kind_of(piece):
     return next((k for k in ('box', 'image', 'text', 'logo', 'team', 'switch', 'group', 'asset') if k in piece), '?')
 
 
+
 def describe(piece):
     """A few words naming a piece, for a list."""
     k = kind_of(piece)
@@ -56,8 +57,11 @@ def describe(piece):
         return ('Logo  ' if k == 'logo' else 'Team colour  ') + str(piece[k])
     if k == 'switch':
         return f'Switch  {piece["switch"]}'
-    return {'box': 'Box', 'image': 'Image', 'group': 'Group', 'asset': 'Asset'}.get(k, k) + \
-        (f'  {piece.get("color", "")}' if k == 'box' else '')
+    if k == 'group':
+        n = len(piece['group'])
+        return (f'Team tint  {piece["tint"]}' if 'tint' in piece else 'Group') + f'  ·  {n} piece{"s" * (n != 1)}'
+    return {'box': 'Box', 'image': 'Image', 'asset': 'Asset'}.get(k, k) + \
+        (f'  {piece.get("color", "")}' if k == 'box' else f'  {piece.get("image", "")}' if k == 'image' else '')
 
 
 def rect(piece):
@@ -90,6 +94,7 @@ class Builder:
         self.fix = []                 # (position of a u64 in the tree, query text)
         self.static, self.live = {}, {}
         self.n_text = 0
+        self.where = []               # (piece, position in the tree of the node it became)
         self.team_colors = {}         # {club: '#rrggbb'}: colours of our own in place of the game's
         self.motions = []             # (node position in the tree, [x, y], alpha, the piece's "enter")
 
@@ -192,6 +197,8 @@ class Builder:
             raise ValueError(f'a piece needs "at": [x, y, width, height]: {s}')
         col = _rgba(s.get('color'), s.get('opacity'))
         start = len(self.tree)
+        if not s.get('_plain'):
+            self.where.append((s, start))
         if s.get('enter'):
             self.motions.append((start, [float(at[0]), float(at[1])], col[3], dict(s['enter'])))
         if 'tint' in s:
@@ -325,13 +332,27 @@ def build(design):
     body += start + pool + label
     body += bytes(-len(body) % 16)
     hsh = name_hash(name)
-    return b'VOIDASS0' + struct.pack('<II', hsh, len(body)) + bytes(body), hsh, b.static, b.live
+    where = [(piece, tree_at + pos) for piece, pos in b.where]
+    return b'VOIDASS0' + struct.pack('<II', hsh, len(body)) + bytes(body), hsh, b.static, b.live, where
+
+
+def walk(pieces, depth=0, label=''):
+    """Every piece of a design, nested ones included: (piece, depth, the list it sits in, a label for its place)."""
+    for p in pieces:
+        yield p, depth, pieces, label
+        if 'group' in p:
+            yield from walk(p['group'], depth + 1)
+        elif 'switch' in p:
+            for i, look in enumerate(p.get('looks') or []):
+                yield from walk(look, depth + 1, f'look {i}: ')
 
 
 def install(layout, design):
     """Compile a design into a layout file and return its asset. Its words are kept on the layout
-    (layout.words) for the .LANG file that goes with it."""
-    chunk, hsh, static, live = build(design)
+    (layout.words) for the .LANG file that goes with it, and layout.piece_at says which node each piece became
+    ({id(piece): offset in the asset's body})."""
+    chunk, hsh, static, live, where = build(design)
+    layout.piece_at = {id(piece): rel for piece, rel in where}
     asset = layout.add_asset(chunk)
     layout.designs.append(design)
     layout.words[0].update(static)

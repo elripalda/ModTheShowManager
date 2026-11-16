@@ -105,6 +105,10 @@ with the original game put back. Code mods only ever hold code: anything else yo
 
 ## Scorebug layout
 
+The editor has three parts. Along the top: which overlay you are working on, the look to start from, and saving.
+On the left: the screen, with a pretend game and playback under it. On the right: the settings, grouped by what
+they change.
+
 Making a whole look of your own, from the sandbox or from Photoshop: [Designing your own scorebug](SCOREBUG_DESIGN.md).
 
 **Scoreboards › Layout** draws a theme's overlays (the scorebug, the bottom ticker, transitions) the way the game
@@ -112,11 +116,11 @@ lays them out, with their real textures. Drag the red box or type X and Y to pla
 (`NSW/UI/GAME/THEMEn.NSW`) goes into your mod with only what you changed. Scale is there too, but not every theme
 honours it yet.
 
-Click any piece on the screen to edit just that piece, or pick a texture in the strip underneath to change every
+Click any piece on the screen to edit just that piece, or pick a texture under **Its textures** on the right to change every
 place the overlay draws it. **Colour** tints, **Opacity** fades, **Move X / Y** shift, **Size** scales, **Hide**
 takes it off and **Replace PNG** repaints it. **Back to Default** undoes all of it.
 
-The **Game** row is a pretend moment of a game: teams, score, inning, count, outs, runners. Change it and the
+The **Game** row under the screen is a pretend moment of a game: teams, score, inning, count, outs, runners. Change it and the
 overlay redraws the way the game would show it, because the manager reads the same rules the game does (below).
 **In play / Scene** picks which big piece is up (the scorebug, or the team panels the game shows between innings),
 and the pop-up list fades in the panels that come and go: the batter bar, a home run, a strikeout. The switch list
@@ -136,7 +140,7 @@ hiding a piece carries its animation with it, so a piece you moved still slides 
 **Import Font…** also lists six open-licence fonts that come with the manager (Bebas Neue, Anton, Oswald,
 Graduate, Share Tech Mono, VT323).
 
-**Styles** (bottom row) starts you from a whole look. **Classic Line** and **Line Score** are scorebugs built from
+**Styles** (top bar) starts you from a whole look. **Classic Line** and **Line Score** are scorebugs built from
 nothing, **New Blank Design** starts your own and **Open a Design File…** loads one
 ([how they work](SCOREBUG_DESIGN.md#building-one-from-nothing)). **Wide Top Bar** turns Theme 1 into one strip across the top
 of the screen. **Split Bar** puts the teams at either end with the game state between them and mirrors the home
@@ -144,7 +148,7 @@ side. **Glass Bar** is the same shape as three floating tiles of smoked glass, e
 shows in the Styles list to come back to, and in the Mods list to switch on or share. A style holds only what
 differs from the game's layout, plus any pieces you repainted.
 
-Click a text box and a third row appears: **Font** (every game font, shown as a sample), **Text size**, **Left /
+Click a text box and **Its text** appears on the right: **Font** (every game font, shown as a sample), **Text size**, **Left /
 Centre / Right** and **Outline Colour**. The letters themselves take the normal **Colour** button.
 
 **Import Font…** draws a font file of your own (`.ttf` or `.otf`) into the game in place of the font the clicked

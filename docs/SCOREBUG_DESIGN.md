@@ -35,7 +35,7 @@ underneath so you can judge size against the field.
 - **Paint tintable pieces in white and greys.** The game multiplies a texture by the piece's colour, so white
   takes the colour exactly and grey takes it darker. A piece you paint in colour keeps that colour everywhere.
 - **Keep the transparency.** Export each layer as a PNG with alpha, trimmed to the piece.
-- **Match the size of what you replace**, or a clean multiple of it (2x is fine and looks sharper). The strip
+- **Match the size of what you replace**, or a clean multiple of it (2x is fine and looks sharper). The list
   under the preview shows every texture and its size.
 - **States are separate art.** An out light needs an off and an on. A base needs empty and occupied.
 
@@ -87,12 +87,12 @@ and fades it into place over 20 frames after waiting 4. The game runs 60 frames 
 
 You don't have to write the file by hand. **Styles › New Blank Design** starts one in the sandbox, and so do
 **Classic Line** (one line of text along the bottom), **Line Score** (runs by inning, hits and errors) and
-**Team Tiles** (each club on a tile of its own colour, sliding in). In a design a new row appears:
+**Team Tiles** (each club on a tile of its own colour, sliding in). In a design the right-hand column changes to **Your design** and **Chosen piece**:
 
 - **+ Box, + Text, + Logo, + Team Colour** add a piece. **Copy** and **Delete** act on the chosen one.
-- Pick a piece from the list or click it on the screen. The row under it sets its place and size, colour and
+- Pick a piece from the list or click it on the screen. **Chosen piece** sets its place and size, colour and
   opacity, and for text its words, the data it shows, its size and alignment.
-- The last box in that row sets how the piece arrives: fade in, or slide in from a side. Play it from the
+- The last box under **Chosen piece** sets how the piece arrives: fade in, or slide in from a side. Play it from the
   Animation row, under **Design: entrance**.
 - **Team Colours…** gives clubs a colour of your own: `HOU=#eb6e1f, SD=#ffc425`. Type a club in the Game row to
   see it.
@@ -101,7 +101,8 @@ You don't have to write the file by hand. **Styles › New Blank Design** starts
 - Drag the red box to place the whole bug.
 - **Save Design…** writes the file. **Save to My Mod** and **Save as Style…** work as they do for any layout.
 
-Switches and groups inside a design are edited in the file for now. **Styles › Open a Design File…** loads one.
+Pieces inside a group are listed under it, indented, and a new piece goes into the group you have chosen. The looks
+of a switch are still set in the file. **Styles › Open a Design File…** loads one.
 
 ## What a mockup needs if you hand it over
 
