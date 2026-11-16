@@ -1,7 +1,7 @@
 ; Installer for Mod the Show Manager (Inno Setup 6). Built by CI after PyInstaller.
 #define AppName "Mod the Show Manager"
 #ifndef AppVersion
-  #define AppVersion "0.11"
+  #define AppVersion "0.12"
 #endif
 
 [Setup]
