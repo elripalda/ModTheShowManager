@@ -469,6 +469,62 @@ def test_design_uniform_colours():
         'QCOMP [ TEAM_UI IS_CITY_CONNECT_ACTIVE [ HOME_TEAM_ID ] , == , 1 ]'
 
 
+def test_boards():
+    """A park's boards: its script, its colours, and moving them onto a scorebug's palette."""
+    from modtheshow import boards
+    scr = boards.script('''// ARZ - PS4
+// ***** STADIUM SPECIFIC *****
+// Big centerfield 3x1
+ScriptUIElem jt1 {
+       targetname = "color_3x1";
+       uiname     = "ARZ";
+\t   uiscreenname     = "ARZ_Jumbotron";
+       type       = "jumbotron";
+       //texfmt     = "DXT5";
+       width  =  2048;
+       height =  1024;
+}
+// Left field line
+ScriptUIElem jt4 {
+       targetname = "amber_8x1linescore"; // leave this
+       uiname     = "../common/amber_8x1";
+       width  =  1024;
+       height =  128;
+}
+''')
+    assert [e['id'] for e in scr] == ['jt1', 'jt4'] and scr[0]['about'] == 'Big centerfield 3x1'
+    assert scr[0]['width'] == 2048 and scr[0]['uiscreenname'] == 'ARZ_Jumbotron' and 'texfmt' not in scr[0]
+    assert scr[1]['targetname'] == 'amber_8x1linescore'
+    shown = boards.where_shown(scr, 'ARZ')
+    assert shown['arz_jumbotron']['targetname'] == 'color_3x1' and 'amber_8x1' in shown
+    assert boards.is_board('NSW/STADIUMS/ARZ/SCOREBOARD/ARZ.NSW') and not boards.is_board('NSW/UI/GAME/THEME1.NSW')
+    assert boards.script_of('NSW/STADIUMS/ARZ/SCOREBOARD/ARZ_HRD.NSW') == 'NSW/STADIUMS/ARZ/SCOREBOARD.SCR'
+    assert boards.script_of('NSW/STADIUMS/COMMON/SCOREBOARD/AR.NSW') is None
+
+    red, dark, grey = (0xA7, 0x19, 0x30, 255), (0x14, 0x14, 0x14, 255), (0x80, 0x80, 0x80, 255)
+    text = bytes(node(0x22, 10, 10, 60, 20, (0, 0xBF, 0xFF, 255), size=0x80))
+    jumbo = asset('ARZ_Jumbotron', group(0, 0, 2048, 694, [group(0, 0, 2048, 694, [
+        bytes(node(0x18, 0, 0, 2048, 694, dark)),                  # the board's dark
+        bytes(node(0x18, 0, 200, 2048, 60, red)),                  # the park's red, the biggest colour
+        bytes(node(0x18, 0, 300, 400, 20, grey)),
+        bytes(node(0x18, 0, 400, 100, 100, (255, 255, 255, 255), ref=H('com_logo'))),   # a picture left as drawn
+        text])]))
+    L = uilayout.Layout(directory([jumbo]))
+    a = L.find('ARZ_Jumbotron')
+    assert boards.size(a) == (2048, 694)
+    have = [c for c, _ in boards.colours(L)]
+    assert have[:2] == ['#141414', '#a71930'] and set(have) == {'#141414', '#a71930', '#808080', '#00bfff'}
+    assert boards.roles(['#ffffff', '#ffd24a', '#0a0c10']) == ('#0a0c10', '#ffffff', ['#ffd24a'])
+    plan = boards.match(L, ['#ffffff', '#ffd24a', '#0a0c10'])
+    assert plan['#141414'] == '#1d1f23' and plan['#808080'] == '#858688'      # each by how light it is
+    assert '#a71930' not in plan and plan['#00bfff'] == '#ffd24a'             # the park keeps its red
+    L = uilayout.Layout(L.bytes())
+    assert a.problems == 0 and {c for c, _ in boards.colours(L)} == {'#1d1f23', '#a71930', '#858688', '#ffd24a'}
+    assert boards.recolour(L, '#1d1f23', '#112233') == 1 and boards.colours(L)[0][0] == '#112233'
+    assert boards.match(L, ['#ffffff', '#ffd24a', '#0a0c10'], keep_main=False)['#a71930'] == '#ffd24a'
+    assert boards.fonts_used(L) and boards.set_font(L, 7) == 1 and boards.fonts_used(L) == {7: 1}
+
+
 def test_design_rule():
     """A piece with a rule is drawn only while the rule holds."""
     from modtheshow import uibuild, uilang, uiquery
@@ -562,6 +618,7 @@ if __name__ == '__main__':
     test_build_a_design()
     test_design_colour_and_motion()
     test_design_uniform_colours()
+    test_boards()
     test_design_rule()
     test_design_own_pictures()
     test_team_art()

@@ -190,6 +190,31 @@ def scoreboard_groups(game):
         for p in packs_in(game, folder, recursive=True):
             other.append((f'{label}: {_nice(p)}', p))
     out = [('SCOREBUG THEMES', bugs), ('BROADCAST PRESENTATION', pres), ('OTHER OVERLAYS', other)]
+    return [(g, rows) for g, rows in out if rows] + board_groups(game)
+
+
+def board_groups(game):
+    """[(group, [(label, pack)])] - the scoreboards inside the ballparks: each park's own, then the shared ones."""
+    from . import boards
+    root = _dir(game, boards.ROOT)
+    if root is None or not root.is_dir:
+        return []
+    fs = game.file_set()
+    mlb, more, shared = [], [], []
+    for code in sorted(root.children):
+        node = (root.children[code].children or {}).get('SCOREBOARD') if root.children[code].is_dir else None
+        if node is None or not node.is_dir:
+            continue
+        for p in packs_in(game, node.path):
+            if p[:-4] + '.NSW' not in fs:
+                continue
+            park, kind = boards.label(p)
+            row = (park + (f'  ·  {kind}' if kind else ''), p)
+            (shared if code == 'COMMON' else mlb if code in PARKS and not code.startswith('OLD_') else more).append(row)
+    for rows in (mlb, more, shared):
+        rows.sort(key=lambda r: r[0])
+    shared = [(name.replace('Shared  ·  ', ''), p) for name, p in shared]
+    out = [('STADIUM BOARDS', mlb), ('STADIUM BOARDS: MORE PARKS', more), ('STADIUM BOARDS: SHARED', shared)]
     return [(g, rows) for g, rows in out if rows]
 
 

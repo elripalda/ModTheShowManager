@@ -365,8 +365,8 @@ class _ListOfPacks(CollectionPage):
 
 class ScoreboardsPage(_ListOfPacks):
     TITLE = 'Scoreboards'
-    SUB = "Scorebug themes, broadcast graphics and every other in-game overlay. Layout shows the pieces a scorebug is " \
-          "made of and lets you move it."
+    SUB = "Scorebug themes, broadcast graphics, every other in-game overlay and the boards inside each ballpark. " \
+          "Layout is the builder: it draws them as the game does and lets you change every piece."
     SEARCH = 'Find a theme'
     MODE_HIDES_INSPECTOR = (1,)
 

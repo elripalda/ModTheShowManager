@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDou
                                QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
-from .. import fontlib, recipes, samples, teamart, uibuild, uilang, uilayout, uiquery, uirender
+from .. import boards, fontlib, recipes, samples, teamart, uibuild, uilang, uilayout, uiquery, uirender
 from . import theme
 from .common import button, label
 from .widgets import pil_to_qimage
@@ -193,6 +193,10 @@ class Canvas(QWidget):
         self.offset = (0, 0)       # live drag offset, until the picture is redrawn
         self.base = (0, 0)         # where the overlay was when the picture was drawn
         self.view = (0, 0, 1920, 1080)   # the part of the screen shown
+        self.screen = (1920, 1080)       # the size of what is drawn: the TV picture, or a stadium board
+        self.backdrop = BACKDROP[:3]
+        self.safe = True                 # draw the TV safe area
+        self.empty = 'Pick a scorebug theme'
         self._drag = None
         self._moved = False
         self.grab = None           # in a design: grab(x, y) -> the frame of the piece to drag from there, or None
@@ -212,16 +216,18 @@ class Canvas(QWidget):
         qp.setRenderHint(QPainter.Antialiasing)
         qp.setRenderHint(QPainter.SmoothPixmapTransform)
         k, ox, oy = self._fit()
-        screen = QRectF(ox, oy, 1920 * k, 1080 * k)
+        sw, sh = self.screen
+        screen = QRectF(ox, oy, sw * k, sh * k)
         qp.fillRect(self.rect(), QColor(theme.BG))
         qp.setClipRect(screen)
-        qp.fillRect(screen, QColor(*BACKDROP[:3]))
+        qp.fillRect(screen, QColor(*self.backdrop))
         if self.pixmap is not None:
             dx, dy = self.offset
-            qp.drawPixmap(QRectF(ox + dx * k, oy + dy * k, 1920 * k, 1080 * k), self.pixmap, QRectF(self.pixmap.rect()))
-        qp.setPen(QPen(QColor(255, 255, 255, 50), 1, Qt.DashLine))
+            qp.drawPixmap(QRectF(ox + dx * k, oy + dy * k, sw * k, sh * k), self.pixmap, QRectF(self.pixmap.rect()))
         qp.setBrush(Qt.NoBrush)
-        qp.drawRect(QRectF(ox + 96 * k, oy + 54 * k, 1728 * k, 972 * k))       # the TV safe area
+        if self.safe:
+            qp.setPen(QPen(QColor(255, 255, 255, 50), 1, Qt.DashLine))
+            qp.drawRect(QRectF(ox + 96 * k, oy + 54 * k, 1728 * k, 972 * k))   # the TV safe area
         dx, dy = self.offset
         for (x, y, w, h, is_text) in self.hits:
             if is_text:
@@ -250,7 +256,7 @@ class Canvas(QWidget):
             f.setPointSizeF(10)
             qp.setFont(f)
             qp.setPen(QColor(theme.MUTED) if hasattr(theme, 'MUTED') else QColor('white'))
-            qp.drawText(screen, Qt.AlignCenter, 'Pick a scorebug theme')
+            qp.drawText(screen, Qt.AlignCenter, self.empty)
         qp.end()
 
     def _to_screen(self, pos):
@@ -329,6 +335,9 @@ class LayoutEditor(QWidget):
         self.asset = None
         self.node = None
         self.states = {}           # {node offset: state shown}
+        self.board = False         # a stadium board is open, not a TV overlay
+        self.screen = (1920, 1080)
+        self._shown = {}           # {screen name: where the park shows it}, from the park's SCOREBOARD.SCR
         self._hits = []
         self._chosen_tex = None
         self._chosen_node = None
@@ -684,6 +693,25 @@ class LayoutEditor(QWidget):
         self.design_props.setLayout(prow)
         self.design_props.hide()
         lay.addWidget(self.design_props)
+        # a stadium board: its colours, and matching it to a scorebug
+        self.bd_match = QComboBox()
+        self.bd_match.setToolTip('Repaint this park’s boards in a scorebug’s colours: its dark behind everything, '
+                                 'its light for the words, its accent colours for the board’s own')
+        self.bd_match.activated.connect(self._board_match)
+        self.bd_keep = QCheckBox('Keep the park’s colour')
+        self.bd_keep.setChecked(True)
+        self.bd_keep.setToolTip('Leave the board’s biggest colour alone: it is the home club’s, and the scorebug '
+                                'shows the club’s colour too')
+        self.bd_font = button('Use Its Font', on_click=self._board_font)
+        self.bd_font.setToolTip('Give the board’s main font the font the scorebug uses most')
+        self.bd_font.setEnabled(False)
+        self._board_design = None
+        self.bd_swatches = []
+        for i in range(8):
+            b = QPushButton()
+            b.setFixedHeight(theme.d(30))
+            b.clicked.connect(lambda _=False, i=i: self._board_recolour(i))
+            self.bd_swatches.append(b)
         self._fonts = None             # (FontTable, sheet) as the active mod has them
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
@@ -774,6 +802,8 @@ class LayoutEditor(QWidget):
         self.rule_box = section('Rule and motion', [[self.d_rule], [self.d_rule_op, self.d_rule_val], [self.d_join],
                                                     [self.d_rule2], [self.d_rule2_op, self.d_rule2_val],
                                                     [self.d_move]])
+        self.board_box = section('Match a scorebug', [[self.bd_match], [self.bd_keep, self.bd_font]])
+        self.board_colours = section('Colours of the board', [self.bd_swatches[0:4], self.bd_swatches[4:8]])
         self.tools_row = section('Chosen piece', [[self.b_tint, self.p_op], [self.p_dx, self.p_dy],
                                                   [self.p_size, self.b_hide], [self.b_piece]])
         self.text_row = section('Its text', [[self.t_font], [self.t_size, self.t_align],
@@ -789,15 +819,16 @@ class LayoutEditor(QWidget):
         self.switch_box = section('Force a look', [[self.state_node], [self.state_pick, self.b_states_reset]])
         for w in old:
             w.deleteLater()
-        for w in (self.design_row, self.design_props, self.align_box, self.colour_box, self.rule_box, self.text_row):
+        for w in (self.design_row, self.design_props, self.align_box, self.colour_box, self.rule_box, self.text_row,
+                  self.board_box, self.board_colours):
             w.hide()
         side = QWidget()
         side.setObjectName('Page')
         col = QVBoxLayout(side)
         col.setContentsMargins(0, 0, theme.d(14), 0)
         col.setSpacing(theme.d(18))
-        for w in (self.place_box, self.design_row, self.design_props, self.align_box, self.colour_box,
-                  self.rule_box, self.tools_row, self.text_row, self.tex_box, self.switch_box):
+        for w in (self.place_box, self.board_box, self.board_colours, self.design_row, self.design_props,
+                  self.align_box, self.colour_box, self.rule_box, self.tools_row, self.text_row, self.tex_box, self.switch_box):
             col.addWidget(w)
         col.addStretch(1)
         scroll = QScrollArea()
@@ -823,6 +854,11 @@ class LayoutEditor(QWidget):
         """pack_rel: the theme's texture pack, e.g. NSW/UI/GAME/THEME1.TEX."""
         rel = pack_rel[:-4] + '.NSW'
         self.rel = rel
+        self.board = boards.is_board(rel)
+        self._shown = {}
+        self.canvas.safe = not self.board
+        self.canvas.backdrop = (0, 0, 0) if self.board else BACKDROP[:3]
+        self.canvas.empty = 'Pick a stadium board' if self.board else 'Pick a scorebug theme'
         self.which.blockSignals(True)
         self.which.clear()
         if rel not in self.main.game.file_set():
@@ -857,7 +893,18 @@ class LayoutEditor(QWidget):
         for a in self.layout.assets:
             if not a.name.startswith('asset_') and a.container() is not None:
                 names.append(a.name)
-        first = ('Scorebar', 'BottomTicker')
+        first = ['Scorebar', 'BottomTicker']
+        if self.board:                       # the screens the park puts on its signs come first, biggest first
+            try:
+                srel = boards.script_of(rel)
+                if srel and srel in self.main.game.file_set():
+                    with open(self.main.current_file(srel), encoding='latin-1') as f:
+                        self._shown = boards.where_shown(boards.script(f.read()), boards.park_of(rel))
+            except Exception:
+                self._shown = {}
+            low = {n.lower(): n for n in names}
+            first = [low[k] for k, e in sorted(self._shown.items(), key=lambda kv: -int(kv[1].get('width', 0)) *
+                                                int(kv[1].get('height', 0))) if k in low]
         names = sorted(set(names), key=lambda n: (first.index(n) if n in first else len(first), n))
         if not names:
             self._empty('This pack’s layout has no overlays the manager can place yet.')
@@ -871,6 +918,13 @@ class LayoutEditor(QWidget):
         self._design_stop()
         self._fill_styles()
         self._team_art()
+        self.place_box.setVisible(not self.board)
+        self.board_box.setVisible(self.board)
+        self.board_colours.setVisible(self.board)
+        self._board_design = None
+        self.bd_font.setEnabled(False)
+        if self.board:
+            self._fill_board()
         self._asset_changed()
 
     def _empty(self, why):
@@ -899,6 +953,8 @@ class LayoutEditor(QWidget):
         self.asset = self.layout.find(self.which.currentText())
         self.node = self.asset.container() if self.asset else None
         self.states = {}
+        self.screen = boards.size(self.asset) if self.board and self.asset else (1920, 1080)
+        self.canvas.screen = self.screen
         if self.node is None:
             self.canvas.rect_ = None
             self.canvas.pixmap = None
@@ -917,7 +973,7 @@ class LayoutEditor(QWidget):
         self._fill_states()
         self._fill_anims()
         self._fill_strip()
-        self.note.setText(self.HINT)
+        self.note.setText(self._board_note() if self.board else self.HINT)
         self._redraw()
 
     # ------------------------------------------------------------------ animations
@@ -1533,7 +1589,8 @@ class LayoutEditor(QWidget):
             pose = self._anim_of.pose(a.index, self.frame.value()) if a else None
             img, hits = uirender.render(self.layout, self.asset, self._tex_img, self._table, states=self.states,
                                         effects=self.fx.isChecked(), hidden=hidden, fonts=self._load_fonts(),
-                                        situation=self.sit, lang=self.lang, reveal=self._reveal, pose=pose)
+                                        situation=self.sit, lang=self.lang, reveal=self._reveal, pose=pose,
+                                        size=self.screen)
         except Exception as x:
             self.note.setText(f'Could not draw the layout: {x}')
             return
@@ -1542,7 +1599,10 @@ class LayoutEditor(QWidget):
         self.canvas.hits = [(h.rect[0], h.rect[1], h.rect[2], h.rect[3], h.node.kind == 0x22) for h in hits]
         self.canvas.offset = (0, 0)
         n = self.node
-        if n:
+        if self.board:                                   # a board fills its sign: nothing to place
+            self.canvas.rect_ = None
+            self.canvas.view = (0, 0, self.screen[0], self.screen[1])
+        elif n:
             ax, ay, _, _ = n.abs_rect()
             self.canvas.rect_ = (ax, ay, n.w * self.sscale.value(), n.h * self.sscale.value())
             self.canvas.base = (ax, ay)
@@ -2078,9 +2138,125 @@ class LayoutEditor(QWidget):
             if abs(self.sscale.value() - self._scale0) > 1e-6:
                 self.layout.scale(self.node, self.sscale.value())
 
+    # ------------------------------------------------------------------ stadium boards
+    def _board_note(self):
+        e = self._shown.get(self.which.currentText().lower())
+        w, h = self.screen
+        if not e:
+            return (f'A part of this park’s boards, {w} × {h}. Click a piece to edit it, or repaint the whole park '
+                    'from the right. Save writes the boards into your mod.')
+        about = str(e.get('about') or '').strip().rstrip('.')
+        return ((about + '. ' if about else '') + f'Drawn onto the sign “{e.get("targetname", "")}” at '
+                f'{e.get("width", w)} × {e.get("height", h)}. Click a piece to edit it, or repaint the whole park '
+                'from the right. Save writes the boards into your mod.')
+
+    def _board_sources(self):
+        """[(title, design or path)] the scorebugs a board can be matched to: the built-in designs, the styles
+        saved from a design, and a design file."""
+        out = [(title, design) for _key, (title, design) in samples.DESIGNS.items()]
+        try:
+            for m in self.main.lib.list():
+                for path in recipes.files(m.path, 'layouts'):
+                    try:
+                        with open(path, encoding='utf-8') as f:
+                            entries = json.load(f)
+                    except (OSError, ValueError):
+                        continue
+                    for e in entries if isinstance(entries, list) else []:
+                        for d in (e.get('designs') or []) if isinstance(e, dict) else []:
+                            out.append((m.name.replace('Scorebug: ', ''), d))
+        except Exception:
+            pass
+        return out
+
+    def _fill_board(self):
+        """The Match list and the swatches of the board's own colours."""
+        self.bd_match.blockSignals(True)
+        self.bd_match.clear()
+        self.bd_match.addItem('Pick a scorebug to match…', None)
+        for title, design in self._board_sources():
+            self.bd_match.addItem(title, design)
+        self.bd_match.addItem('From a Design File…', 'file')
+        self.bd_match.blockSignals(False)
+        self._board_palette = [c for c, _ in boards.colours(self.layout)][:8] if self.layout else []
+        for i, b in enumerate(self.bd_swatches):
+            c = self._board_palette[i] if i < len(self._board_palette) else None
+            b.setEnabled(c is not None)
+            b.setToolTip(f'{c}: change every piece of this colour in the park’s boards' if c else '')
+            b.setStyleSheet(f'QPushButton {{ background: {c}; border: 1px solid {theme.LINE}; border-radius: 8px; }}'
+                            if c else f'QPushButton {{ background: transparent; border: 1px dashed {theme.LINE}; '
+                                      'border-radius: 8px; }')
+
+    def _board_match(self, i):
+        design = self.bd_match.itemData(i)
+        self.bd_match.setCurrentIndex(0)
+        if not (self.board and self.layout and design):
+            return
+        if design == 'file':
+            path, _ = QFileDialog.getOpenFileName(self, 'Open a design', self.main.last_dir(), 'Designs (*.json)')
+            if not path:
+                return
+            self.main.remember_dir(path)
+            try:
+                with open(path, encoding='utf-8') as f:
+                    design = json.load(f)
+            except (OSError, ValueError) as x:
+                QMessageBox.warning(self, 'Could Not Open the Design', str(x))
+                return
+        palette = uibuild.colours(design)
+        if not palette:
+            QMessageBox.information(self, 'Nothing to Match', 'That design has no colours of its own.')
+            return
+        try:
+            plan = boards.match(self.layout, palette, keep_main=self.bd_keep.isChecked())
+        except Exception as x:
+            QMessageBox.warning(self, 'Could Not Match', str(x))
+            return
+        self._board_design = design
+        self.bd_font.setEnabled(any(uibuild.kind_of(p) == 'text' for p, *_ in uibuild.walk(design.get('pieces') or [])))
+        self._fill_board()
+        self._redraw()
+        self.note.setText(f'{len(plan)} colours of this park’s boards now follow {design.get("name", "the design")}. '
+                          'Change any of them from the swatches, then Save to My Mod.')
+
+    def _board_font(self):
+        """The board's most used font becomes the font the matched scorebug uses most."""
+        if not (self.board and self.layout and self._board_design):
+            return
+        used = {}
+        for p, *_ in uibuild.walk(self._board_design.get('pieces') or []):
+            if uibuild.kind_of(p) == 'text':
+                f = int(p.get('font', 25))
+                used[f] = used.get(f, 0) + 1
+        have = boards.fonts_used(self.layout)
+        if not used or not have:
+            return
+        font, main = max(used, key=used.get), max(have, key=have.get)
+        n = boards.set_font(self.layout, font, only=main)
+        self._redraw()
+        self.note.setText(f'{n} text boxes of this park’s boards now use game font {font}, the scorebug’s. '
+                          'A font you imported for the scorebug comes along with the scorebug’s own mod.')
+
+    def _board_recolour(self, i):
+        palette = getattr(self, '_board_palette', [])
+        if not (self.board and self.layout and 0 <= i < len(palette)):
+            return
+        c = QColorDialog.getColor(QColor(palette[i]), self, 'Change this colour in all of the park’s boards')
+        if c.isValid() and c.name() != palette[i]:
+            boards.recolour(self.layout, palette[i], c.name())
+            self._fill_board()
+            self._redraw()
+
     def reset(self):
         """The overlay, and the overlays it shows, back to the game's own."""
         self._design_stop()
+        if self.board and self.layout:                    # a board is repainted as a whole file: so is going back
+            try:
+                self._use(uilayout.Layout.open(self.main.game.original(self.rel)))
+                self._fill_board()
+            except Exception as x:
+                QMessageBox.warning(self, 'Could Not Reset', str(x))
+            return
         if self.layout and self.asset and self._orig is not None:
             try:
                 self.layout.restore(self.asset, source=self._orig.d)
