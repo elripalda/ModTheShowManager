@@ -99,7 +99,13 @@ class Game:
             node.children[parts[-1]] = leaf
         self.tree = root
         self.files = [e[0] for e in entries]
+        self._set = None
         return root
+
+    def file_set(self):
+        if getattr(self, '_set', None) is None:
+            self._set = set(self.files)
+        return self._set
 
     def running(self):
         if os.name != 'nt':

@@ -12,6 +12,7 @@ class CollectionPage(QWidget):
     TITLE = ''
     SUB = ''
     SEARCH = 'Find'
+    MODE_HIDES_INSPECTOR = False
 
     def __init__(self, main):
         super().__init__()
@@ -81,6 +82,50 @@ class CollectionPage(QWidget):
         outer.addWidget(split, 1)
         self.vgroup = QButtonGroup(self)
         self.vgroup.setExclusive(True)
+
+    def add_modes(self, names, widgets):
+        """Chips above the grid that switch it for other views (e.g. On a Player, Layout)."""
+        from PySide6.QtWidgets import QStackedWidget
+        lay = self.grid.parentWidget().layout()
+        at = lay.indexOf(self.filter)
+        bar = QWidget()
+        modes = QHBoxLayout(bar)
+        modes.setContentsMargins(0, 0, 0, 0)
+        modes.setSpacing(6)
+        self.mode_group = QButtonGroup(self)
+        for i, text in enumerate(names):
+            b = QPushButton(text)
+            b.setObjectName('Chip')
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setChecked(i == 0)
+            self.mode_group.addButton(b, i)
+            modes.addWidget(b)
+        modes.addStretch(1)
+        lay.insertWidget(at, bar)
+        self.mode_bar = bar
+        self.stack = QStackedWidget()
+        idx = lay.indexOf(self.grid)
+        lay.removeWidget(self.grid)
+        self.stack.addWidget(self.grid)
+        for w in widgets:
+            self.stack.addWidget(w)
+        lay.insertWidget(idx, self.stack, 1)
+        self.mode_group.idClicked.connect(self._mode)
+
+    def _mode(self, i):
+        self.stack.setCurrentIndex(i)
+        self.filter.setVisible(i == 0)
+        self.export_btn.setVisible(i == 0)
+        if self.MODE_HIDES_INSPECTOR:
+            self.inspector.setVisible(i == 0)
+        self.mode_changed(i)
+
+    def mode_changed(self, i):
+        pass
+
+    def mode(self):
+        return self.stack.currentIndex() if hasattr(self, 'stack') else 0
 
     # subclasses
     def groups(self):
@@ -211,38 +256,14 @@ class UniformsPage(CollectionPage):
 
     def __init__(self, main):
         super().__init__(main)
-        from PySide6.QtWidgets import QStackedWidget
         from .playerpreview import PlayerPreview
-        lay = self.grid.parentWidget().layout()
-        at = lay.indexOf(self.filter)
-        modes = QHBoxLayout()
-        modes.setSpacing(6)
-        self.mode_group = QButtonGroup(self)
-        for i, text in enumerate(('Textures', 'On a Player')):
-            b = QPushButton(text)
-            b.setObjectName('Chip')
-            b.setCheckable(True)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setChecked(i == 0)
-            self.mode_group.addButton(b, i)
-            modes.addWidget(b)
-        modes.addStretch(1)
-        lay.insertLayout(at, modes)
-        self.stack = QStackedWidget()
-        idx = lay.indexOf(self.grid)
-        lay.removeWidget(self.grid)
         self.preview = PlayerPreview(main)
-        self.stack.addWidget(self.grid)
-        self.stack.addWidget(self.preview)
-        lay.insertWidget(idx, self.stack, 1)
-        self.mode_group.idClicked.connect(self._mode)
+        self.add_modes(('Textures', 'On a Player'), [self.preview])
 
     def _folder(self):
         return self.packs[0].rsplit('/', 1)[0] if getattr(self, 'packs', None) else None
 
-    def _mode(self, i):
-        self.stack.setCurrentIndex(i)
-        self.filter.setVisible(i == 0)
+    def mode_changed(self, i):
         if i == 1 and self._folder():
             self.preview.show_uniform(self._folder())
 
@@ -299,8 +320,32 @@ class _ListOfPacks(CollectionPage):
 class ScoreboardsPage(_ListOfPacks):
     TITLE = 'Scoreboards'
     SUB = "Scorebug themes, broadcast graphics and every other in-game overlay. Reskin any piece; moving pieces comes " \
-          "with the layout editor."
+          "with Layout."
     SEARCH = 'Find a theme'
+    MODE_HIDES_INSPECTOR = True
+
+    def __init__(self, main):
+        super().__init__(main)
+        from .layouteditor import LayoutEditor
+        self.layout_editor = LayoutEditor(main)
+        self.add_modes(('Textures', 'Layout'), [self.layout_editor])
+
+    def _has_layout(self):
+        return bool(self.packs) and self.packs[0][:-4] + '.NSW' in self.main.game.file_set()
+
+    def _set_packs(self, packs, variant):
+        super()._set_packs(packs, variant)
+        has = self._has_layout()
+        self.mode_bar.setVisible(has)
+        if not has and self.mode():
+            self.mode_group.button(0).setChecked(True)
+            self._mode(0)
+        elif self.mode() == 1:
+            self.layout_editor.open(self.packs[0])
+
+    def mode_changed(self, i):
+        if i == 1 and self.packs:
+            self.layout_editor.open(self.packs[0])
 
     def groups(self):
         return [(g, [(rel, name) for name, rel in rows]) for g, rows in catalog.scoreboard_groups(self.main.game)]
