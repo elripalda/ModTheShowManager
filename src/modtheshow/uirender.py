@@ -122,9 +122,19 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
         box = (max(clip[0], ax), max(clip[1], ay), min(clip[2], ax + bw), min(clip[3], ay + bh))
         blit(img, x, y, img.width, img.height, box, False)
 
-    def draw(n, ox, oy, tint, clip, path, depth, on, ctx, dw=0.0, dh=0.0, pw=0.0, ph=0.0, size=None):
+    def draw(n, ox, oy, tint, clip, path, depth, on, ctx, dw=0.0, dh=0.0, pw=0.0, ph=0.0, size=None, team=None):
         if n.off in hidden:
             return
+        if n.kind == 0x0F and ctx is not None:             # a group can carry a team's colour for the art inside it
+            own = layout._query_at(n.asset, struct.unpack_from('<Q', layout.d, n.off + 0x40)[0])
+            if own:
+                try:
+                    from . import uiquery
+                    v = ctx.value(uiquery.parse(own))
+                    if isinstance(v, str) and v.startswith('#') and len(v) == 7:
+                        team = np.array([int(v[1:3], 16), int(v[3:5], 16), int(v[5:7], 16), 255], np.float32) / 255
+                except Exception:
+                    pass
         r, g, b, a = n.rgba()
         ps = pose.get(n.off) if pose else None
         if ps and 11 in ps:
@@ -174,7 +184,7 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
                     img = img.transpose(Image.FLIP_LEFT_RIGHT)
                 if n.kflip & 2:
                     img = img.transpose(Image.FLIP_TOP_BOTTOM)
-            if blit(_tint(img, c), ax, ay, nw, nh, clip, bool(n.flags & 0x20)):
+            if blit(_tint(img, c if team is None else c * team), ax, ay, nw, nh, clip, bool(n.flags & 0x20)):
                 hits.append(Hit(n, (ax, ay, nw, nh), name, path, clip))
         elif on and n.kind == 0x22 and nw >= 1 and nh >= 1:
             if fonts is not None:
@@ -194,7 +204,7 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
             if sub is not None and depth < 8 and sub.root() is not None:
                 sub_ctx = ctx.child(layout.instance_args(n)) if ctx is not None else None
                 draw(sub.root(), ax, ay, c, clip, path + (sub.name,), depth + 1, on, sub_ctx,
-                     size=(nw, nh) if nw > 0 and nh > 0 else None)
+                     size=(nw, nh) if nw > 0 and nh > 0 else None, team=team)
             return
         kids = n.children
         if n.kind == 0x1C:
@@ -211,7 +221,7 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
         if n.clips and nw > 0 and nh > 0:
             nclip = (max(clip[0], ax), max(clip[1], ay), min(clip[2], ax + nw), min(clip[3], ay + nh))
         for k in kids:
-            draw(k, ax, ay, c, nclip, path, depth, on, ctx, *kid)
+            draw(k, ax, ay, c, nclip, path, depth, on, ctx, *kid, team=team)
 
     root = asset.root()
     if root is not None:

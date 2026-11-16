@@ -329,7 +329,7 @@ def test_build_a_design():
         {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [200, 4, 96, 32], 'size': 24, 'align': 'right'},
         {'text': 'TOP', 'at': [4, 4, 60, 32], 'font': 23},
         {'logo': 'home', 'kind': 2, 'at': [70, 0, 40, 40]},
-        {'team': 'away', 'at': [110, 0, 40, 40]},
+        {'team': 'away', 'wash': True, 'at': [110, 0, 40, 40]},
         {'switch': 'IG IS_BOTTOM', 'at': [150, 0, 40, 40], 'looks': [
             [{'box': [0, 0, 40, 40], 'color': '#ff0000'}], [{'box': [0, 0, 40, 40], 'color': '#0000ff'}]]}]}
     row = asset('Row', group(0, 0, 100, 40, [bytes(node(0x18, 0, 0, 30, 40))]))
@@ -378,6 +378,49 @@ def test_build_a_design():
     assert again.bytes() == L.bytes() and again.words == L.words
 
 
+def test_design_colour_and_motion():
+    """A team's colour on our own art, a colour of our own for one club, and pieces that move in."""
+    from modtheshow import uibuild, uilang, uiquery
+    design = {'name': 'MTS_T2', 'size': [200, 40], 'team_colors': {'HOU': '#ff8000'}, 'pieces': [
+        {'team': 'away', 'at': [0, 0, 100, 40], 'enter': {'from': [-50, 0], 'frames': 10}},
+        {'tint': 'home', 'at': [100, 0, 100, 40], 'group': [{'box': [0, 0, 100, 40]},
+                                                            {'text': 'X', 'at': [0, 0, 40, 40]}]},
+        {'box': [90, 0, 20, 40], 'color': '#000000', 'enter': {'frames': 8, 'delay': 4}}]}
+    row = asset('Row', group(0, 0, 100, 40, [bytes(node(0x18, 0, 0, 30, 40))]))
+    use = bytes(node(0x1E, 0, 0, 200, 40, ref=H('Row'), size=0x58, extra=struct.pack('<HH', 0x58, 0)))
+    main = asset('PBInterface\\ScoreBar', group(0, 0, 1920, 1080, [group(0, 0, 200, 40, [use])]))
+    L = uilayout.Layout(directory([main, row]))
+    made = uibuild.install(L, design)
+    bar = L.by_hash[H('PBInterface\\ScoreBar')]
+    L.retarget(bar.container().children[0], made)
+    L = uilayout.Layout(L.bytes())
+    made, bar = L.by_hash[H('MTS_T2')], L.by_hash[H('PBInterface\\ScoreBar')]
+    assert made.problems == 0
+    qs = {uiquery.text(L._query_at(made, struct.unpack_from('<Q', L.d, n.off + 0x40)[0]))
+          for n in made.nodes() if n.kind == 0x0F and struct.unpack_from('<Q', L.d, n.off + 0x40)[0]}
+    assert qs == {'[ UI CAP_TEAM_CLR [ AWAY_TEAM_ID ] ]', '[ UI CAP_TEAM_CLR [ HOME_TEAM_ID ] ]'}
+    asks = {uiquery.text(L.selector(n)) for n in made.nodes() if n.kind == 0x1C}
+    assert asks == {'[ QCOMP [ AWAY_TEAM TEAM_PROF TEAM_INX , == , 10 ] ]',
+                    '[ QCOMP [ HOME_TEAM TEAM_PROF TEAM_INX , == , 10 ] ]'}
+
+    def colours(away, home, pose=None):
+        s = uiquery.Situation()
+        s.away, s.home, s.away_color, s.home_color = away, home, (0, 0, 200), (0, 200, 0)
+        img, _ = uirender.render(L, bar, lambda n: None, {}, situation=s, lang=uilang.Lang(struct.pack(
+            '<8I', 0x20, 0, 0x20, 0, 0, 0, 0x20, 2)), pose=pose, background=(9, 9, 9, 255))
+        return img.getpixel((30, 20))[:3], img.getpixel((170, 20))[:3]
+    assert colours('SD', 'LAD') == ((0, 0, 200), (0, 200, 0))            # each side in its club's colour
+    assert colours('HOU', 'LAD') == ((255, 128, 0), (0, 200, 0))         # our colour for the Astros, away
+    assert colours('SD', 'HOU') == ((0, 0, 200), (255, 128, 0))          # and at home
+    an = made.animations()
+    assert len(an) == 1 and an[0].frames == 12 and len(an[0].tracks) == 2
+    assert struct.unpack_from('<HH', L.d, made.body + 0x72) == (1, 1) and made.sections()[3]
+    start = struct.unpack_from('<5Q', L.d, made.body + made.sections()[3])
+    assert start[1] == 0x90 and start[3] == 0x82A and start[4] == made.sections()[1]
+    assert colours('SD', 'LAD', made.pose(0, 0))[0] == (9, 9, 9)         # not in yet: off to the left and clear
+    assert colours('SD', 'LAD', made.pose(0, 12))[0] == (0, 0, 200)
+
+
 def test_team_art():
     from modtheshow import teamart
     assert teamart.color('sd') == (0x2F, 0x24, 0x1D) and teamart.color('SD_CC') == teamart.color('SD')
@@ -403,5 +446,6 @@ if __name__ == '__main__':
     test_lang_and_place()
     test_clone_and_mirror()
     test_build_a_design()
+    test_design_colour_and_motion()
     test_team_art()
     print('ui layout ok')

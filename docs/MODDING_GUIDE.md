@@ -437,10 +437,19 @@ of another asset (0x1E) has the asset's hash at +0x30, its size and argument cou
 query pointer per argument from +0x58. A switch (0x1C) has its query at +0x30, its size at +0x6C, its number of
 looks at +0x70 and one offset per look from +0x78. `uibuild.py` writes all of these from a design file.
 
+A group can carry a colour query at +0x40. `[ UI CAP_TEAM_CLR [ team ] ]` is a team's colour (add `, 1` for its
+second one), and the plain art inside the group is drawn in it. This is how the team rows, the batter bar
+(`OFF_TEAM_ID`) and the pitcher bar (`DEF_TEAM_ID`) get their colours. `QCOMP [ a , == , b ]` answers 1 or 0 and
+`IF_Q_ELSE_INT [ test , x , y ]` picks between two answers, so a switch can ask anything.
+
+Section 3 holds what an asset does when it appears: records of (commands offset u64, node u64, flags u64), counted
+at +0x74, each pointing at 16-byte commands. Command 0x82A with an animation entry's offset plays it.
+
 Animations are section 1 of an asset: 16-byte entries (tracks offset u64, track count u16, length in frames u16).
 A track is 24 bytes (channels offset u64, the node's offset in the body u64, 0xFFFF, last frame u16, channel count
 u16). A channel is 16 bytes (keys offset u64, last frame u16, key count u8, property u8: 0 x, 1 y, 7 width,
-8 height, 11 alpha). A key is 8 bytes: frame u16, then the alpha byte at +2 or a float at +4. Keys hold the piece's
+8 height, 11 alpha). A key is 8 bytes: frame u16, then the alpha byte at +2 or a float at +4 (with an easing number at +3: 6 on a
+key that eases toward the next, 1 on the last). Keys hold the piece's
 real position, not a nudge from it, so a piece moved without its keys jumps back when the animation plays.
 
 Section 8 names them. Its 24-byte entries (pointer u64, name hash u32) lead to a list of 16-byte commands (op u16,

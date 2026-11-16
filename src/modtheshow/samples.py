@@ -461,8 +461,54 @@ def _line_score():
     return {'name': 'MTS_LineScore', 'size': [W, top + 2 * row + 30], 'pieces': p}
 
 
+def _team_tiles():
+    """Three tiles: each club in its own colour with its logo, the game state on dark glass between them. The
+    tiles slide in from the sides when the game starts."""
+    TW, CW, H, G = 250, 230, 56, 8
+    W = 2 * TW + CW + 2 * G
+
+    def tile(side, x, mirror):
+        logo = [TW - 62, -4, 64, 64] if mirror else [-2, -4, 64, 64]
+        name = [TW - 150, 8, 84, 40] if mirror else [66, 8, 84, 40]
+        score = [10, 6, 64, 44] if mirror else [TW - 74, 6, 64, 44]
+        return {'group': [
+            {'tint': side, 'at': [0, 0, TW, H], 'group': [
+                {'box': [0, 0, TW, H], 'color': '#ffffff', 'opacity': 86},
+                {'box': [score[0] - 6, 0, 76, H], 'color': '#9a9a9a', 'opacity': 86}]},
+            {'image': 'gradient_vertical', 'at': [0, 0, TW, H], 'color': '#ffffff', 'opacity': 10},
+            {'box': [0, 0, TW, 2], 'color': '#ffffff', 'opacity': 55},
+            {'logo': side, 'kind': 2, 'at': logo},
+            {'text': '^d0^', 'data': [f'{side.upper()}_TEAM TEAM_PROF SHORT_NAME'], 'at': name, 'size': 30,
+             'font': 25},
+            {'text': '^d0^', 'data': [f'SCORER {side.upper()}_SCORE'], 'at': score, 'size': 36, 'font': 37}],
+            'at': [x, 0, TW, H], 'clip': True,
+            'enter': {'from': [60 if mirror else -60, 0], 'frames': 20, 'delay': 0 if not mirror else 4}}
+    cx = TW + G
+    mid = {'group': [
+        {'box': [0, 0, CW, H], 'color': '#0b0f16', 'opacity': 62},
+        {'box': [0, 0, CW, 2], 'color': '#ffffff', 'opacity': 55},
+        {'switch': 'IG IS_BOTTOM', 'at': [12, 6, 20, 44], 'looks': [
+            [{'box': [3, 6, 12, 5], 'color': '#ffd24a'}, {'box': [3, 33, 12, 5], 'color': '#ffffff', 'opacity': 25}],
+            [{'box': [3, 6, 12, 5], 'color': '#ffffff', 'opacity': 25}, {'box': [3, 33, 12, 5], 'color': '#ffd24a'}]]},
+        {'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [10, 12, 24, 32], 'size': 24},
+        {'switch': 'SCOREBAR 2ND_BASE_TAB', 'at': [62, 10, 14, 14], 'looks': [_base(0), _base(1)]},
+        {'switch': 'SCOREBAR 3RD_BASE_TAB', 'at': [46, 28, 14, 14], 'looks': [_base(0), _base(1)]},
+        {'switch': 'SCOREBAR 1ST_BASE_TAB', 'at': [78, 28, 14, 14], 'looks': [_base(0), _base(1)]},
+        {'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [100, 8, 60, 40], 'size': 30},
+        {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [160, 8, 62, 40], 'size': 20, 'align': 'right'}],
+        'at': [cx, 0, CW, H], 'enter': {'frames': 16, 'delay': 14}}
+    return {'name': 'MTS_TeamTiles', 'size': [W, H], 'bars': True,
+            'pieces': [tile('away', 0, False), mid, tile('home', cx + CW + G, True)]}
+
+
+def _base(on):
+    return [{'box': [0, 0, 14, 14], 'color': '#ffd24a' if on else '#ffffff', 'opacity': 100 if on else 22}]
+
+
 LINE_SCORE = _line_score()
-DESIGNS = {'classic': ('Classic Line', CLASSIC), 'linescore': ('Line Score', LINE_SCORE)}
+TEAM_TILES = _team_tiles()
+DESIGNS = {'classic': ('Classic Line', CLASSIC), 'linescore': ('Line Score', LINE_SCORE),
+           'tiles': ('Team Tiles', TEAM_TILES)}
 
 
 def _design_sample(game, lib, name, description, slug, design):
@@ -483,6 +529,12 @@ def _design_sample(game, lib, name, description, slug, design):
 def scorebug_classic(game, lib, current_file):
     return _design_sample(game, lib, 'Sample: Classic Line', 'A scorebug built from nothing: one line of text along '
                           'the bottom, the way an old broadcast did it.', 'classic-line', CLASSIC)
+
+
+def scorebug_tiles(game, lib, current_file):
+    return _design_sample(game, lib, 'Sample: Team Tiles', 'A scorebug built from nothing: each club on a tile of '
+                          'its own colour with its logo, the game state between them. The tiles slide in.',
+                          'team-tiles', TEAM_TILES)
 
 
 def scorebug_linescore(game, lib, current_file):
@@ -567,6 +619,8 @@ SAMPLES = [
      scorebug_classic),
     ('linescore', 'Sample: Line Score', 'A scorebug built from nothing: runs by inning, hits and errors.',
      scorebug_linescore),
+    ('tiles', 'Sample: Team Tiles', 'A scorebug built from nothing: team-colour tiles with logos that slide in.',
+     scorebug_tiles),
     ('glass', 'Sample: Glass Bar', 'A scorebug style: three floating tiles of smoked glass.', scorebug_glass),
     ('texttest', 'Test: Scorebug Text', 'A check: scorebug text bigger, red and in another font.',
      scorebug_text_test),

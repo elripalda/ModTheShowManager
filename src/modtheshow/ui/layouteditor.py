@@ -21,6 +21,9 @@ from .widgets import pil_to_qimage
 PRESETS = [('Game default', None), ('Bottom right', (1390, 838)), ('Bottom left', (40, 838)),
            ('Top right', (1390, 40)), ('Top left', (40, 40)), ('Bottom centre', (723, 860))]
 BACKDROP = (31, 77, 46, 255)
+MOTIONS = [('No motion', None), ('Fade in', {'frames': 20}), ('From the left', {'from': [-60, 0], 'frames': 20}),
+           ('From the right', {'from': [60, 0], 'frames': 20}), ('From above', {'from': [0, -40], 'frames': 20}),
+           ('From below', {'from': [0, 40], 'frames': 20})]
 
 
 class Canvas(QWidget):
@@ -383,6 +386,7 @@ class LayoutEditor(QWidget):
         drow.addWidget(self.d_piece, 3)
         for text, kind in (('+ Box', 'box'), ('+ Text', 'text'), ('+ Logo', 'logo'), ('+ Team Colour', 'team')):
             drow.addWidget(button(text, on_click=lambda _=False, k=kind: self._design_add(k)), 1)
+        drow.addWidget(button('Team Colours…', on_click=self._design_teams), 1)
         drow.addWidget(button('Copy', on_click=self._design_copy), 1)
         drow.addWidget(button('Delete', on_click=self._design_delete), 1)
         drow.addWidget(button('Save Design…', on_click=self._design_save), 1)
@@ -426,6 +430,12 @@ class LayoutEditor(QWidget):
         self.d_align.addItems(['Left', 'Centre', 'Right'])
         self.d_align.activated.connect(self._design_edit)
         prow.addWidget(self.d_align, 1)
+        self.d_move = QComboBox()
+        self.d_move.setToolTip('How this piece arrives when the scorebug first appears')
+        for text, m in MOTIONS:
+            self.d_move.addItem(text, m)
+        self.d_move.activated.connect(self._design_edit)
+        prow.addWidget(self.d_move, 1)
         self.design_props = QWidget()
         self.design_props.setLayout(prow)
         self.design_props.hide()
@@ -577,12 +587,22 @@ class LayoutEditor(QWidget):
             if seen[text] > 1:
                 text = text.replace('  ·', f' {seen[text]}  ·')
             self.anim.addItem(text, a.index)
+        made = self._design_asset()
+        if made is not None and made.animations():
+            self.anim.insertItem(1, f'Design: entrance  ·  {made.animations()[0].frames} frames', -2)
         self.anim.blockSignals(False)
         self.anim.setEnabled(self.anim.count() > 1)
         self._anim_changed(0)
 
+    def _design_asset(self):
+        return self.layout.find(self.design['name']) if self.layout and self.design else None
+
     def _anim(self):
         i = self.anim.currentData()
+        self._anim_of = self.asset
+        if i == -2 and self._design_asset() is not None:
+            self._anim_of = self._design_asset()
+            return self._anim_of.animations()[0]
         if i is None or i < 0 or not self.asset:
             return None
         return self.asset.animations()[i]
@@ -687,9 +707,12 @@ class LayoutEditor(QWidget):
         p = self._design_piece()
         if p is None:
             return
-        widgets = self.d_at + [self.d_op, self.d_words, self.d_data, self.d_size, self.d_align]
+        widgets = self.d_at + [self.d_op, self.d_words, self.d_data, self.d_size, self.d_align, self.d_move]
         for w in widgets:
             w.blockSignals(True)
+        enter = p.get('enter')
+        self.d_move.setCurrentIndex(0 if not enter else next(
+            (i for i, (_t, m) in enumerate(MOTIONS) if m and m.get('from') == enter.get('from')), 1))
         for sp, v in zip(self.d_at, uibuild.rect(p)):
             sp.setValue(v)
         self.d_op.setValue(p.get('opacity', 100))
@@ -716,6 +739,11 @@ class LayoutEditor(QWidget):
         uibuild.set_rect(p, [sp.value() for sp in self.d_at])
         if self.d_op.value() < 100 or 'opacity' in p:
             p['opacity'] = self.d_op.value()
+        move = self.d_move.currentData()
+        if move is None:
+            p.pop('enter', None)
+        elif (p.get('enter') or {}).get('from') != move.get('from') or 'enter' not in p:
+            p['enter'] = dict(move, delay=(p.get('enter') or {}).get('delay', 0))
         if 'text' in p:
             p['text'] = self.d_words.text()
             data = [q.strip() for q in self.d_data.currentText().split(';') if q.strip()]
@@ -740,6 +768,31 @@ class LayoutEditor(QWidget):
         if c.isValid():
             p['color'] = c.name()
             self._design_build()
+
+    def _design_teams(self):
+        """Colours of your own for particular clubs, in place of the game's."""
+        if self.design is None:
+            return
+        now = ', '.join(f'{k}={v}' for k, v in (self.design.get('team_colors') or {}).items())
+        text, ok = QInputDialog.getText(self, 'Team Colours', 'Clubs that get a colour of your own in this design, '
+                                        'as CLUB=#colour separated by commas.\nFor example: HOU=#eb6e1f, SD=#ffc425',
+                                        text=now)
+        if not ok:
+            return
+        out = {}
+        for part in text.split(','):
+            if '=' not in part:
+                continue
+            club, color = (x.strip() for x in part.split('=', 1))
+            if teamart.index(club) < 0 or not re.fullmatch(r'#?[0-9a-fA-F]{6}', color):
+                QMessageBox.warning(self, 'Team Colours', f'"{part.strip()}" is not a club and a colour like HOU=#eb6e1f.')
+                return
+            out[club.upper()] = '#' + color.lstrip('#').lower()
+        if out:
+            self.design['team_colors'] = out
+        else:
+            self.design.pop('team_colors', None)
+        self._design_build()
 
     def _design_add(self, kind):
         if self.design is None:
@@ -940,7 +993,7 @@ class LayoutEditor(QWidget):
         hidden = {k.off for i, k in enumerate(sc) if i != self._scene} if len(sc) > 1 else set()
         try:
             a = self._anim()
-            pose = self.asset.pose(a.index, self.frame.value()) if a else None
+            pose = self._anim_of.pose(a.index, self.frame.value()) if a else None
             img, hits = uirender.render(self.layout, self.asset, self._tex_img, self._table, states=self.states,
                                         effects=self.fx.isChecked(), hidden=hidden, fonts=self._load_fonts(),
                                         situation=self.sit, lang=self.lang, reveal=self._reveal, pose=pose)

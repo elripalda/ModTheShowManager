@@ -8,17 +8,23 @@ A design is plain data:
         {"text": "^d0^", "data": ["AWAY_TEAM TEAM_PROF SHORT_NAME"], "at": [12, 6, 90, 32], "size": 28},
         {"logo": "away", "kind": 2, "at": [0, 0, 44, 44]},
         {"team": "home", "at": [320, 0, 320, 44], "opacity": 70},
+        {"tint": "away", "group": [...], "at": [0, 0, 320, 44]},
         {"switch": "SCORER OUTS", "at": [500, 0, 60, 44], "looks": [[...], [...], [...]]},
         {"group": [...], "at": [0, 0, 100, 44], "clip": true}]}
 
 text holds ^d0^ ^d1^ where live values go and data names the game query for each (see docs/SCOREBUG_DATA.md); with no
 data it is fixed words. A switch draws the look numbered by its query's value. Everything is positioned inside its
 parent, in 1920 x 1080 screen pixels.
+
+A tint group gives the boxes and images inside it a team's colour (white takes it exactly, grey takes it darker;
+text and logos keep their own). "team_colors": {"HOU": "#eb6e1f"} at the top of a design overrides a club's colour
+wherever the design uses it. "enter": {"from": [dx, dy], "fade": true, "frames": 24, "delay": 0} on a piece moves
+and fades it in when the design first appears.
 """
 import struct
 
-from . import uiquery
-from .uilayout import NONE, name_hash
+from . import teamart, uiquery
+from .uilayout import NONE, P_ALPHA, P_X, P_Y, name_hash
 
 NAMED = (0xA7732924, 0xF2232E7B, 0xFA7C7D26)      # the three animation names every asset lists, even with none
 WASH = 0x8948743A                                 # Theme 1's team-colour fill: handed a team, it paints its colour
@@ -84,6 +90,8 @@ class Builder:
         self.fix = []                 # (position of a u64 in the tree, query text)
         self.static, self.live = {}, {}
         self.n_text = 0
+        self.team_colors = {}         # {club: '#rrggbb'}: colours of our own in place of the game's
+        self.motions = []             # (node position in the tree, [x, y], alpha, the piece's "enter")
 
     # ---- nodes
     def _head(self, kind, at, color=(255, 255, 255, 255), size=0x50, flags=1, anchor=5):
@@ -161,12 +169,46 @@ class Builder:
         struct.pack_into('<QQQQ', self.tree, p + 0x38, head, first, head + 0x10, 0x78)
         struct.pack_into('<II', self.tree, p + 0x6C, len(self.tree) - p, n)
 
+    def _by_team(self, at, side, default, override):
+        """The pieces for a team's colour, with our own colour swapped in for the clubs that have one: a chain of
+        two-look switches asking "is this club number N?"."""
+        inner = default
+        for club, color in self.team_colors.items():
+            n = teamart.index(club)
+            if n < 0:
+                raise ValueError(f'{club} is not one of the thirty clubs')
+            inner = [{'switch': f'QCOMP [ {side.upper()}_TEAM TEAM_PROF TEAM_INX , == , {n} ]',
+                      'at': [0, 0, at[2], at[3]], 'looks': [inner, override(color)]}]
+        return inner
+
+    def tinted(self, at, side, pieces, shade=0, clip=False):
+        p = len(self.tree)
+        self.group(at, pieces, clip)
+        self.fix.append((p + 0x40, f'[ UI CAP_TEAM_CLR [ {TEAM[side]}{" , 1" if shade else ""} ] ]'))
+
     def piece(self, s):
         at = s.get('at') or s.get('box')
         if at is None or len(at) != 4:
             raise ValueError(f'a piece needs "at": [x, y, width, height]: {s}')
         col = _rgba(s.get('color'), s.get('opacity'))
-        if 'box' in s:
+        start = len(self.tree)
+        if s.get('enter'):
+            self.motions.append((start, [float(at[0]), float(at[1])], col[3], dict(s['enter'])))
+        if 'tint' in s:
+            side, kids, w, h = s['tint'], s.get('group') or [], at[2], at[3]
+            if self.team_colors and not s.get('_plain'):
+                own = lambda c: [{'group': kids, 'at': [0, 0, w, h], 'color': c}]
+                default = [{'tint': side, 'group': kids, 'at': [0, 0, w, h], 'shade': s.get('shade', 0),
+                            '_plain': True}]
+                self.group(at, self._by_team(at, side, default, own), bool(s.get('clip')))
+            else:
+                self.tinted(at, side, kids, s.get('shade', 0), bool(s.get('clip')))
+        elif 'team' in s and not s.get('wash'):
+            side, w, h = s['team'], at[2], at[3]
+            fill = lambda c: [{'box': [0, 0, w, h], 'color': c, 'opacity': s.get('opacity', 100)}]
+            default = [{'tint': side, 'group': fill('#ffffff'), 'at': [0, 0, w, h], '_plain': True}]
+            self.group(at, self._by_team(at, side, default, fill))
+        elif 'box' in s:
             self.box(at, col, s.get('texture'))
         elif 'image' in s:
             self.box(at, col, s['image'])
@@ -192,19 +234,62 @@ class Builder:
             raise ValueError(f'not a piece the builder knows: {sorted(s)}')
 
 
+def _motion(motions, tree_at, at):
+    """One animation moving and fading pieces in, as the bytes of an asset's animation section placed at `at`: its
+    entry, one track per piece, their channels, their keys."""
+    if not motions:
+        return b''
+    tracks = []
+    for pos, (x, y), alpha, m in motions:
+        n, d = max(1, int(m.get('frames', 24))), max(0, int(m.get('delay', 0)))
+        dx, dy = (list(m.get('from') or [0, 0]) + [0, 0])[:2]
+        chans = []
+        for prop, a, b in ((P_X, x + dx, x), (P_Y, y + dy, y), (P_ALPHA, 0, alpha)):
+            if (prop == P_ALPHA and m.get('fade', True)) or (prop != P_ALPHA and a != b):
+                keys = ([(0, a)] if d else []) + [(d, a), (d + n, b)]
+                chans.append((prop, keys))
+        if chans:
+            tracks.append((tree_at + pos, chans))
+    if not tracks:
+        return b''
+    last = max(k[-1][0] for _, chans in tracks for _, k in chans)
+    t_at = at + 16
+    c_at = t_at + 24 * len(tracks)
+    k_at = c_at + 16 * sum(len(c) for _, c in tracks)
+    out = bytearray(struct.pack('<QHHI', t_at, len(tracks), last, last))
+    chan_bytes, key_bytes = bytearray(), bytearray()
+    for node, chans in tracks:
+        out += struct.pack('<QQHHHH', c_at + len(chan_bytes), node, 0xFFFF, max(k[-1][0] for _, k in chans),
+                           len(chans), 0)
+        for prop, keys in chans:
+            chan_bytes += struct.pack('<QHBBI', k_at + len(key_bytes), keys[-1][0], len(keys), prop, 0)
+            for i, (frame, v) in enumerate(keys):
+                if prop == P_ALPHA:
+                    key_bytes += struct.pack('<HBBBBH', frame, max(0, min(255, int(round(v)))), 0, 0, 1, 0)
+                else:
+                    key_bytes += struct.pack('<HBBf', frame, 0, 1 if i == len(keys) - 1 else 6, float(v))
+    return bytes(out + chan_bytes + key_bytes)
+
+
 def build(design):
     """(chunk bytes, hash, fixed words {id: text}, live words {id: (text, [token lists])}) for a design."""
     name = str(design['name'])
     w, h = design['size']
     b = Builder(name)
+    b.team_colors = {str(k).upper(): v for k, v in (design.get('team_colors') or {}).items()}
     b.tree += b._head(0x0F, (0, 0, w, h))                       # root, with the pieces in one group under it
     b.tree[0x1E:0x22] = bytes(4)
     b.group((0, 0, w, h), design.get('pieces') or [])
     struct.pack_into('<Q', b.tree, 0x38, 0x50)
     struct.pack_into('<II', b.tree, 0x48, len(b.tree), 0x8000 | 1)
     tree_at = 0x90
-    named_at = tree_at + len(b.tree)
-    pool_at = named_at + 16 * len(NAMED)
+    motion = _motion(b.motions, tree_at, tree_at + len(b.tree))
+    anim_at = tree_at + len(b.tree)
+    named_at = anim_at + len(motion)
+    start_at = named_at + 16 * len(NAMED)
+    # what to do when the design first appears: play the animation (written the way the game's team row does it)
+    start = struct.pack('<QQQQQ', start_at + 24, tree_at, 0x14444, 0x82A, anim_at) if motion else b''
+    pool_at = start_at + len(start)
     pool, where = bytearray(), {}
     for _pos, q in b.fix:
         if q in where:
@@ -225,16 +310,19 @@ def build(design):
     label = name.encode('ascii') + b'\0'
     body = bytearray(0x90)
     sec = [0] * 13
-    sec[0], sec[1], sec[7], sec[12] = tree_at, named_at, named_at, strings_at
+    sec[0], sec[1], sec[7], sec[12] = tree_at, anim_at, named_at, strings_at
+    if motion:
+        sec[3] = start_at
+        struct.pack_into('<HH', body, 0x72, 1, 1)
     struct.pack_into('<13Q', body, 0, *sec)
     struct.pack_into('<I', body, 0x6C, strings_at + len(label))
     struct.pack_into('<H', body, 0x70, 1)
     struct.pack_into('<H', body, 0x7C, len(NAMED))
     struct.pack_into('<HHHH', body, 0x84, 1920, 1080, 0, 39)
-    body += b.tree
+    body += b.tree + motion
     for hsh in NAMED:
         body += struct.pack('<IIQ', hsh, 0, 0)
-    body += pool + label
+    body += start + pool + label
     body += bytes(-len(body) % 16)
     hsh = name_hash(name)
     return b'VOIDASS0' + struct.pack('<II', hsh, len(body)) + bytes(body), hsh, b.static, b.live

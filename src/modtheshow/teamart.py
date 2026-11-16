@@ -29,3 +29,14 @@ def logo_name(abbr, kind='primary', city_connect=False):
     pack = LOGO_PACKS[kind]
     n = pack.rsplit('/', 1)[1][:-4].lower()
     return pack, f'{n}_{str(abbr).lower()}' + ('_cc' if city_connect else '')
+
+
+# the game's own numbering of the thirty clubs (TEAM_PROF TEAM_INX), which is also the order of its logo packs
+ORDER = ['BAL', 'BOS', 'NYY', 'TB', 'TOR', 'CWS', 'CLE', 'DET', 'KC', 'MIN', 'HOU', 'LAA', 'ATH', 'SEA', 'TEX',
+         'ATL', 'MIA', 'NYM', 'PHI', 'WAS', 'CHC', 'CIN', 'MIL', 'PIT', 'STL', 'AZ', 'COL', 'LAD', 'SD', 'SF']
+
+
+def index(abbr):
+    """A club's number in the game, or -1."""
+    a = str(abbr).upper().replace('_CC', '')
+    return ORDER.index(a) if a in ORDER else -1

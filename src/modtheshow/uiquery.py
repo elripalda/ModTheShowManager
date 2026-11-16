@@ -168,6 +168,14 @@ class Situation:
             return self.home if _num(a0) == 1 else self.away
         if key in ('TEAM_UI SCORE', 'SCOREBAR SCORE', 'IG SCORE', 'SCOREBAR RUNS', 'IG RUNS'):
             return self.home_score if _num(a0) == 1 else self.away_score
+        if key in ('AWAY_TEAM TEAM_PROF TEAM_INX', 'HOME_TEAM TEAM_PROF TEAM_INX'):
+            from . import teamart
+            return teamart.index(self.away if key.startswith('AWAY') else self.home)
+        if key == 'UI CAP_TEAM_CLR':                           # a team's colour (its second colour with a 1 after it)
+            r, g, b = self.team_color(a0)
+            if len(args) > 1 and _num(args[1]):
+                r, g, b = (int(v * 0.55) for v in (r, g, b))
+            return f'#{r:02x}{g:02x}{b:02x}'
         if key == 'BoxScore INNING_VAL':                       # a made-up line: the runs fall in the latest inning
             team, inn = _num(a0), _num(args[1]) if len(args) > 1 else 0
             played = self.inning - (0 if team == 0 or self.bottom else 1)

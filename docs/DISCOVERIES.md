@@ -85,6 +85,14 @@ leagues, national teams and colleges are in there too. The starting lineup, matc
 layouts in `NSW/UI/GAME/PRES/PRESOSDSn.NSW`, the same format as the scorebug. The transition wipes are not: they
 are Bink videos under `CROSS/MOVIES/PRESENTATION`.
 
+## Where team colours come from
+
+Nothing on the scorebug has a team's colour painted in. A group of pieces carries a question, `UI CAP_TEAM_CLR`
+with a team, and the game draws the plain art inside it in the answer. The batting team's colour reaches the
+batter bar that way and the fielding team's the pitcher bar. A design of your own asks the same question, and can
+ask "is this club number ten?" first to swap in a colour of its own.
+[Layouts](MODDING_GUIDE.md#ui-layouts-iff0assh)
+
 ## How a scorebug knows the score
 
 Overlays read the game through small bracketed queries written in the game's own words: `[ SCOREBAR OUT_TAB ]` picks
