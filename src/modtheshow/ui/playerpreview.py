@@ -15,10 +15,13 @@ from .workers import Job, start
 PARTS = [
     ('NSW/CHARACTERS/MASTERFILES/CLOTH/JERSEY/G4JERSEY_BUFF.MOD', None),
     ('NSW/CHARACTERS/MASTERFILES/CLOTH/PANTS/G4PANTS_LONG.MOD', None),
-    ('NSW/CHARACTERS/MASTERFILES/BODIES/STANDARDMALE/MALEBODY.MOD', ('Arm_L', 'Arm_R')),
     ('NSW/CHARACTERS/ACCESSORIES/SHOES/SHOES_NIKE_ALPHAHUARACHEELITE4.MOD', None),
     ('NSW/CHARACTERS/ACCESSORIES/SHOES/SHOES_ADIDAS_ADIZEROEDGEPLUS.MOD', None),
+    ('NSW/CHARACTERS/MASTERFILES/CAPCURVED.MOD', None),
+    ('NSW/CHARACTERS/MASTERFILES/CAP.MOD', None),
 ]
+# models stored in a bone's own space (the cap rides the head bone): where they sit on the mannequin
+OFFSETS = {'CAP': (0.0, 2.52, 0.03)}
 SKIN = '#b8866a'
 
 
@@ -165,9 +168,9 @@ class PlayerPreview(QWidget):
             letters = self.finder.image(any_rel, 'letters-color', 4096)
             numbers = self.finder.image(any_rel, 'numbers-color', 4096)
             overlay = uniform_text.back_image(letters, numbers, pname, pnum) if (pname or pnum) else None
-            shoes_done = False
+            shoes_done = cap_done = False
             for rel, keep in PARTS:
-                if 'SHOES' in rel and shoes_done:
+                if ('SHOES' in rel and shoes_done) or ('/CAP' in rel and cap_done):
                     continue
                 if rel not in files or modellib.gpu_path(rel) not in files:
                     continue
@@ -180,6 +183,8 @@ class PlayerPreview(QWidget):
                         continue
                     self._models[rel] = M
                 shoes_done = shoes_done or 'SHOES' in rel
+                cap_done = cap_done or '/CAP' in rel
+                offset = OFFSETS['CAP'] if '/CAP' in rel else None
                 seen = set()
                 for i, d in enumerate(M.draws):
                     name = d['name'].split(' (')[0]
@@ -195,6 +200,8 @@ class PlayerPreview(QWidget):
                         p, n, uv, t = M.mesh(i)
                     except Exception:
                         continue
+                    if offset is not None:
+                        p = p + np.array(offset, np.float32)
                     maps = M.material_maps(i)
                     tex = maps['color']
                     img = self.finder.image(rel, tex, size) if tex else None
@@ -231,7 +238,7 @@ class PlayerPreview(QWidget):
             self.view.set_meshes(ms, 'No player parts found in this game folder.', up='y', keep_camera=not first)
             if first:
                 self._turn(0.0)
-                self.view.dist = 3.2
+                self.view.dist = 3.7
             team = folder.split('/')
             self.note.setText(f'{team[-2]} · {team[-1]}  ·  drag to turn, wheel to zoom')
 
