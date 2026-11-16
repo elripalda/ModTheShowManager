@@ -16,7 +16,11 @@ SHAPES = [('Head', ('HEAD_SCALE',)), ('Neck', ('NECK_SCALE',)), ('Shoulders and 
           ('Torso', ('SPINE_SCALE', 'COLLARBONE_SCALE')), ('Hips and legs', ('HIPS_SCALE', 'THIGHS_SCALE', 'GLUTES_SCALE'))]
 SHAPE_PRESETS = [('Big Heads', {'Head': 255}), ('Tiny Heads', {'Head': 0}),
                  ('Bobbleheads', {'Head': 255, 'Neck': 0, 'Shoulders and arms': 40, 'Torso': 40, 'Hips and legs': 40}),
-                 ('Giants', {'Neck': 255, 'Shoulders and arms': 255, 'Torso': 255, 'Hips and legs': 255})]
+                 ('Giants', {'Neck': 255, 'Shoulders and arms': 255, 'Torso': 255, 'Hips and legs': 255}),
+                 ('Noodle Arms', {'Shoulders and arms': 0}),
+                 ('Gym Rats', {'Head': 60, 'Neck': 255, 'Shoulders and arms': 255, 'Torso': 255, 'Hips and legs': 70}),
+                 ('Never Skip Leg Day', {'Shoulders and arms': 40, 'Torso': 60, 'Hips and legs': 255}),
+                 ('Little League', {'Head': 220, 'Neck': 60, 'Shoulders and arms': 0, 'Torso': 0, 'Hips and legs': 0})]
 PRESETS = [('Moonshot League', {'Power': 125}), ('Track Meet', {'Speed': 125}),
            ('Gold Gloves', {'Fielding': 125, 'Arm': 125}), ('Everyone Maxed', {g: 125 for g, _ in GROUPS})]
 
@@ -61,10 +65,12 @@ class LeagueTools(QDialog):
         lay.addLayout(grid)
         lay.addWidget(label('Body shapes work the same way. They use the sizes the game already has for created '
                             'players, so the biggest head is as big as the game draws one.', 'Sub', wrap=True))
-        pre2 = QHBoxLayout()
+        pre2 = QGridLayout()                 # rows of four, so every button is the same width
         pre2.setSpacing(8)
-        for name, vals in SHAPE_PRESETS:
-            pre2.addWidget(button(name, on_click=lambda _=False, v=vals: self._preset(v, self.shapes)), 1)
+        for i, (name, vals) in enumerate(SHAPE_PRESETS):
+            pre2.addWidget(button(name, on_click=lambda _=False, v=vals: self._preset(v, self.shapes)), i // 4, i % 4)
+        for col in range(4):
+            pre2.setColumnStretch(col, 1)
         lay.addLayout(pre2)
         grid2 = QGridLayout()
         grid2.setHorizontalSpacing(12)

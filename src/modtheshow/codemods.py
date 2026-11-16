@@ -19,6 +19,9 @@ HEX = re.compile(r'^[0-9a-fA-F]{1,8}$')
 # a live number the game reads while it runs:  #dial <name> <start> <lowest> <highest> <step> <what it is>
 DIAL = re.compile(r'^#dial\s+([a-z][a-z0-9_]*)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+([\d.]+)\s+(.+?)\s*$')
 DIAL_WORD = re.compile(r'^\$([a-z][a-z0-9_]*):s(\d{1,2})$')      # in a site: load that dial into float register sN
+# a dial a mod reads by itself while the game runs, without a site loading it:  #turns <set> <dial>
+TURNS = re.compile(r'^#turns\s+([A-Za-z_][A-Za-z0-9_]*)\s+([a-z][a-z0-9_]*)\s*$')
+TAP = 0xAA0003F0     # mov x16, x0 (| N << 16 for xN): the first word of a site that hands a register to mts_tap
 MAX_DIALS = 15
 
 
@@ -84,7 +87,7 @@ def freeze(text, values=None):
     start.update({k: v for k, v in (values or {}).items() if k in start})
     out = []
     for raw in text.splitlines():
-        if DIAL.match(raw.strip()):
+        if DIAL.match(raw.strip()) or TURNS.match(raw.strip()):
             continue
         f = raw.split('#', 1)[0].split()
         if f and f[0] == 'site':
@@ -133,6 +136,11 @@ def parse(text, where=''):
     if len(known) > MAX_DIALS:
         bad.append(f'{where}: more than {MAX_DIALS} dials')
     lines += [raw.strip() for raw in text.splitlines() if DIAL.match(raw.strip())]
+    lines += [raw.strip() for raw in text.splitlines() if TURNS.match(raw.strip())]
+    for raw in text.splitlines():
+        m = TURNS.match(raw.strip())
+        if m and m.group(2) not in known:
+            bad.append(f'{where}: #turns names {m.group(2)}, a dial this file does not define with #dial')
     DESCRIPTIONS.update({m.group(1): m.group(2).strip() for m in
                          re.finditer(r'^#:\s*(\w+)\s*[:=-]\s*(.+)$', text, re.M)})
     TAGS.update({m.group(1): m.group(2).strip() for m in re.finditer(r'^#tag\s+(\w+)\s*[:=-]\s*(.+)$', text, re.M)})
@@ -206,7 +214,8 @@ def collect(mods):
         have_dials = {d[0] for d in dials('\n'.join(lines))}
         if twice or have_dials:
             l = [x for x in drop_sets('\n'.join(l), twice).splitlines()
-                 if not (DIAL.match(x) and DIAL.match(x).group(1) in have_dials)]
+                 if not (DIAL.match(x) and DIAL.match(x).group(1) in have_dials)
+                 and not (TURNS.match(x) and TURNS.match(x).group(1) in twice)]
         lines.append(f'# {source}: {file}')
         for name, env, default in s:
             if name not in seen:
@@ -262,7 +271,7 @@ def fitting(game_root, text):
     return drop_sets(text, set(bad)), bad
 
 
-BUILD_REV = 6      # goes up when the way the manager builds changes, so an older build is offered a rebuild
+BUILD_REV = 7      # goes up when the way the manager builds changes, so an older build is offered a rebuild
 SWITCH_FILE = 'mts-code.cfg'
 SWITCH_LOG = 'mts-code.log'
 
@@ -292,6 +301,9 @@ def set_dials(patch_text):
                 m = DIAL_WORD.match(w)
                 if m and m.group(1) not in out.setdefault(f[1], []):
                     out[f[1]].append(m.group(1))
+        m = TURNS.match(raw.strip())
+        if m and m.group(2) not in out.setdefault(m.group(1), []):
+            out[m.group(1)].append(m.group(2))
     return {k: v for k, v in out.items() if v}
 
 
@@ -325,7 +337,7 @@ def switch_source(sets, menu=MENU_FULL, dial_list=(), rows=None):
 
     menu: MENU_FULL adds the in-game menu (F4) joined to the game's own input, MENU_PLAIN the same panel on its own,
     MENU_NONE neither (see codemenu.py)."""
-    from . import codemenu
+    from . import codefx, codemenu
     if menu is True:
         menu = MENU_FULL
     menu = int(menu or 0)
@@ -337,7 +349,7 @@ def switch_source(sets, menu=MENU_FULL, dial_list=(), rows=None):
                        f'{float(step)!r}f}}' for n, start, lo, hi, step, label in dial_list)
     menurows = ''.join(f'    {{{s_}, {d_}, {o_}}},\n' for s_, d_, o_ in rows)
     text = codemenu.HEAD + (codemenu.MENU if menu else '') + codemenu.TAIL
-    for key, value in (('{START}', codemenu.START if menu else ''), ('{NSETS}', str(len(sets))),
+    for key, value in (('{FX}', codefx.FX), ('{START}', codemenu.START if menu else ''), ('{NSETS}', str(len(sets))),
                        ('{NDIALS}', str(len(dial_list))), ('{NROWS}', str(len(rows))),
                        ('{SEAMS}', '1' if menu == MENU_FULL else '0'), ('{SETROWS}', setrows),
                        ('{DIALROWS}', dialrows), ('{MENUROWS}', menurows), ('{SWITCH_FILE}', SWITCH_FILE),
@@ -365,7 +377,7 @@ def wire_chunk(text):
     if 'extern uint32_t mts_dial[]' not in text:
         text = text.replace('extern uint8_t mts_patch_on[];',
                             'extern uint8_t mts_patch_on[];\nextern uint32_t mts_dial[];\n'
-                            'extern volatile uint32_t mts_ran[];', 1)
+                            'extern volatile uint32_t mts_ran[];\nvoid mts_tap(int set, uint64_t value);', 1)
 
     def live(m):
         k = (int(m.group(2), 16) - 0xBF800000) // 0x80000
@@ -375,6 +387,9 @@ def wire_chunk(text):
     for line in text.split('\n'):
         if 'if (mts_patch_on[' in line:
             line = re.sub(r'if \(mts_patch_on\[(\d+)\]\) \{(?! mts_ran)', r'if (mts_patch_on[\1]) { mts_ran[\1]++;', line)
+            # a site that opens with  mov x16, xN  is handing that register over (see TAP)
+            line = re.sub(r'(mts_ran\[(\d+)\]\+\+; ((?:c->x\[16\]|x16)) = [^;{}]+;)(?! mts_tap)',
+                          r'\1 mts_tap(\2, \3);', line)
             line = re.sub(r'((?:c->)?v\[?\d+\]?) = 0x(bf[89a-f][08]0000)ull; \1 = 0x\2ull;', live, line, flags=re.I)
         out.append(line)
     return '\n'.join(out)
@@ -738,6 +753,14 @@ site air main 165ac78 1e210800 1e210800 $air:s1 1e210800
 set  bouncy_ball MLB_MOD_BOUNCY 0
 site bouncy_ball main 1659528 1e210813 1e210813 $bouncy_ball:s1 1e210a73
 
+# While the ball flies, gravity is a flat 32 feet per second squared added to its fall. This multiplies it, for
+# pitches and hits alike.
+#: gravity: How hard the ball is pulled down while it flies. 0.4 is moon ball: fly balls hang forever and pitches barely drop. 2 and everything is a sinker.
+#tag gravity: Experimental
+#dial gravity 0.4 0.05 3 0.05 Gravity x
+set  gravity MLB_MOD_GRAVITY 0
+site gravity main 16571c0 0f066442 0f066442 $gravity:s1 1e210842 2f00e401
+
 # A thrown ball's speed (mph to feet per second) x 1.25. Aim may be off.
 #: rocket_arms: Thrown balls travel 1.25x faster.
 #tag rocket_arms: Experimental
@@ -770,6 +793,32 @@ site pitch_break main 1657168 1e270120 1e270120 $pitch_break:s3 1e230800
 set  iron_arms MLB_MOD_IRONARMS 0
 site iron_arms main 3c56fc 72a800c8 72a7e0c8
 site iron_arms main 3c5710 72a800c8 72a7e0c8
+
+
+#group Effects
+
+# These three draw over the game with the manager's own particles: nothing of the game's is reused. The site of each
+# only watches (it runs the instruction that was there): Fireball's hands the ball over as it is let go, and the
+# other two count swings. They need the in-game menu (F4) to have been built joined to the game, and they show while
+# the game's fps readout is on, which is switched on for them.
+#: fireball: A pitch thrown hard enough catches fire: flames, a glow, embers and a trail of smoke, the manager's own. Slower pitches stay a plain ball.
+#tag fireball: Experimental
+#dial fire_from 95 60 110 1 Fire from mph
+#turns fireball fire_from
+set  fireball MLB_MOD_FIREBALL 0
+site fireball main 166a2a4 fc1e0fe8 aa0003f0 fc1e0fe8
+
+#: on_fire: Streaks. Three swings and misses in a row and the pitcher is on fire: faster, nastier, every pitch in blue flame, until someone makes contact. Three hard-hit balls in a row and the lineup is on fire: the ball jumps off the bat burning, until someone whiffs.
+#tag on_fire: Experimental
+set  on_fire MLB_MOD_ONFIRE 0
+site on_fire main 167a6ac d103c3ff d103c3ff
+
+#: fireworks: The manager's own fireworks over the field. F6 sets them off whenever you like, and they go up by themselves for a rocket off the bat.
+#tag fireworks: Experimental
+#dial fireworks_from 108 90 130 1 Fireworks from mph
+#turns fireworks fireworks_from
+set  fireworks MLB_MOD_FIREWORKS 0
+site fireworks main 167a6b0 6d053bef 6d053bef
 '''
 
 
@@ -800,6 +849,21 @@ def last_game(game_root):
         out['breaks'], out['biggest_break'] = len(m), max(m)
         out['usual_break'] = sorted(m)[len(m) // 2]
     return out
+
+
+def last_effects(game_root):
+    """What the drawn effects (Fireball, On Fire, Fireworks) recorded in the game's last session, from the same log
+    as the switches: {'frames', 'camera', 'ball', 'flights', 'lit', 'swings'}, or {} when the build draws none."""
+    try:
+        with open(os.path.join(game_root, 'logs', SWITCH_LOG), encoding='utf-8', errors='replace') as f:
+            text = f.read()
+    except OSError:
+        return {}
+    m = re.search(r'^fx frames=(\d+) camera=(\d+) ball=(\w+) node=(\w+) flights=(\d+) lit=(\d+) swings=(\d+)', text, re.M)
+    if not m:
+        return {}
+    return {'frames': int(m.group(1)), 'camera': int(m.group(2)), 'ball': m.group(3) == 'found' and m.group(4) == 'found',
+            'flights': int(m.group(5)), 'lit': int(m.group(6)), 'swings': int(m.group(7))}
 
 
 def last_swing(game_root):

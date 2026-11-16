@@ -18,9 +18,16 @@ HEAD = r"""// Written by Mod the Show Manager (codemods.switch_source). Switches
 #define MTS_DIALS {NDIALS}
 #define MTS_ROWS {NROWS}
 #define MTS_SEAMS {SEAMS}
-uint8_t mts_patch_on[MTS_SETS + 1];
+uint8_t mts_patch_on[MTS_SETS + 1];        /* what the patched code reads */
 uint32_t mts_dial[16];                     /* the bits of each dial's number, read by the patched code; 0 is unused */
 volatile uint32_t mts_ran[MTS_SETS + 1];   /* how many times each set's code has run since the game started */
+/* A site that starts with  mov x16, xN  hands that register over here each time it runs (codemods.wire_chunk): the
+   way a mod's own drawing code gets hold of something the game only has in a register, like the ball. */
+volatile uint64_t mts_tapv[MTS_SETS + 1];
+void mts_tap(int set, uint64_t value) { mts_tapv[set] = value; }
+/* What the player chose. The same as mts_patch_on, except while an effect holds a mod on for a while (a streak). */
+static uint8_t mts_want[MTS_SETS + 1];
+__attribute__((unused)) static void (*mts_log_more)(FILE *f);
 
 static const struct { const char *name, *env; int def; const char *title, *about; } mts_sets[MTS_SETS + 1] = {
 {SETROWS}    {"", "", 0, "", ""}
@@ -51,7 +58,7 @@ __attribute__((unused)) static void mts_save(void) {
         return;
     fputs("# Code mod switches, written by Mod the Show Manager. name=1 is on. A dial is dial.name=number.\n", f);
     for (i = 0; i < MTS_SETS; i++)
-        fprintf(f, "%s=%d\n", mts_sets[i].name, mts_patch_on[i]);
+        fprintf(f, "%s=%d\n", mts_sets[i].name, mts_want[i]);
     for (i = 1; i <= MTS_DIALS; i++)
         fprintf(f, "dial.%s=%.3f\n", mts_dials[i].name, (double)mts_dial_value[i]);
     fclose(f);
@@ -64,12 +71,14 @@ static void mts_write_log(void) {
         return;
     fprintf(f, "Code mods built into this mlb.exe: %d\n", MTS_SETS);
     for (i = 0; i < MTS_SETS; i++)
-        fprintf(f, "%s=%d (%s)\n", mts_sets[i].name, mts_patch_on[i], mts_from[i]);
+        fprintf(f, "%s=%d (%s)\n", mts_sets[i].name, mts_want[i], mts_from[i]);
     for (i = 1; i <= MTS_DIALS; i++)
         fprintf(f, "dial %s=%.3f\n", mts_dials[i].name, (double)mts_dial_value[i]);
     for (i = 0; i < MTS_SETS; i++)
         fprintf(f, "ran %s=%u\n", mts_sets[i].name, (unsigned)mts_ran[i]);
     fprintf(f, "menu opened=%u game_drew=%u window_shown=%u\n", mts_seen[0], mts_seen[1], mts_seen[2]);
+    if (mts_log_more)
+        mts_log_more(f);
     fclose(f);
 }
 """
@@ -83,6 +92,7 @@ MENU = r"""
      Up / Down          move                      (F2 moves down too)
      Enter              switch the mod on or off  (F3 too)
      Left / Right       turn a dial; on a mod without one, off and on
+     F6                 fireworks, when that mod is on
    F2 and F3 also work with the panel closed, the way they always did: a line shows what they did.
    Every change takes effect at once and is saved for the next start.
 
@@ -126,7 +136,7 @@ typedef struct {
 static void mts_row(const MtsPen *p, int r, int y, int w) {
     char v[48];
     int set = mts_rows[r].set, dial = mts_rows[r].dial, own = mts_rows[r].own;
-    int sel = r == mts_sel, on = mts_patch_on[set], h = S(30), x = own ? S(22) : S(44);
+    int sel = r == mts_sel, on = mts_want[set], h = S(30), x = own ? S(22) : S(44);
     COLORREF name = on ? RGB(244, 244, 244) : RGB(150, 154, 164);
     if (sel)
         p->box(p->to, S(8), y, w - S(16), h, RGB(44, 48, 58));
@@ -171,7 +181,7 @@ static void mts_draw(const MtsPen *p, int w, int h) {
     if (mts_ran[set])
         snprintf(line, sizeof line, "Its code has run %u times since the game started.", (unsigned)mts_ran[set]);
     else
-        snprintf(line, sizeof line, "%s", mts_patch_on[set] ? "On, and its code has not run yet." : "Off.");
+        snprintf(line, sizeof line, "%s", mts_want[set] ? "On, and its code has not run yet." : "Off.");
     p->words(p->to, line, S(22), y + S(58), w - S(44), S(20), RGB(120, 124, 134), S(14), 0);
     p->words(p->to, "F4 close     Up / Down move     Enter on / off     Left / Right change", S(22), y + S(82),
              w - S(44), S(22), RGB(120, 124, 134), S(14), 0);
@@ -186,6 +196,7 @@ static void mts_measure(HWND game) {                  /* the panel keeps its siz
     }
 }
 
+{FX}
 /* ---- drawn by the game's overlay */
 #if MTS_SEAMS
 static void *mts_hooked;                              /* the overlay's context the callback is on */
@@ -207,6 +218,7 @@ static void mts_ig_frame(void *ctx, void *hook) {     /* the overlay's thread, o
     (void)ctx;
     (void)hook;
     mts_drawn_at = GetTickCount();
+    mts_fx_frame();
     if (!mts_open && !mts_toast)
         return;
     pen.to = mts_ig_front();
@@ -352,8 +364,10 @@ static void mts_block(int on) {                       /* the game ignores its pa
 
 static void mts_wake(int on) {
     /* on: the panel is up and the game's overlay is not drawing, so its fps readout is switched on to get it going.
-       off: the readout goes back to off (it steps off, fps, full, so two more steps). */
+       off: the readout goes back to off (it steps off, fps, full, so two more steps), unless an effect needs it. */
 #if MTS_SEAMS
+    if (!on && mts_fx_wanted())
+        return;
     if (on && !mts_nudged && !mts_game_draws()) {
         menu_perf_cycle();
         mts_nudged = 1;
@@ -368,10 +382,10 @@ static void mts_wake(int on) {
 }
 
 static void mts_switch(int r, int to) {              /* to: 0 off, 1 on, -1 the other way */
-    int set = mts_rows[r].set, now = to < 0 ? !mts_patch_on[set] : to;
-    if (now == mts_patch_on[set])
+    int set = mts_rows[r].set, now = to < 0 ? !mts_want[set] : to;
+    if (now == mts_want[set])
         return;
-    mts_patch_on[set] = (uint8_t)now;
+    mts_want[set] = mts_patch_on[set] = (uint8_t)now;
     Beep(now ? 1047 : 392, 50);
     mts_save();
 }
@@ -383,19 +397,22 @@ static void mts_turn(int r, int way) {               /* Left (-1) and Right (+1)
         return;
     }
     mts_set_dial(k, mts_dial_value[k] + way * mts_dials[k].step);
-    if (!mts_patch_on[mts_rows[r].set])
+    if (!mts_want[mts_rows[r].set])
         mts_switch(r, 1);                             /* turning a dial is asking for the mod */
     else
         mts_save();
 }
 
-enum { K_MENU, K_NEXT, K_FLIP, K_UP, K_DOWN, K_LEFT, K_RIGHT, K_ENTER, K_COUNT };
+enum { K_MENU, K_NEXT, K_FLIP, K_UP, K_DOWN, K_LEFT, K_RIGHT, K_ENTER, K_WORKS, K_COUNT };
 
 static DWORD WINAPI mts_keys(LPVOID unused) {
-    static const int vk[K_COUNT] = {VK_F4, VK_F2, VK_F3, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, VK_RETURN};
+    static const int vk[K_COUNT] = {VK_F4, VK_F2, VK_F3, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, VK_RETURN, VK_F6};
     int was[K_COUNT] = {0}, held[K_COUNT] = {0}, tick = 0, i;
     unsigned last = 0;
     (void)unused;
+#if MTS_SEAMS
+    mts_fx_init();
+#endif
     for (;;) {
         MSG msg;
         DWORD pid = 0;
@@ -409,9 +426,9 @@ static DWORD WINAPI mts_keys(LPVOID unused) {
         mts_hook();
 #endif
         if (!(++tick % 100)) {                        /* about every three seconds: what has run, for the log */
-            unsigned sum = mts_seen[0] * 7u + mts_seen[2];
+            unsigned sum = mts_seen[0] * 7u + mts_seen[2] + mts_seen[1] / 600u;
             for (i = 0; i < MTS_SETS; i++)
-                sum = sum * 31u + mts_ran[i] + mts_patch_on[i];
+                sum = sum * 31u + mts_ran[i] + mts_want[i];
             if (sum != last) {
                 last = sum;
                 mts_write_log();
@@ -444,6 +461,9 @@ static DWORD WINAPI mts_keys(LPVOID unused) {
             was[i] = down;
             any |= hit[i];
         }
+#if MTS_SEAMS
+        mts_fx_tick(hit[K_WORKS]);
+#endif
         if (mts_open) {
             /* who draws it is settled a moment after it opens: the game's overlay if it is calling back, woken up if
                it was asleep, and the window on top of the game if neither gets a frame */
@@ -505,7 +525,7 @@ __attribute__((constructor)) static void mts_switches_init(void) {
     FILE *f;
     int i;
     for (i = 0; i < MTS_SETS; i++) {
-        mts_patch_on[i] = (uint8_t)(mts_sets[i].def != 0);
+        mts_want[i] = mts_patch_on[i] = (uint8_t)(mts_sets[i].def != 0);
         mts_from[i] = "default";
     }
     for (i = 1; i <= MTS_DIALS; i++)
@@ -525,7 +545,7 @@ __attribute__((constructor)) static void mts_switches_init(void) {
             }
             for (i = 0; i < MTS_SETS; i++)
                 if (!strcmp(line, mts_sets[i].name)) {
-                    mts_patch_on[i] = (uint8_t)(eq[1] == '1');
+                    mts_want[i] = mts_patch_on[i] = (uint8_t)(eq[1] == '1');
                     mts_from[i] = "{SWITCH_FILE}";
                 }
         }
@@ -534,7 +554,7 @@ __attribute__((constructor)) static void mts_switches_init(void) {
     for (i = 0; i < MTS_SETS; i++) {
         const char *v = getenv(mts_sets[i].env);
         if (v && v[0]) {
-            mts_patch_on[i] = (uint8_t)(v[0] == '1');
+            mts_want[i] = mts_patch_on[i] = (uint8_t)(v[0] == '1');
             mts_from[i] = "launch switch";
         }
     }

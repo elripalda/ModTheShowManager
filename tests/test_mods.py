@@ -454,3 +454,40 @@ def test_metal_bats_allowed(tmp_path):
     assert open(loud[R.EQUIPMENT], 'rb').read() == out.encode()
     assert open(loud[R.STADIUM_SOUNDS], 'rb').read() == b'college'
     assert R.metal_bat_files(src, {R.EQUIPMENT}, str(tmp_path), sound=True)[0][0] == R.EQUIPMENT
+
+
+def test_effects_source():
+    # a dial a mod reads by itself (#turns) belongs to its set like one a site loads, and goes when dials are frozen
+    table = ('#dial heat 95 60 110 1 Fire from mph\n#turns fire heat\nset fire MLB_FIRE 0\n'
+             'site fire main 10 fc1e0fe8 aa0003f0 fc1e0fe8\n')
+    sets, lines, bad = codemods.parse(table)
+    assert not bad and '#turns fire heat' in lines
+    assert codemods.parse('#turns fire nope\nset fire MLB_FIRE 0\nsite fire main 10 1 2\n')[2]
+    assert codemods.set_dials(table) == {'fire': ['heat']} and codemods.dial_uses(table) == 0
+    assert codemods.menu_rows(table) == [(0, 1, 1)] and '#turns' not in codemods.freeze(table)
+    # a site that opens with mov x16, xN hands the register over, however the generator keeps x16
+    for x16 in ('c->x[16]', 'x16'):
+        chunk = ('extern uint8_t rt_patch_on[];\nvoid f(Cpu *c) {\n    if (rt_patch_on[0]) { %s = (uint64_t)(0ull | x0); '
+                 'sp_ = sp_ - 32; } else { sp_ = sp_ - 32; }\n}\n' % x16)
+        wired = codemods.wire_chunk(chunk)
+        assert 'mts_ran[0]++; %s = (uint64_t)(0ull | x0); mts_tap(0, %s); sp_' % (x16, x16) in wired
+        assert 'void mts_tap(int set, uint64_t value);' in wired and codemods.wire_chunk(wired) == wired
+    # the built-in list: its drawn effects are in, with what they read from the game
+    sets, text, bad = codemods.collect([])
+    names = [s[0] for s in sets]
+    assert not bad and {'gravity', 'fireball', 'on_fire', 'fireworks'} <= set(names)
+    assert codemods.GROUPS['fireball'] == 'Effects' and codemods.set_dials(text)['fireball'] == ['fire_from']
+    full = codemods.switch_source(codemods.table_sets(text), codemods.MENU_FULL, codemods.dials(text),
+                                  codemods.menu_rows(text))
+    assert 'mts_fx_frame();' in full and '{FX}' not in full and 'AddCircleFilled' in full and 'VK_F6' in full
+    assert 'void mts_tap(int set, uint64_t value)' in full and full.count('{') == full.count('}')
+    none = codemods.switch_source(codemods.table_sets(text), codemods.MENU_NONE, codemods.dials(text))
+    assert 'mts_fx_frame' not in none and 'void mts_tap(int set, uint64_t value)' in none
+    root = tempfile.mkdtemp()
+    os.makedirs(os.path.join(root, 'logs'))
+    assert codemods.last_effects(root) == {}
+    with open(os.path.join(root, 'logs', codemods.SWITCH_LOG), 'w') as f:
+        f.write('ran fireball=12\nmenu opened=0 game_drew=0 window_shown=0\n'
+                'fx frames=5120 camera=5120 ball=found node=found flights=31 lit=7 swings=18\n')
+    assert codemods.last_effects(root) == {'frames': 5120, 'camera': 5120, 'ball': True, 'flights': 31, 'lit': 7,
+                                           'swings': 18}

@@ -242,6 +242,10 @@ class PluginsPage(QWidget):
                         note, warn = 'It was on in your last game, but the game never got to its code.', True
                 elif current and seen and name not in seen:
                     note = 'Not in the game yet. Press Rebuild Game.'
+                if current and group == 'Effects' and \
+                        int(self.main.settings.get('code_menu', codemods.MENU_FULL)) < codemods.MENU_FULL:
+                    note, warn = ('This build could not join the in-game menu to the game, so this one has nothing '
+                                  'to draw with.'), True
                 dial = dials.get(turns.get(name, [None])[0])
                 add(Row(self, name, source, on, name not in misfit, dial, note, warn), 64)
                 shown += 1
@@ -314,6 +318,15 @@ class PluginsPage(QWidget):
         sw = codemods.last_swing(root)
         if 'error' in sw:
             bits.append(f'On the last swing the PCI was {sw["error"]:.2f} off the ball.')
+        fx = codemods.last_effects(root)
+        if fx.get('frames'):
+            if not fx['ball']:
+                bits.append('The effects were drawing but never got hold of the ball.')
+            elif not fx['camera']:
+                bits.append('The effects found the ball but not the camera.')
+            else:
+                bits.append(f'The effects followed {fx["flights"]} pitch{"es" if fx["flights"] != 1 else ""} and set '
+                            f'{fx["lit"]} on fire.')
         return ' '.join(bits)
 
     # ---- switches and dials
