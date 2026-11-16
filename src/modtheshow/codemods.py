@@ -556,6 +556,37 @@ site soft_toss main 24adb0 72a7f0c8 528f5c28 72a7ec88
 set  iron_arms MLB_MOD_IRONARMS 0
 site iron_arms main 3c56fc 72a800c8 72a7e0c8
 site iron_arms main 3c5710 72a800c8 72a7e0c8
+
+# The power of a hit is kept in mph on the hit itself, and the exit velocity on screen is read from there. These
+# raise that number right before the ball's speed is worked out from it, so the ball flies faster and the reading
+# goes up with it. The sets above change the ball's speed only and leave the reading alone.
+#: ev_125: Exit velocity x1.25, and the number on screen shows it.
+set  ev_125 MLB_MOD_EV125 0
+site ev_125 main 167d0b8 bd404a60 bd404a60 1e2e9001 1e210800 bd004a60
+
+#: ev_150: Exit velocity x1.5, and the number on screen shows it. 110 off the bat reads 165.
+set  ev_150 MLB_MOD_EV150 0
+site ev_150 main 167d0b8 bd404a60 bd404a60 1e2f1001 1e210800 bd004a60
+
+#: ev_200: Exit velocity x2, and the number on screen shows it.
+set  ev_200 MLB_MOD_EV200 0
+site ev_200 main 167d0b8 bd404a60 bd404a60 1e201001 1e210800 bd004a60
+
+#: ev_300: Exit velocity x3, and the number on screen shows it. Over 300 mph on a good swing.
+set  ev_300 MLB_MOD_EV300 0
+site ev_300 main 167d0b8 bd404a60 bd404a60 1e211001 1e210800 bd004a60
+
+# Pitch speed, the same two numbers Heat changes, pushed further. Goes with the Fireball ball skin.
+#: fireball: Experimental. Every pitch comes in about 30% faster: a 100 mph fastball becomes 130.
+set  fireball MLB_MOD_FIREBALL 0
+site fireball main 24ada4 72a7ee68 52828f68 72a7f3c8
+site fireball main 24adb0 72a7f0c8 52970a48 72a7f5c8
+
+# Four times the air. A spinning ball is pushed around by the air it moves through, so pitches should break far
+# more, and anything hit in the air dies early, the way a wiffle ball does. Pair it with an exit velocity set.
+#: wiffle_ball: Experimental. Four times the air: pitches should dance and fly balls drop like a wiffle ball.
+set  wiffle_ball MLB_MOD_WIFFLE 0
+site wiffle_ball main 165ac78 1e210800 1e210800 1e221001 1e210800
 '''
 
 

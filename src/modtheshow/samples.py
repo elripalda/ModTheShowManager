@@ -1024,6 +1024,51 @@ def arcade_code(game, lib, current_file):
     return mod, 'Tick the ones you want in Code Plugins, then Rebuild Game.'
 
 
+BALLS = 'NSW/OBJECTS/BALLTEXTURES.TEX'
+
+
+def fireball_skin(img, seed=7):
+    """A ball's texture set alight: the leather glows from deep red through orange to yellow-white in licks of
+    flame, and the seams stay as dark embers, so the stitching still reads as the ball spins. Painted over the
+    game's own texture, which keeps every seam where the model expects it."""
+    import numpy as np
+    from PIL import Image
+    src = np.asarray(img.convert('RGBA'), np.float32) / 255
+    h, w = src.shape[:2]
+    lum = src[..., :3] @ np.array([0.299, 0.587, 0.114], np.float32)
+    rng = np.random.default_rng(seed)
+    flame = np.zeros((h, w), np.float32)
+    for cells, weight in ((4, 0.5), (8, 0.3), (16, 0.2)):          # a few sizes of soft noise make the licks
+        grid = rng.random((cells + 1, cells + 1)).astype(np.float32)
+        big = Image.fromarray((grid * 255).astype(np.uint8)).resize((w, h), Image.BICUBIC)
+        flame += weight * np.asarray(big, np.float32) / 255
+    sat = src[..., :3].max(-1) - src[..., :3].min(-1)
+    leather = np.clip((lum - 0.45) / 0.4, 0, 1) * np.clip(1 - sat * 3, 0, 1)      # pale and plain: not a seam
+    heat = np.clip(0.25 + 0.75 * flame, 0, 1) * leather
+    stops = np.array([[0.20, 0.02, 0.00], [0.75, 0.10, 0.00], [1.00, 0.45, 0.02], [1.00, 0.80, 0.20],
+                      [1.00, 0.97, 0.75]], np.float32)
+    pos = heat * (len(stops) - 1)
+    i = np.clip(pos.astype(int), 0, len(stops) - 2)
+    t = (pos - i)[..., None]
+    out = stops[i] * (1 - t) + stops[i + 1] * t
+    out = np.dstack([out, src[..., 3]])
+    return Image.fromarray((np.clip(out, 0, 1) * 255).astype(np.uint8), 'RGBA')
+
+
+def fireball(game, lib, current_file):
+    """The ball as a ball of fire, in every league's version of it. Goes with the Fireball code mod."""
+    from . import texlib
+    if BALLS not in game.file_set():
+        raise ValueError('This install has no ball textures (BALLTEXTURES.TEX).')
+    mod = _mod(lib, 'Sample: Fireball', 'The ball burns: glowing leather, ember seams. Switch on Fireball in Code '
+                    'Plugins as well and every pitch comes in 30% faster.')
+    with texlib.Tex(game.original(BALLS), readonly=True) as t:
+        for e in t.entries:
+            if e['name'].endswith('-color'):
+                lib.add_texture(mod, BALLS, e['name'], fireball_skin(t.image(e)))
+    return mod, 'Apply and start a game. For the speed, tick Fireball in Code Plugins and rebuild once.'
+
+
 SAMPLES = [
     ('yankees', 'Sample: 1927 Yankees', 'A classic roster brought in from a roster file: 25 players, built faces for '
      'the ones the game doesn’t have, lineups set for you.', yankees_1927),
@@ -1050,7 +1095,8 @@ SAMPLES = [
      scorebug_text_test),
     ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',
      scorebug_flat),
-    ('arcade', codemods.ARCADE_NAME, 'Code mods: Auto PCI, Perfect-Perfect, moonshots, juiced ball, thin air and more.',
+    ('fireball', 'Sample: Fireball', 'A texture mod: the ball burns. Pairs with the Fireball code mod.', fireball),
+    ('arcade', codemods.ARCADE_NAME, 'Code mods: Auto PCI, moonshots, exit velocity that shows on screen, fireball pitches, wiffle ball and more.',
      arcade_code),
 ]
 

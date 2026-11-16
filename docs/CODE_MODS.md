@@ -25,6 +25,9 @@ start the game. After that, ticking and unticking takes effect the next time the
 | Orbit Shots, God Power, Moonshot, Juiced Ball | Balls leave the bat 3x, 2x, 1.5x and 1.25x faster. |
 | Gap Power | Balls leave the bat 10% faster: more balls off the wall, the odd extra home run. |
 | Dead Ball | Balls leave the bat 20% slower. |
+| Exit Velo x1.25, x1.5, x2, x3 | The hit's power itself goes up, so the ball flies faster and the exit velocity on screen shows it. New. |
+| Fireball | Every pitch comes in about 30% faster. Pairs with the Sample: Fireball ball skin. Experimental. |
+| Wiffle Ball | Four times the air: pitches should break far more and fly balls drop early. Experimental. |
 | Thin Air | A quarter of the air density everywhere. Fly balls carry. |
 | Heavy Air | Twice the air density. Fly balls die at the warning track. |
 | Rocket Arms | Thrown balls travel 1.25x faster. Experimental. |
@@ -89,6 +92,7 @@ is ARM64; `x19` and friends are registers.
 | `167a8d8` | Result of the perfect timing check (function `1678010`), stored at `+0x4e`. |
 | `167bd4c` | Human or CPU: the word at `+0xbc` of the settings block (`[context + 0x40]`) is 9 for a CPU hitter. Picks the human or CPU contact slider. |
 | `16808d4` to `1680c70` | The power penalties (jammed, off the end, and so on). |
+| `167d0b8` | `ldr s0, [x19, #0x48]` loads the hit's power in mph. The exit velocity shown after the play is read from the same place (`f4f2e8`), so a change written back here shows on screen. |
 | `167d828` | Broken bat power multiplier. |
 | `16785f8` | Check swing power multiplier. |
 
@@ -109,6 +113,7 @@ Hit record: `+0x1c` late/inside rating, `+0x20` early/outside rating, `+0x28` to
 | `165ac78` | Last multiply of the air density function (temperature and altitude in, density out). |
 | `1688088` | 1.4667 again, for a thrown ball's speed. |
 | `166a6e4` | 1.4667 in the release setup shared by pitches and throws (speed and distance in, flight time out). |
+| `24ada4`, `24adb0` | The low and high ends of the pitch speed multiplier (about 0.95 and 1.05). |
 
 **Stamina**
 
