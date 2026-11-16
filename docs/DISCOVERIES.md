@@ -100,6 +100,12 @@ What makes a uniform City Connect is its `unitype` in `MLBUNIS.JSON`: 2 for City
 club has one uniform of kind 2, and a club's older City Connect set is filed as a throwback. Change a jersey's
 kind to 2 and it should get the City Connect treatment.
 
+## A table row is just a number
+
+The game's lineup screen is a table: one row of text boxes, repeated, each asking for "the batter in this row".
+The row is a query of its own, `UI PARENT_TABLE CELL_ROW`. Write a plain number where that query stood and the same
+question works outside a table, which is how a card built from nothing lists all nine batters.
+
 ## Stadium boards are layouts
 
 Every park's scoreboards sit in `NSW/STADIUMS/<PARK>/SCOREBOARD/` as a layout, a texture pack and a text file, the

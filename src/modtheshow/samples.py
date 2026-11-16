@@ -449,6 +449,144 @@ def replace_scorebug(lay, design, x=None, y=None, textures=None):
     return a
 
 
+def card_frame(lay, a):
+    """The nodes from a broadcast screen's root down to a piece a card can take the place of: the first overlay it
+    shows that sits in a group the screen keeps lit. None when it has none."""
+    root = a.root() if a else None
+    if root is None:
+        return None
+
+    def walk(n, path, lit):
+        for k in n.children:
+            if k.kind == 0x1E and len(path) > 1 and k.w >= 100 and k.h >= 100 and k.ref in lay.by_hash and \
+                    not (k.w >= 1900 and k.h >= 1000):
+                return path + [k]
+            if k.kind == 0x1C or (lit and (k.color >> 24) == 0):   # one look of several, or a layer faded out
+                continue
+            hit = walk(k, path + [k], lit)
+            if hit:
+                return hit
+        return None
+    # a screen that fades every layer in has no lit group: then any layer will do, and the card lights it itself
+    return walk(root, [root], True) or walk(root, [root], False)
+
+
+def replace_overlay(lay, name, design, textures=None):
+    """Draw a design of our own in place of a broadcast screen's content: the starting lineup, the due-up card.
+    The screen's backdrop and its timing stay; the content beside the piece the design takes over is hidden.
+    design["x"], ["y"] place the card on the screen. textures: {name: (width, height)} of the pack, for a design
+    with pictures of its own."""
+    from . import uibuild
+    from .uilayout import P_ALPHA
+    a = lay.find(name)
+    path = card_frame(lay, a)
+    if not path:
+        raise ValueError(f'This file has no {name} screen a card can take the place of.')
+    on = {n.off for n in path}
+    hide = [k for n in path[1:-1] for k in n.children if k.off not in on]
+    # under the root the full-screen layers are the backdrop and stay; smaller pieces there belong to the old content
+    hide += [k for k in path[0].children if k.off not in on and k.w > 0 and k.h > 0 and not (k.w >= 1900 and k.h >= 1000)]
+    hidden = {m.off for k in hide for m in k.walk()}
+    carriers = _spare_textures(lay, hidden, textures or {})
+    rel = [n.off - a.body for n in path]
+    hide_rel = [k.off - a.body for k in hide]
+    asset = uibuild.install(lay, design, carriers)
+    a = lay.find(name)
+    w, h = design['size']
+    for r in hide_rel:
+        lay.recolor(lay.node_at(a, r), alpha=0)
+    nodes = [lay.node_at(a, r) for r in rel]
+    lay.retarget(nodes[-1], asset)
+    for i, n in enumerate(nodes[1:]):
+        lay.move(n, *((float(design.get('x', 0)), float(design.get('y', 0))) if i == 0 else (0, 0)))
+        lay.resize(n, w, h)
+        lay.recolor(n, rgb=(255, 255, 255), alpha=255)
+        if n.kind == 0x0F:
+            struct.pack_into('<Q', lay.d, n.off + 0x40, 0)
+    lay._keys(nodes[-1], P_ALPHA, lambda v: 255)             # the piece it replaces may have been kept dark
+    lay.carriers, lay.design_origin = carriers, (0, 0)
+    return a
+
+
+def _lineup_card():
+    """The starting nine, built from nothing: the club's colour and logo across the top, then a row for each
+    spot in the order with position, name, the side he bats from and his line."""
+    W, head, row = 780, 112, 72
+    gold, dim, ink = '#ffd24a', '#b8c2cf', '#0b0f15'
+    H = head + 9 * row + 14
+    p = [{'name': 'Card', 'box': [0, 0, W, H], 'color': ink, 'opacity': 94},
+         {'name': 'Club colour', 'team': 'card', 'at': [0, 0, W, head]},
+         {'name': 'Header shade', 'box': [0, head - 46, W, 46], 'color': '#000000', 'opacity': 30},
+         {'name': 'Club logo', 'logo': 'card', 'kind': 2, 'at': [22, 12, 88, 88]},
+         {'name': 'City', 'text': '^d0^', 'data': ['TEAM_UI CITY [ PRESENTATION ETEAM ]'], 'at': [128, 10, W - 150, 56],
+          'size': 42, 'align': 'left'},
+         {'name': 'Title', 'text': 'STARTING LINEUP', 'at': [130, 66, W - 150, 36], 'size': 24, 'align': 'left',
+          'color': gold},
+         {'name': 'Rule', 'box': [0, head, W, 3], 'color': gold}]
+    for i in range(9):
+        y = head + 8 + i * row
+        rows = [{'name': 'Order', 'text': str(i + 1), 'at': [14, 14, 44, 44], 'size': 30, 'color': gold},
+                {'name': 'Position', 'text': '^d0^',
+                 'data': [f'PAUSE_MENU LINEUP_FROM_TEAM_POS_STR [ OFF_TEAM_HOME_AWAY ] [ {i} ]'],
+                 'at': [66, 18, 70, 38], 'size': 24, 'color': dim},
+                {'name': 'Name', 'text': '^d0^', 'data': [f'NAME [ FULL_NAME ] PAUSE_MENU LINEUP [ {i} ] PROFILE'],
+                 'at': [146, 12, 400, 48], 'size': 32, 'align': 'left'},
+                {'name': 'Bats', 'text': '^d0^',
+                 'data': [f'HAND_STR [ PLAYER_UI BAT_HAND [ PAUSE_MENU LINEUP [ {i} ] ] , 0 ]'],
+                 'at': [556, 18, 54, 38], 'size': 22, 'color': dim},
+                {'name': 'Line', 'text': '^d0^', 'data': [f'LINEUP_STAT [ {i} ]'], 'at': [616, 14, 146, 44],
+                 'size': 28, 'align': 'right', 'color': gold}]
+        if i % 2 == 0:
+            rows.insert(0, {'name': 'Stripe', 'box': [0, 0, W, row], 'color': '#ffffff', 'opacity': 5})
+        p.append({'name': f'Batter {i + 1}', 'group': rows, 'at': [0, y, W, row]})
+    return {'name': 'MTS_LineupCard', 'replaces': 'PresIntroStartingLineup', 'size': [W, H], 'x': 96, 'y': 150,
+            'pieces': p}
+
+
+def _break_card():
+    """Between innings, built from nothing: the line score by inning with runs, hits and errors, and under it the
+    three batters due up for the club the card is about."""
+    W, name_w, cell, gold, dim, ink = 900, 150, 52, '#ffd24a', '#b8c2cf', '#0b0f15'
+    top, row, rhe = 64, 50, name_w + 9 * cell + 22
+    p = [{'name': 'Card', 'box': [0, 0, W, top + 46 + 2 * row + 18 + 42 + 3 * 52 + 12], 'color': ink, 'opacity': 94},
+         {'name': 'Club colour', 'team': 'card', 'at': [0, 0, W, top]},
+         {'name': 'Club logo', 'logo': 'card', 'kind': 2, 'at': [14, 6, 52, 52]},
+         {'name': 'Title', 'text': 'THROUGH ^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [80, 10, 420, 44],
+          'size': 30, 'align': 'left'},
+         {'name': 'Rule', 'box': [0, top, W, 3], 'color': gold},
+         {'name': 'Table line', 'box': [rhe - 12, top + 14, 2, 36 + 2 * row], 'color': '#ffffff', 'opacity': 30}]
+    for i in range(9):
+        p.append({'name': f'Inning {i + 1}', 'text': '^d0^', 'data': [f'BoxScore INNING_STR [ {i} ]'],
+                  'at': [name_w + i * cell, top + 12, cell, 30], 'size': 20, 'color': dim})
+    for j, t in enumerate('RHE'):
+        p.append({'name': t, 'text': t, 'at': [rhe + j * 56, top + 12, 56, 30], 'size': 20, 'color': dim})
+    for team, side in ((0, 'AWAY'), (1, 'HOME')):
+        y = top + 46 + team * row
+        cells = [{'name': 'Club', 'text': '^d0^', 'data': [f'{side}_TEAM TEAM_PROF SHORT_NAME'],
+                  'at': [18, 4, name_w - 24, row - 8], 'size': 30, 'align': 'left'}]
+        for i in range(9):
+            cells.append({'name': f'Inning {i + 1}', 'text': '^d0^', 'data': [f'BoxScore INNING_VAL [ {team} , {i} ]'],
+                          'at': [name_w + i * cell, 4, cell, row - 8], 'size': 26, 'color': dim})
+        for j, q in enumerate((f'BoxScore RUNS [ {team} ]', f'BoxScore HITS [ {team} ]', f'BoxScore ERRORS [ {team} ]')):
+            cells.append({'name': 'RHE'[j], 'text': '^d0^', 'data': [q], 'at': [rhe + j * 56, 4, 56, row - 8],
+                          'size': 28, 'color': gold if j == 0 else '#ffffff'})
+        p.append({'name': f'{side.title()} line', 'group': cells, 'at': [0, y, W, row]})
+    y0 = top + 46 + 2 * row + 18
+    p += [{'name': 'Due up band', 'box': [0, y0, W, 34], 'color': '#ffffff', 'opacity': 8},
+          {'name': 'Due up', 'text': 'DUE UP', 'at': [18, y0 + 3, 200, 28], 'size': 20, 'align': 'left', 'color': gold}]
+    for i in range(3):
+        y = y0 + 42 + i * 52
+        p.append({'name': f'Due up {i + 1}', 'at': [0, y, W, 52], 'group': [
+            {'name': 'Position', 'text': '^d0^', 'data': [f'POS_STR [ PLAYER_UI POSITION [ DUEUP PLAYER [ {i} ] ] ]'],
+             'at': [18, 8, 70, 36], 'size': 24, 'color': dim, 'align': 'left'},
+            {'name': 'Name', 'text': '^d0^', 'data': [f'NAME [ FULL_NAME ] DUEUP PLAYER [ {i} ] PROFILE'],
+             'at': [96, 4, 520, 44], 'size': 30, 'align': 'left'},
+            {'name': 'Today', 'text': '^d0^', 'data': [f'DUEUP PLAYER_AB_STAT [ {i} ]'], 'at': [W - 240, 6, 222, 40],
+             'size': 26, 'align': 'right', 'color': gold}]})
+    return {'name': 'MTS_BreakCard', 'replaces': 'PresFSDueUp', 'size': [W, y0 + 42 + 3 * 52 + 12], 'x': 510,
+            'y': 300, 'pieces': p}
+
+
 def _replace_theme1(lay, design, x=None, y=None):
     from . import uibuild
     asset = uibuild.install(lay, design, CARRIERS)
@@ -761,6 +899,16 @@ GLASS_TILES = _glass_tiles()
 DESIGNS = {'classic': ('Classic Line', CLASSIC), 'linescore': ('Line Score', LINE_SCORE),
            'tiles': ('Team Tiles', TEAM_TILES), 'glasstiles': ('Glass Tiles', GLASS_TILES),
            'strip': ('Night Strip', _night_strip()), 'matchup': ('Matchup Deck', _matchup_deck())}
+# broadcast cards built from nothing: each takes the place of one of the game's own screens
+CARDS = {'lineup': ('Lineup Card', _lineup_card()), 'break': ('Inning Break Card', _break_card())}
+
+
+def place_design(lay, design, textures=None):
+    """Build a design into a layout where it belongs: a card over the screen it names, anything else as the
+    scorebug."""
+    if design.get('replaces'):
+        return replace_overlay(lay, str(design['replaces']), design, textures)
+    return replace_scorebug(lay, design, design.get('x'), design.get('y'), textures)
 
 
 def _design_sample(game, lib, name, description, slug, design):
@@ -905,3 +1053,23 @@ SAMPLES = [
     ('arcade', codemods.ARCADE_NAME, 'Code mods: Auto PCI, Perfect-Perfect, moonshots, juiced ball, thin air and more.',
      arcade_code),
 ]
+
+
+def card_in_palette(card, palette):
+    """A copy of a built-in card in a scorebug's colours: its dark behind everything, its light for the words, its
+    first accent where the card's gold was."""
+    import copy
+    from . import boards, uibuild
+    dark, light, accents = boards.roles(palette)
+    out = copy.deepcopy(card)
+    for old, new in (('#0b0f15', dark), ('#ffd24a', accents[0] if accents else light),
+                     ('#b8c2cf', boards._mix(dark, light, 0.72)), ('#ffffff', light)):
+        uibuild.recolour(out, old, new)
+    return out
+
+
+def pres_of(theme_rel):
+    """The broadcast screens that go with a scorebug theme: THEME2.NSW has PRES/PRESOSDS2.NSW."""
+    stem = theme_rel.upper().rsplit('/', 1)[-1]
+    n = stem[5:-4] if stem.startswith('THEME') and stem.endswith('.NSW') else ''
+    return f'NSW/UI/GAME/PRES/PRESOSDS{n}.NSW' if n.isdigit() else None

@@ -631,6 +631,53 @@ def test_data_catalogue():
     assert 'matchup' in samples.DESIGNS and uibuild.build(samples.DESIGNS['matchup'][1], samples.CARRIERS)
 
 
+def test_cards():
+    """A broadcast card built from nothing takes the place of a screen's content and keeps its backdrop."""
+    from modtheshow import recipes, samples, uibuild, uilang, uiquery
+    uiquery._load()
+    known = set(uiquery.NAMES.values())
+    for _title, card in samples.CARDS.values():
+        for p, *_ in uibuild.walk(card['pieces']):
+            for q in p.get('data') or []:
+                for w in q.split():
+                    assert w in '[],' or w.lstrip('-').isdigit() or w in known, (q, w)
+    assert uibuild.TEAM['card'].split()[0] in known and samples.pres_of('NSW/UI/GAME/THEME3.NSW').endswith('PRESOSDS3.NSW')
+    frame = asset('T9_Frame', group(0, 0, 400, 300, [bytes(node(0x18, 0, 0, 400, 300))]))
+    use = bytes(node(0x1E, 10, 10, 400, 300, (255, 255, 255, 0), ref=H('T9_Frame'), size=0x58,
+                     extra=struct.pack('<HH', 0x58, 0)))
+    screen = asset('PresIntroStartingLineup', group(0, 0, 1920, 1080, [
+        bytes(node(0x18, 0, 0, 1920, 1080, (1, 2, 3, 255))),                     # the backdrop: stays
+        bytes(node(0x18, 900, 400, 200, 200, (9, 9, 9, 255))),                   # a loose piece of the old screen
+        group(100, 100, 600, 500, [use, bytes(node(0x18, 0, 0, 50, 50, (7, 7, 7, 255)))])]))
+    data = directory([screen, frame])
+    L = uilayout.Layout(data)
+    card = samples.CARDS['lineup'][1]
+    samples.place_design(L, card)
+    assert L.design_origin == (0, 0) and len(L.words[1]) >= 36
+    L2 = uilayout.Layout(L.bytes())
+    a = L2.by_hash[H('PresIntroStartingLineup')]
+    assert sum(x.problems for x in L2.assets) == 0
+    pics = [n for n in a.nodes() if n.kind == 0x18]
+    assert [n.color >> 24 for n in pics] == [255, 0, 0]                          # only the backdrop is still drawn
+    inst = next(n for n in a.nodes() if n.kind == 0x1E)
+    assert inst.ref == H(card['name']) and inst.color >> 24 == 255 and (inst.w, inst.h) == tuple(card['size'])
+    assert (inst.parent.x, inst.parent.y) == (card['x'], card['y'])
+    entry = recipes.style_recipe('P.NSW', L, None, original=data)
+    again = uilayout.Layout(data)
+    recipes.apply_style(again, entry)
+    assert again.bytes() == L.bytes()
+    s = uiquery.Situation(away='HOU', home='TOR', batter_spot=3)
+    ctx = uiquery.Context(s)
+    ask = lambda q: ctx.value(uiquery.parse(uiquery.tokens(f'[ {q} ]')))
+    assert ask('NAME [ FULL_NAME ] PAUSE_MENU LINEUP [ 1 ] PROFILE') == 'MARCO DELGADO'
+    assert ask('HAND_STR [ PLAYER_UI BAT_HAND [ PAUSE_MENU LINEUP [ 1 ] ] , 0 ]') == 'S'
+    assert ask('PAUSE_MENU LINEUP_FROM_TEAM_POS_STR [ OFF_TEAM_HOME_AWAY ] [ 2 ]') == '1B'
+    assert ask('NAME [ FULL_NAME ] DUEUP PLAYER [ 0 ] PROFILE') == 'TREY HOLLOWAY'      # third in the order is up
+    assert ask('POS_STR [ PLAYER_UI POSITION [ DUEUP PLAYER [ 1 ] ] ]') == 'DH'
+    gold = samples.card_in_palette(card, ['#ffffff', '#ff2020', '#101820'])
+    assert '#ff2020' in uibuild.colours(gold) and '#ffd24a' not in uibuild.colours(gold)
+
+
 def test_design_rule():
     """A piece with a rule is drawn only while the rule holds."""
     from modtheshow import uibuild, uilang, uiquery
@@ -729,6 +776,7 @@ if __name__ == '__main__':
     test_design_on_any_theme()
     test_city_connect_look()
     test_data_catalogue()
+    test_cards()
     test_design_rule()
     test_design_own_pictures()
     test_team_art()

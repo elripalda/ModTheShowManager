@@ -112,6 +112,13 @@ class Situation:
         self.away_logo = self.home_logo = None                              # PIL images, when you have them
         self.away_cc = self.home_cc = False                                 # wearing City Connect
         self.away_club = self.home_club = None             # the club's fixed colour, when it differs from the uniform's
+        self.card_team = 0                 # the team a broadcast card is about: 0 away, 1 home
+        # a made-up batting order for lineup and due-up cards: (first, last, position, bats, average)
+        self.lineup = [('GEORGE', 'SPRINGER', 'CF', 'R', '.309'), ('MARCO', 'DELGADO', 'SS', 'S', '.288'),
+                       ('TREY', 'HOLLOWAY', '1B', 'L', '.301'), ('ISAIAH', 'BRANT', 'DH', 'R', '.274'),
+                       ('KENJI', 'ARAKAWA', 'RF', 'L', '.262'), ('LUIS', 'CARDONA', '3B', 'R', '.255'),
+                       ('OWEN', 'PRICE', 'C', 'R', '.241'), ('DARIO', 'VEGA', 'LF', 'L', '.236'),
+                       ('NOAH', 'WHITLOCK', '2B', 'R', '.229')]
         self.extra = {}                    # query text -> value, for anything else
         for k, v in kw.items():
             setattr(self, k, v)
@@ -141,6 +148,35 @@ class Situation:
             return teams[key]
         ordinal = lambda n: f'{n}{"th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")}'
         a0 = args[0] if args else None
+        # a spot in the batting order, as lineup and due-up cards ask for it: '@3' is the fourth batter
+        spot = lambda v: self.lineup[int(str(v)[1:]) % len(self.lineup)]
+        if key == 'PAUSE_MENU LINEUP':
+            return f'@{_num(a0)}'
+        if key == 'DUEUP PLAYER':
+            return f'@{_num(a0) + self.batter_spot - 1}'
+        if isinstance(a0, str) and a0.startswith('@') and key.startswith('PLAYER_UI '):
+            first, last, pos, hand, _avg = spot(a0)
+            return {'PLAYER_UI LAST_NAME': last, 'PLAYER_UI FIRST_NAME': first, 'PLAYER_UI FULL_NAME': f'{first} {last}',
+                    'PLAYER_UI BAT_HAND': hand, 'PLAYER_UI POSITION': pos}.get(key)
+        if key in ('HAND_STR', 'POS_STR'):
+            return a0
+        if key in ('NAME PAUSE_MENU LINEUP PROFILE', 'NAME DUEUP PLAYER PROFILE') and len(args) > 1:
+            first, last, *_ = spot(f'@{_num(args[1]) + (self.batter_spot - 1 if "DUEUP" in key else 0)}')
+            return {'FIRST_NAME': first, 'LAST_NAME': last}.get(a0, f'{first} {last}')
+        if key == 'PAUSE_MENU LINEUP_FROM_TEAM_POS_STR' and len(args) > 1:
+            return spot(f'@{_num(args[1])}')[2]
+        if key == 'LINEUP_STAT':
+            return spot(f'@{_num(a0)}')[4]
+        if key == 'DUEUP PLAYER_AB_STAT':
+            return ('1-2', '0-1', '2-2')[_num(a0) % 3]
+        if key == 'PRESENTATION ETEAM':
+            return self.card_team
+        if key == 'TEAM_UI CITY':
+            return self.home if _num(a0) == 1 else self.away
+        if key == 'BoxScore RUNS':
+            return self.home_score if _num(a0) else self.away_score
+        if key == 'OFF_TEAM_HOME_AWAY':
+            return int(self.bottom)
         simple = {
             'SCOREBAR OUT_TAB': self.outs, 'IG OUTS': self.outs, 'IG BALLS': self.balls, 'IG STRIKES': self.strikes,
             'SCOREBAR 1ST_BASE_TAB': int(self.first), 'SCOREBAR 2ND_BASE_TAB': int(self.second),

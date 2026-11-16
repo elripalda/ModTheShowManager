@@ -195,9 +195,8 @@ A flat picture is enough to copy a layout: where things sit, how big, what colou
   layouts. Replacing them means encoding a video, which the manager does not do.
 - **Two special looks for one club.** A club has its usual colour and its City Connect one. Any jersey can be
   given the City Connect look, but there is no third.
-- **The stock bugs of Themes 2 to 4.** A design can go on any of the four themes, but the previews of those
-  three stock scorebugs are still missing pieces, and the batter and pitcher bars only stay under a design on
-  Theme 1.
+- **Bars under a design on Themes 2 to 4.** A design can go on any of the four themes, but the game's batter and
+  pitcher bars only stay under it on Theme 1.
 
 Starting lineups, the pre-game matchup, due up and the lower thirds are layouts like the scorebug
 (`NSW/UI/GAME/PRES/PRESOSDSn`). They open in the same sandbox, without their lists filled in.
@@ -226,6 +225,32 @@ in Styles uses them: who is pitching to whom, the pitch count and the last pitch
 The starting lineup, due-up, matchup, lower-third and the other full-screen graphics are under **Broadcast
 Presentation** in Scoreboards. They open in Layout like a board does, with the same **Match a scorebug** and
 colour swatches, and every piece can be clicked and changed.
+
+### Cards built from nothing
+
+Two of those screens can be replaced outright. With a Broadcast Presentation pack open, **Styles** offers:
+
+- **Lineup Card**: the club's colour and logo across the top, then the nine in order with position, name, the
+  side each bats from and his line. It takes the place of the starting lineup.
+- **Inning Break Card**: the line score by inning with runs, hits and errors, and the three batters due up. It
+  takes the place of the due-up screen between innings.
+
+A card is a design like a scorebug: the same pieces, Layers list, graph view and Save buttons. The screen's own
+backdrop and timing stay and its old content is hidden. In a design file a card says which screen it replaces and
+where it sits:
+
+```json
+{"name": "MTS_MyLineup", "replaces": "PresIntroStartingLineup", "size": [780, 774], "x": 96, "y": 150,
+ "pieces": [{"team": "card", "at": [0, 0, 780, 112]},
+            {"logo": "card", "kind": 2, "at": [22, 12, 88, 88]},
+            {"text": "^d0^", "data": ["NAME [ FULL_NAME ] PAUSE_MENU LINEUP [ 0 ] PROFILE"], "at": [146, 132, 400, 48]}]}
+```
+
+`"card"` is the team the screen is about. `"batting"` and `"fielding"` work the same way on any design. The number
+in `LINEUP [ 0 ]` is the spot in the order, 0 to 8; `DUEUP PLAYER [ 0 ]` to `[ 2 ]` are the next three batters.
+[Game data for a scorebug](SCOREBUG_DATA.md) lists the rest. A card cannot carry pictures of your own yet.
+
+A package made from a scorebug builds both cards in the scorebug's colours for that theme.
 
 ## A package: the whole look in one mod
 

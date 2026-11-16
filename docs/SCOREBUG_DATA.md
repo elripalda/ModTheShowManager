@@ -147,6 +147,23 @@ primary, large 3D, tile, large flat. `{"team": "home"}` fills a box with the tea
 
 `OFF_TEAM_ID` and `DEF_TEAM_ID` stand for the team batting and the team in the field.
 
+## Lineups, due up and the box score
+
+These are read by the game's own lineup and due-up screens. A card built in place of one of those screens can use
+them; they are not known to answer on a scorebug.
+
+| Query | Answer |
+|---|---|
+| `NAME [ FULL_NAME ] PAUSE_MENU LINEUP [ 0 ] PROFILE` | The batter in a spot of the order, 0 to 8. `LAST_NAME` works too |
+| `PAUSE_MENU LINEUP_FROM_TEAM_POS_STR [ OFF_TEAM_HOME_AWAY ] [ 0 ]` | His position |
+| `HAND_STR [ PLAYER_UI BAT_HAND [ PAUSE_MENU LINEUP [ 0 ] ] , 0 ]` | The side he bats from |
+| `LINEUP_STAT [ 0 ]` | His line |
+| `NAME [ FULL_NAME ] DUEUP PLAYER [ 0 ] PROFILE` | A batter due up, 0 to 2 |
+| `POS_STR [ PLAYER_UI POSITION [ DUEUP PLAYER [ 0 ] ] ]` | His position |
+| `DUEUP PLAYER_AB_STAT [ 0 ]` | What he has done today |
+| `TEAM_UI CITY [ PRESENTATION ETEAM ]` | The city of the team the screen is about |
+| `BoxScore RUNS [ 0 ]`, `BoxScore INNING_STR [ 0 ]` | A team's runs; the heading of an inning's column |
+
 ## Finding more
 
 Every query the manager can name is in `src/modtheshow/assets/querynames.txt`, one word per line. A query only

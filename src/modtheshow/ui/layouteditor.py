@@ -1103,6 +1103,22 @@ class LayoutEditor(QWidget):
         """Work on a design: every change rebuilds the scorebug from it."""
         import copy
         self.design = copy.deepcopy(design)
+        target = self.design.get('replaces')
+        if target:                                        # a card: show the screen it takes the place of
+            i = self.which.findText(str(target))
+            if i < 0:
+                self.design = None
+                QMessageBox.information(self, 'Not on This Screen', f'This card takes the place of {target}, which '
+                                        'this file does not have. Open a Broadcast Presentation pack that has it.')
+                return False
+            self.which.blockSignals(True)
+            self.which.setCurrentIndex(i)
+            self.which.blockSignals(False)
+        elif not (self.rel and self.rel.upper() in samples.THEMES):
+            self.design = None
+            QMessageBox.information(self, 'A Scorebug Design', 'This design is a scorebug. Open one of the four '
+                                    'scorebug themes to build it.')
+            return False
         if self.design.get('fonts'):
             self._fonts = None                            # start from the game's fonts, then draw the design's in
             self._design_fonts()
@@ -1119,6 +1135,9 @@ class LayoutEditor(QWidget):
         if self.design is not None:
             for w in (self.tools_row, self.tex_box, self.switch_box):
                 w.show()
+            self.board_box.setVisible(self.matchable)
+            self.board_colours.setVisible(self.matchable)
+            self.place_box.setVisible(not self.board)
         self.design = None
         self.canvas.grab = None
         self.b_graph.setChecked(False)
@@ -1134,8 +1153,7 @@ class LayoutEditor(QWidget):
         try:
             lay = uilayout.Layout.open(self.main.game.original(self.rel))
             tex = self.main.tex(self._pack)
-            samples.replace_scorebug(lay, self.design, self.design.get('x'), self.design.get('y'),
-                                     {e['name']: (e['w'], e['h']) for e in tex.entries} if tex else None)
+            samples.place_design(lay, self.design, {e['name']: (e['w'], e['h']) for e in tex.entries} if tex else None)
             for carrier, path in lay.art.items():           # the design's own pictures, shown as the game will
                 self._img_cache[carrier] = self._art(path)
         except Exception as x:
@@ -1159,8 +1177,9 @@ class LayoutEditor(QWidget):
         self.design_row.show()
         for w in (self.design_props, self.align_box, self.colour_box, self.rule_box):
             w.setVisible(bool(pieces))
-        for w in (self.tools_row, self.text_row, self.tex_box, self.switch_box):
+        for w in (self.tools_row, self.text_row, self.tex_box, self.switch_box, self.board_box, self.board_colours):
             w.hide()
+        self.place_box.setVisible(not self.design.get('replaces') and not self.board)
         self._design_pick()
 
     # ------------------------------------------------------------------ the design as a graph
@@ -1347,7 +1366,15 @@ class LayoutEditor(QWidget):
         if n is None or self.node is None:
             return None
         x, y, w, h = n.abs_rect()
-        return (self.sx.value() + 5 + x, self.sy.value() + 53 + y, w, h)
+        ox, oy = self._design_origin()
+        return (ox + x, oy + y, w, h)
+
+    def _design_origin(self):
+        """Where the design's top-left corner is on the screen."""
+        if self.design and self.design.get('replaces'):            # a card says where it sits
+            return float(self.design.get('x', 0)), float(self.design.get('y', 0))
+        dx, dy = getattr(self.layout, 'design_origin', (5, 53))
+        return self.sx.value() + dx, self.sy.value() + dy
 
     def _design_grab(self, sx, sy):
         """Dragging starts here: the chosen piece if the pointer is on it, else the smallest piece under the pointer.
@@ -1569,8 +1596,8 @@ class LayoutEditor(QWidget):
         name_edit.setPlaceholderText('A name for the package')
         v.addWidget(name_edit)
         ticks = []
-        for text in ('The scorebug, on the theme open now', 'Every ballpark’s boards, in its colours',
-                     'Lineup, due-up, matchup and the other broadcast screens, in its colours'):
+        for text in ('This design, where it is open now', 'Every ballpark’s boards, in its colours',
+                     'The broadcast screens, in its colours, with a lineup card and an inning break card to match'):
             c = QCheckBox(text)
             c.setChecked(True)
             ticks.append(c)
@@ -1602,7 +1629,26 @@ class LayoutEditor(QWidget):
                 else []
             if ticks[2].isChecked():
                 packs += catalog.packs_in(self.main.game, 'NSW/UI/GAME/PRES')
+            cards_rel = samples.pres_of(self.rel) if ticks[2].isChecked() else None
+            if cards_rel and cards_rel in fs:             # this theme's own screens: matched, with the two cards built in
+                lay = uilayout.Layout.open(self.main.game.original(cards_rel))
+                boards.match(lay, palette, keep_main=keep.isChecked())
+                made = 0
+                for _title, card in samples.CARDS.values():
+                    if lay.find(str(card['replaces'])) is not None:
+                        try:
+                            samples.place_design(lay, samples.card_in_palette(card, palette))
+                            made += 1
+                        except ValueError:
+                            pass
+                if made:
+                    entries.append(recipes.style_recipe(cards_rel, lay, self.main.game.original(cards_rel)))
+                else:
+                    cards_rel = None
             for pack in packs:
+                if pack[:-4].upper() + '.NSW' in ((self.rel.upper() if ticks[0].isChecked() else ''),
+                                                  (cards_rel or '').upper()):
+                    continue                              # this file already carries a design itself
                 if pack[:-4] + '.NSW' in fs:
                     entries.append({'file': pack[:-4] + '.NSW', 'match': palette, 'keep': keep.isChecked()})
             folder = os.path.join(mod.path, 'layouts')
@@ -1652,6 +1698,11 @@ class LayoutEditor(QWidget):
         self.styles.blockSignals(True)
         self.styles.clear()
         self.styles.addItem('Styles', None)
+        if self.rel and '/PRES/' in self.rel.upper():         # broadcast cards built from nothing
+            for key, (title, design) in samples.CARDS.items():
+                if self.which.findText(str(design['replaces'])) >= 0:
+                    self.styles.addItem(title, ('card', key))
+            self.styles.addItem('Open a Design File…', ('design', None))
         if self.rel and self.rel.upper() in samples.THEMES:
             if self.rel.upper() == samples.THEME:           # the stock bug rearranged: Theme 1's pieces only
                 self.styles.addItem('Wide Top Bar', ('built-in', 'wide'))
@@ -1698,6 +1749,11 @@ class LayoutEditor(QWidget):
                 if self._design_start({'name': 'MTS_Mine', 'size': [600, 48], 'pieces': [
                         {'box': [0, 0, 600, 48], 'color': '#101010', 'opacity': 85}]}):
                     self.note.setText('A blank design. Add pieces, pick one to change it, then Save to My Mod.')
+                return
+            elif what[0] == 'card':
+                if self._design_start(samples.CARDS[what[1]][1]):
+                    self.note.setText('Card loaded. It takes the place of the game’s own screen. Pick a piece to '
+                                      'change it, then Save to My Mod.')
                 return
             elif what[0] == 'built-in' and what[1] in samples.DESIGNS:
                 if self._design_start(samples.DESIGNS[what[1]][1]):

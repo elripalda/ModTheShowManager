@@ -35,7 +35,10 @@ from .uilayout import NONE, P_ALPHA, P_X, P_Y, name_hash
 
 NAMED = (0xA7732924, 0xF2232E7B, 0xFA7C7D26)      # the three animation names every asset lists, even with none
 WASH = 0x8948743A                                 # Theme 1's team-colour fill: handed a team, it paints its colour
-TEAM = {'away': 'AWAY_TEAM_ID', 'home': 'HOME_TEAM_ID'}
+# a team a piece can take its colour or logo from: a side of the game, the team batting or in the field, or the
+# team a broadcast card is about (the lineup being shown, the club due up)
+TEAM = {'away': 'AWAY_TEAM_ID', 'home': 'HOME_TEAM_ID', 'batting': 'OFF_TEAM_ID', 'fielding': 'DEF_TEAM_ID',
+        'card': 'PRESENTATION ETEAM'}
 SOURCES = ('uniform', 'club')                     # where a team colour comes from: the uniform worn, or the club
 CITY_CONNECT = 'TEAM_UI IS_CITY_CONNECT_ACTIVE [ {} ]'      # 1 while that team wears its City Connect uniform
 
@@ -314,6 +317,8 @@ class Builder:
         two-look switches asking "is this club number N?", and "is it in City Connect?" for a colour kept for
         that uniform."""
         inner, box = default, [0, 0, at[2], at[3]]
+        if side not in ('away', 'home'):                       # only a side of the game can be asked which club it is
+            return default
         cc = CITY_CONNECT.format(TEAM[side])
         for club, c in team_keys(self.team_colors).items():
             club_is = f'QCOMP [ {side.upper()}_TEAM TEAM_PROF TEAM_INX , == , {teamart.index(club)} ]'

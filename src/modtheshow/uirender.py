@@ -166,6 +166,10 @@ def render(layout, asset, texture, table, size=(1920, 1080), states=None, effect
                 except Exception:
                     pass
             logo = situation.team_logo(team) if situation is not None else None
+            if own and ctx is not None:
+                from . import uiquery
+                if 'LOGO' not in uiquery.text(own):        # a picture made while the game runs, not a team's logo
+                    logo = None
             if logo is not None:
                 fit = logo.copy()
                 fit.thumbnail((max(1, int(nw)), max(1, int(nh))))
