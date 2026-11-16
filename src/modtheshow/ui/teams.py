@@ -132,13 +132,11 @@ class TeamsPage(QWidget):
         self.rgrid = QGridLayout(rw)
         self.rgrid.setContentsMargins(0, 0, 4, 0)
         self.rgrid.setHorizontalSpacing(10)
-        self.rgrid.setVerticalSpacing(6)
+        self.rgrid.setVerticalSpacing(4)
+        from .widgets import RatingSlider
         self.spins = {}
         for field, text, _h, _p in R.RATINGS:
-            s = QSpinBox()
-            s.setRange(0, 125)
-            s.setPrefix(text + '   ')
-            s.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            s = RatingSlider(text, 0, 99 if field not in ('RANK', 'POTENTIAL') else 99)
             s.valueChanged.connect(self._player_edited)
             self.spins[field] = s
         scroll.setWidget(rw)
@@ -153,7 +151,8 @@ class TeamsPage(QWidget):
         chips = QHBoxLayout()
         chips.setSpacing(6)
         self.side_group = QButtonGroup(self)
-        for i, text in enumerate(('Player', 'Face')):
+        self.gear_page = self._gear_page()
+        for i, text in enumerate(('Player', 'Gear', 'Face')):
             b = QPushButton(text)
             b.setObjectName('Chip')
             b.setCheckable(True)
@@ -164,6 +163,7 @@ class TeamsPage(QWidget):
         sl.addLayout(chips)
         self.side = QStackedWidget()
         self.side.addWidget(right)
+        self.side.addWidget(self.gear_page)
         self.face = Inspector(main)
         self.face.setMaximumWidth(16777215)
         self.side.addWidget(self.face)
@@ -193,6 +193,7 @@ class TeamsPage(QWidget):
             self.count.setText(str(x))
             return
         self.list.clear()
+        self._fill_gear_combos()
         groups = {}
         for t in self.db.teams:
             groups.setdefault(t.level(), []).append(t)
@@ -320,21 +321,100 @@ class TeamsPage(QWidget):
             if w:
                 w.hide()
         shown = [f for f, _t, hit, pit in R.RATINGS if (pit if p.pitcher else hit)]
-        if len(shown) % 2:
-            shown = shown[:-1]
         for n, f in enumerate(shown):
             s = self.spins[f]
-            s.setValue(p.rating(f))
+            s.setValue(min(99, p.rating(f)))
             s.show()
-            self.rgrid.addWidget(s, n // 2, n % 2)
-        self.rgrid.setRowStretch(len(shown) // 2, 1)
+            self.rgrid.addWidget(s, n, 0)
+        self.rgrid.setRowStretch(len(shown), 1)
         self._busy = False
         if self.side.currentIndex() == 1:
             self._show_face()
 
+    def _gear_page(self):
+        w = panel()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(18, 18, 18, 18)
+        lay.setSpacing(12)
+        self.gtitle = SectionTitle('Gear')
+        lay.addWidget(self.gtitle)
+        lay.addWidget(label('What this player wears. Catcher gear only shows on catchers.', 'Sub', wrap=True))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet('QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }')
+        inner = QWidget()
+        self.ggrid = QGridLayout(inner)
+        self.ggrid.setContentsMargins(0, 0, 4, 0)
+        self.ggrid.setHorizontalSpacing(10)
+        self.ggrid.setVerticalSpacing(6)
+        self.gear = {}
+        for r, (field, t, text) in enumerate(R.SLOTS):
+            self.ggrid.addWidget(label(text, 'Sub'), r, 0)
+            c = QComboBox()
+            c.setMinimumWidth(180)
+            c.currentIndexChanged.connect(self._gear_edited)
+            self.ggrid.addWidget(c, r, 1)
+            self.gear[field] = c
+        self.ggrid.setColumnStretch(1, 1)
+        self.ggrid.setRowStretch(len(R.SLOTS), 1)
+        scroll.setWidget(inner)
+        lay.addWidget(scroll, 1)
+        return w
+
+    def _fill_gear_combos(self):
+        self.equipment = None
+        try:
+            if R.EQUIPMENT in self.main.game.file_set():
+                self.equipment = R.Equipment(self.main.current_file(R.EQUIPMENT))
+        except Exception:
+            self.equipment = None
+        for field, t, _text in R.SLOTS:
+            c = self.gear[field]
+            c.blockSignals(True)
+            c.clear()
+            if self.equipment:
+                c.addItem('None', 0)
+                for st, lab in self.equipment.choices(t):
+                    if st:
+                        c.addItem(lab, st)
+            c.blockSignals(False)
+
+    def _show_gear(self):
+        p = self.player
+        if p is None or not self.equipment:
+            return
+        self._busy = True
+        self.gtitle.set(p.name, ['Gear'])
+        catcher = p.pos == 1
+        for r, (field, t, _text) in enumerate(R.SLOTS):
+            c = self.gear[field]
+            v = p.gear(field)
+            j = c.findData(v)
+            if j < 0:
+                c.addItem(self.equipment.label(t, v), v)
+                j = c.count() - 1
+            c.setCurrentIndex(j)
+            on = catcher or field not in ('CATCHER_MASK', 'CHEST_PROTECTOR', 'CATCHER_SHN_GRD')
+            c.setVisible(on)
+            self.ggrid.itemAtPosition(r, 0).widget().setVisible(on)
+        self._busy = False
+
+    def _gear_edited(self, *_):
+        if self._busy or self.player is None:
+            return
+        changes = {f: c.currentData() for f, c in self.gear.items() if c.currentData() is not None
+                   and c.currentData() != self.player.gear(f)}
+        if changes:
+            self.db.set_player(self.player, gear=changes)
+            self._dirty(True)
+
     def _side(self, i):
         self.side.setCurrentIndex(i)
         if i == 1:
+            self._show_gear()
+        elif i == 2:
             self._show_face()
 
     def _show_face(self):
@@ -357,6 +437,8 @@ class TeamsPage(QWidget):
 
     def refresh_overrides(self):
         if self.side.currentIndex() == 1:
+            self._show_gear()
+        elif self.side.currentIndex() == 2:
             self._show_face()
 
     # ---- edits

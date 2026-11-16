@@ -126,4 +126,15 @@ QLabel#CardTag {{ color: {SOFT}; font-weight: 600; }}
 QFrame#Step {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; }}
 QLabel#StepNum {{ background: {RED}; color: white; border-radius: 17px; font-family: 'Anton'; font-size: 16px; }}
 QLabel#StepTitle {{ font-weight: 600; font-size: 14px; }}
+QSlider::groove:horizontal {{ height: 6px; background: {S2}; border-radius: 3px; }}
+QSlider::sub-page:horizontal {{ background: {RED}; border-radius: 3px; }}
+QSlider::handle:horizontal {{ width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; background: {TEXT};
+    border: 2px solid {BG}; }}
+QSlider::handle:horizontal:hover {{ background: white; }}
+QLabel#RatingValue {{ font-family: 'Anton'; font-size: 15px; }}
+QLabel#RatingValue[tier="diamond"] {{ color: #7ee0ff; }}
+QLabel#RatingValue[tier="gold"] {{ color: {AMBER}; }}
+QLabel#RatingValue[tier="silver"] {{ color: #d6dbe6; }}
+QLabel#RatingValue[tier="bronze"] {{ color: #d99a6c; }}
+QLabel#RatingValue[tier="common"] {{ color: {MUTED}; }}
 """

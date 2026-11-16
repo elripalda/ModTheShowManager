@@ -142,3 +142,48 @@ class ImageView(QWidget):
             if u.toLocalFile().lower().endswith('.png'):
                 self.dropped.emit(u.toLocalFile())
                 break
+
+
+class RatingSlider(QWidget):
+    """A labelled 0-99 slider with its value beside it, the way ratings screens show them."""
+    valueChanged = Signal(int)
+
+    def __init__(self, text, lo=0, hi=99):
+        super().__init__()
+        from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(10)
+        self.name = QLabel(text)
+        self.name.setObjectName('Sub')
+        self.name.setMinimumWidth(96)
+        lay.addWidget(self.name)
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(lo, hi)
+        self.slider.setPageStep(5)
+        lay.addWidget(self.slider, 1)
+        self.value_label = QLabel('0')
+        self.value_label.setObjectName('RatingValue')
+        self.value_label.setMinimumWidth(30)
+        self.value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lay.addWidget(self.value_label)
+        self.slider.valueChanged.connect(self._changed)
+
+    def _changed(self, v):
+        self.value_label.setText(str(v))
+        self.value_label.setProperty('tier', 'diamond' if v >= 85 else 'gold' if v >= 75 else 'silver' if v >= 65
+                                     else 'bronze' if v >= 50 else 'common')
+        self.value_label.style().unpolish(self.value_label)
+        self.value_label.style().polish(self.value_label)
+        self.valueChanged.emit(v)
+
+    def value(self):
+        return self.slider.value()
+
+    def setValue(self, v):
+        self.slider.setValue(int(v))
+        self._changed(self.slider.value())
+
+    def blockSignals(self, b):
+        self.slider.blockSignals(b)
+        return super().blockSignals(b)

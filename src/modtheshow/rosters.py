@@ -35,6 +35,50 @@ RATINGS = [('RANK', 'Overall', 1, 1), ('POTENTIAL', 'Potential', 1, 1),
            ('K_PER_BF_RIGHT', 'K per 9', 0, 1), ('BB_PER_BF', 'BB per 9', 0, 1)]
 
 
+EQUIPMENT = 'FRONTEND/EQUIPMENT/MLBEQUIPMENT.JSON'
+# D_PLAYER_ACC field -> (equipment type in MLBEQUIPMENT.JSON, label). The stored value is the item's `style`.
+SLOTS = [('BAT', 0, 'Bat'), ('BAT_GRIP', 8, 'Bat Grip'), ('BATTING_GLOVES', 1, 'Batting Gloves'), ('GLOVE', 3, 'Glove'),
+         ('SHOES', 2, 'Cleats'), ('ELBOW_GUARD', 9, 'Elbow Guard'), ('SHIN_GUARD', 12, 'Shin Guard'),
+         ('WRIST_BRACES', 14, 'Wrist Guard'), ('COMP_SLEEVES', 13, 'Sleeve'), ('GLASSES', 7, 'Eyewear'),
+         ('CATCHER_MASK', 10, 'Catcher Mask'), ('CHEST_PROTECTOR', 11, 'Chest Protector'),
+         ('CATCHER_SHN_GRD', 15, 'Leg Guards')]
+
+
+class Equipment:
+    """The equipment catalog: for each slot, the items a player can wear, in the game's order."""
+
+    def __init__(self, path):
+        import json
+        with open(path, 'rb') as f:
+            doc = json.loads(f.read().decode('utf-8-sig'))
+        makers = {m['id']: m for m in doc.get('makers', [])}
+        self.by_type = {}
+        for it in doc.get('eqlist', []):
+            brand = makers.get(it.get('brand'), {}).get('name', '')
+            brand = '' if brand.lower().startswith('zgeneric') else brand
+            name = it['name'].strip()
+            label = '' if name.lower() in ('tbd', '') else (name if name.lower().startswith(brand.lower()) else (brand + ' ' + name).strip())
+            self.by_type.setdefault(it['type'], []).append((it['style'], label, bool(it.get('enb')), it))
+        for t in self.by_type:
+            self.by_type[t].sort(key=lambda x: x[0])
+
+    def choices(self, slot_type):
+        """[(style, label)] for a slot, enabled items only (plus 'None' for 0 where the game uses it)."""
+        out = [(st, lab) for st, lab, en, _ in self.by_type.get(slot_type, []) if en and lab]
+        seen, uniq = set(), []
+        for st, lab in out:
+            if st not in seen:
+                seen.add(st)
+                uniq.append((st, lab))
+        return uniq
+
+    def label(self, slot_type, style):
+        for st, lab, _en, _ in self.by_type.get(slot_type, []):
+            if st == style and lab:
+                return lab
+        return 'None' if style == 0 else f'#{style}'
+
+
 class Rec:
     __slots__ = ('table', 'off', 'fields', 'kids')
 
@@ -152,8 +196,8 @@ class Team:
 
 
 class Player:
-    def __init__(self, i, prof, att):
-        self.i, self.prof, self.att = i, prof, att
+    def __init__(self, i, prof, att, acc=None):
+        self.i, self.prof, self.att, self.acc = i, prof, att, acc
         self.id = prof.int('PLAYER_ID')
         self.first = prof.text('FIRST_NAME')
         self.last = prof.text('LAST_NAME')
@@ -170,6 +214,9 @@ class Player:
 
     def rating(self, field):
         return self.att.int(field) if self.att is not None and field in self.att.fields else 0
+
+    def gear(self, field):
+        return self.acc.int(field) if self.acc is not None and field in self.acc.fields else 0
 
 
 def _plain(text):
@@ -228,9 +275,13 @@ class Database:
         self.teams = [Team(i, r) for i, r in enumerate(self.rdb.tables.get('D_TEAM_PROF', []))]
         profs = self.pdb.tables.get('PLR_PROFS', [])
         atts = self.pdb.tables.get('PLR_ATT', [])
+        accs = self.pdb.tables.get('D_PLAYER_ACC', [])
         if atts and len(atts) != len(profs):
             atts = []
-        self.players = [Player(i, p, atts[i] if atts else None) for i, p in enumerate(profs)]
+        if accs and len(accs) != len(profs):
+            accs = []
+        self.players = [Player(i, p, atts[i] if atts else None, accs[i] if accs else None)
+                        for i, p in enumerate(profs)]
         self.edits_t = {}     # team index -> {field: value}
         self.edits_p = {}     # player index -> {('prof'|'att', field): value}
 
@@ -268,6 +319,11 @@ class Database:
             e[('team',)] = p.team
         for f, v in kw.get('ratings', {}).items():
             e[('att', f)] = max(0, min(255, int(v)))
+        for f, v in kw.get('gear', {}).items():
+            size = len(p.acc.raw(f)) if p.acc is not None and f in p.acc.fields else 1
+            e[('acc', f)] = max(0, min((1 << (8 * size)) - 1, int(v)))
+            if p.acc is not None and f in p.acc.fields:
+                p.acc.fields[f] = (p.acc.fields[f][0], int(e[('acc', f)]).to_bytes(size, 'little'))
 
     def dirty(self):
         return bool(self.edits_t or self.edits_p)
@@ -283,6 +339,7 @@ class Database:
     def _apply_players(self, db, edits):
         profs = db.tables.get('PLR_PROFS', [])
         atts = db.tables.get('PLR_ATT', [])
+        accs = db.tables.get('D_PLAYER_ACC', [])
         same = len(profs) == len(self.players) and all(
             profs[i].int('PLAYER_ID') == self.players[i].id for i in range(0, len(profs), 97))
         by_id = None if same else {}
@@ -302,6 +359,8 @@ class Database:
                     db.put(profs[j], key[1], v)
                 elif key[0] == 'att' and j < len(atts) and key[1] in atts[j].fields:
                     db.put(atts[j], key[1], v)
+                elif key[0] == 'acc' and j < len(accs) and key[1] in accs[j].fields:
+                    db.put(accs[j], key[1], v)
 
     def write(self, sources, out):
         """sources: {rel: path to read}; out(rel, bytes) stores the result. Patches every variant that exists."""
