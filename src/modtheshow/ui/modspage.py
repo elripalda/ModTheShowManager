@@ -244,19 +244,32 @@ class SamplesDialog(QDialog):
         self.setMinimumWidth(520)
         lay = QVBoxLayout(self)
         lay.setSpacing(12)
-        lay.addWidget(label('Each one shows a different kind of mod. They are made on your PC from your own game '
-                            'files and added switched off, so nothing changes until you switch one on and Apply.',
+        lay.addWidget(label('Tick the ones you want. Each is made on your PC from your own game files and added '
+                            'switched off, so nothing changes until you switch one on and Apply.',
                             'Sub', wrap=True))
         have = {m.name for m in page.lib.list()}
         self.boxes = []
+        from PySide6.QtWidgets import QScrollArea
+        inner = QWidget()
+        il = QVBoxLayout(inner)
+        il.setContentsMargins(0, 0, 8, 0)
+        il.setSpacing(4)
         for key, name, text, build in samples.SAMPLES:
             c = QCheckBox(name + ('  (already added, tick to rebuild it)' if name in have else ''))
-            c.setChecked(name not in have)
-            lay.addWidget(c)
+            il.addWidget(c)
             d = label(text, 'Sub', wrap=True)
-            d.setContentsMargins(28, 0, 0, 6)
-            lay.addWidget(d)
+            d.setContentsMargins(28, 0, 0, 8)
+            il.addWidget(d)
             self.boxes.append((c, name, build))
+        il.addStretch(1)
+        scroll = QScrollArea()                # the list is longer than most screens are tall
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(inner)
+        scroll.setMinimumHeight(420)
+        lay.addWidget(scroll, 1)
+        self.resize(560, 620)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.button(QDialogButtonBox.Ok).setText('Add Samples')
         bb.button(QDialogButtonBox.Ok).setObjectName('Primary')

@@ -1114,6 +1114,8 @@ def mascot_bodies(game, lib, current_file, team='ARZ'):
 
 
 SAMPLES = [
+    ('aluminum', 'Sample: Aluminum Bats', 'A roster mod: every player swings a metal bat.', aluminum_bats),
+    ('bigheads', 'Sample: Big Heads', 'A roster mod: every player gets the biggest head size.', big_heads),
     ('yankees', 'Sample: 1927 Yankees', 'A classic roster brought in from a roster file: 25 players, built faces for '
      'the ones the game doesn’t have, lineups set for you.', yankees_1927),
     ('moonshot', 'Sample: Moonshot League', 'A ratings mod: every MLB hitter gets 125 power.', moonshot_league),
@@ -1140,8 +1142,6 @@ SAMPLES = [
     ('flat', 'Sample: Flat White Scorebug', 'A scorebug style: flat white, no gradients, black scores.',
      scorebug_flat),
     ('fireball', 'Sample: Fireball', 'A texture mod: the ball burns.', fireball),
-    ('aluminum', 'Sample: Aluminum Bats', 'A roster mod: every player swings a metal bat.', aluminum_bats),
-    ('bigheads', 'Sample: Big Heads', 'A roster mod: every player gets the biggest head size.', big_heads),
     ('mascot', 'Experiment: Mascot Bodies', 'A model swap: players wear the D-backs mascot’s body. Untested.',
      mascot_bodies),
 ]
