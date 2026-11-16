@@ -54,7 +54,7 @@ class TextureFinder:
         def add(p):
             if p in self._set and p not in out:
                 out.append(p)
-        if model_rel.startswith('NSW/CHARACTERS/') and self.uniform_folder:
+        if '/CHARACTERS/' in model_rel and self.uniform_folder:
             for p in sorted(folders.get(self.uniform_folder, [])):
                 add(p)
         add(model_rel[:-4] + '.TEX')

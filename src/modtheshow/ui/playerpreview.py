@@ -22,6 +22,8 @@ PARTS = [
 ]
 # models stored in a bone's own space (the cap rides the head bone): where they sit on the mannequin
 OFFSETS = {'CAP': (0.0, 2.52, 0.03)}
+HELMET = 'AND/CHARACTERS/MASTERFILES/HELMETNEW.MOD'     # the batting helmet rides the head bone like the cap
+SHOE_GAP = 0.035                                        # each cleat sits this much further out, clear of the pants
 SKIN = '#b8866a'
 
 
@@ -64,6 +66,10 @@ class PlayerPreview(QWidget):
         bar.addWidget(self.note, 1)
         bar.addWidget(button('Front', on_click=lambda: self._turn(0.0)))
         bar.addWidget(button('Back', on_click=lambda: self._turn(3.14159)))
+        self.b_helmet = button('Helmet', on_click=self.refresh)
+        self.b_helmet.setCheckable(True)
+        self.b_helmet.setToolTip('Wear the batting helmet instead of the cap')
+        bar.addWidget(self.b_helmet)
         self.b_image = button('Save Image', on_click=self.save_image)
         bar.addWidget(self.b_image)
         lay.addLayout(bar)
@@ -160,6 +166,7 @@ class PlayerPreview(QWidget):
         files = set(self.main.game.files)
         hq = self.gl and self.view.hq
         pname, pnum = self.name.text().strip(), self.number.text().strip()
+        helmet = self.b_helmet.isChecked() and HELMET in files and modellib.gpu_path(HELMET) in files
         self.note.setText('Dressing the player…')
 
         def work(job):
@@ -170,8 +177,8 @@ class PlayerPreview(QWidget):
             numbers = self.finder.image(any_rel, 'numbers-color', 4096)
             overlay = uniform_text.back_image(letters, numbers, pname, pnum) if (pname or pnum) else None
             shoes_done = cap_done = False
-            for rel, keep in PARTS:
-                if ('SHOES' in rel and shoes_done) or ('/CAP' in rel and cap_done):
+            for rel, keep in PARTS + ([(HELMET, None)] if helmet else []):
+                if ('SHOES' in rel and shoes_done) or ('/CAP' in rel and (cap_done or helmet)):
                     continue
                 if rel not in files or modellib.gpu_path(rel) not in files:
                     continue
@@ -185,7 +192,7 @@ class PlayerPreview(QWidget):
                     self._models[rel] = M
                 shoes_done = shoes_done or 'SHOES' in rel
                 cap_done = cap_done or '/CAP' in rel
-                offset = OFFSETS['CAP'] if '/CAP' in rel else None
+                offset = OFFSETS['CAP'] if '/CAP' in rel or rel == HELMET else None
                 seen = set()
                 for i, d in enumerate(M.draws):
                     name = d['name'].split(' (')[0]
@@ -201,9 +208,17 @@ class PlayerPreview(QWidget):
                         p, n, uv, t = M.mesh(i)
                     except Exception:
                         continue
+                    maps = M.material_maps(i)
+                    if rel == HELMET:
+                        # the shell and one ear flap; the model also carries the other flap and both jaw guards
+                        shell = maps['color'] == 'helmetnew-color'
+                        flap = maps['color'] == 'helmet-color' and p[:, 0].max() <= 0 and p[:, 1].min() > -0.45
+                        if not (shell or flap):
+                            continue
+                    if 'SHOES' in rel and len(p):
+                        p = p + np.array([SHOE_GAP if p[:, 0].mean() > 0 else -SHOE_GAP, 0, 0], np.float32)
                     if offset is not None:
                         p = p + np.array(offset, np.float32)
-                    maps = M.material_maps(i)
                     tex = maps['color']
                     img = self.finder.image(rel, tex, size) if tex else None
                     skin = 'arm' in low
