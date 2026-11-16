@@ -102,6 +102,11 @@ from pictures that come with the manager) and **Night Strip** (a thin strip alon
   place.
 - **Layers** lists every piece, back to front, nested the way they are grouped. **Move Back** and **Move
   Forward** change what covers what. Double-click a layer to name it.
+- **Drag a piece** on the screen to move it, the way you would a layer. Dragging the background still moves the
+  whole scorebug. **Line it up** snaps the chosen piece to the left, centre, right, top, middle or bottom of what
+  it sits in.
+- **Colours of the design** shows every colour the design uses. Click one to change it everywhere: yellow scores
+  to red in one go.
 - **Rule** draws a piece only while something is true: pick the data, then "is", "is at least" and so on, and a
   number. An out light is a dot with the rule *SCORER OUTS is at least 1*. A lit base is a diamond with the rule
   *SCOREBAR 1ST_BASE_TAB is 1*.
@@ -124,6 +129,9 @@ A new piece goes into the group you have chosen. In the file a rule is
 `"when": {"data": "SCORER OUTS", "is": ">=", "value": 2}` on any piece, two rules are
 `"when": {"all": [rule, rule]}` (or `"any"`), and `"name"` is what the layer is called. A font imported for a
 design is remembered in it as `"fonts": {"25": "Bebas Neue"}` and goes into the mod when the design is saved. **Styles › Open a Design File…** loads one.
+
+An AI can write a design file for you: [Making a scorebug with an AI](SCOREBUG_AI.md) has the block to paste
+and what to ask for.
 
 ## What a mockup needs if you hand it over
 

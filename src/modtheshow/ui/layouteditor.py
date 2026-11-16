@@ -83,6 +83,7 @@ class Canvas(QWidget):
     moved = Signal(float, float)
     released = Signal()
     picked = Signal(int)           # index into hits, -1 for none
+    nudged = Signal(float, float)  # a piece was dragged this far, in screen pixels
 
     def __init__(self):
         super().__init__()
@@ -97,6 +98,9 @@ class Canvas(QWidget):
         self.view = (0, 0, 1920, 1080)   # the part of the screen shown
         self._drag = None
         self._moved = False
+        self.grab = None           # in a design: grab(x, y) -> the frame of the piece to drag from there, or None
+        self._piece = None         # (where the drag started, the piece's frame)
+        self.piece_off = None      # how far the piece being dragged has moved
 
     def _fit(self):
         W, H = self.width() - 20, self.height() - 20
@@ -133,6 +137,10 @@ class Canvas(QWidget):
             x, y, w, h, _ = self.hits[self.chosen]
             qp.setPen(QPen(QColor('#ffd54a'), 2))
             qp.drawRect(QRectF(ox + (x + dx) * k, oy + (y + dy) * k, w * k, h * k))
+        if self._piece and self.piece_off:                # a piece on the move: its frame, where it will land
+            x, y, w, h = self._piece[1]
+            qp.setPen(QPen(QColor('#ffd54a'), 2, Qt.DashLine))
+            qp.drawRect(QRectF(ox + (x + self.piece_off[0]) * k, oy + (y + self.piece_off[1]) * k, w * k, h * k))
         if self.rect_:
             x, y, w, h = self.rect_
             qp.setPen(QPen(QColor(theme.RED), 2))
@@ -155,6 +163,7 @@ class Canvas(QWidget):
     def mousePressEvent(self, e):
         self._drag = (e.position(), self.rect_)
         self._moved = False
+        self._piece, self.piece_off = None, None
 
     def mouseMoveEvent(self, e):
         if not (self._drag and self._drag[1]):
@@ -162,6 +171,15 @@ class Canvas(QWidget):
         p0, r0 = self._drag
         k, _, _ = self._fit()
         if (e.position() - p0).manhattanLength() < 4 and not self._moved:
+            return
+        if not self._moved and self._piece is None and self.grab is not None:
+            frame = self.grab(*self._to_screen(p0))       # a piece of the design under the pointer: drag that
+            self._piece = (p0, frame) if frame else False
+        if self._piece:
+            d = (e.position() - p0) / k
+            self._moved = True
+            self.piece_off = (round(d.x()), round(d.y()))
+            self.update()
             return
         sx, sy = self._to_screen(p0)
         x0, y0, w0, h0 = r0
@@ -190,9 +208,14 @@ class Canvas(QWidget):
             self.chosen = best
             self.picked.emit(best)
             self.update()
+        elif self._drag and self._moved and self._piece:
+            off = self.piece_off or (0, 0)
+            self._piece, self.piece_off = None, None
+            self.nudged.emit(off[0], off[1])
         elif self._drag and self._moved:
             self.released.emit()
         self._drag = None
+        self._piece = None
 
 
 class LayoutEditor(QWidget):
@@ -354,6 +377,7 @@ class LayoutEditor(QWidget):
         self.canvas.moved.connect(self._dragged)
         self.canvas.released.connect(self._redraw)
         self.canvas.picked.connect(self._picked)
+        self.canvas.nudged.connect(self._design_nudge)
         lay.addWidget(self.canvas, 1)
         self._pack, self._table, self._pix_cache, self._img_cache = None, {}, {}, {}
         self.strip = QListWidget()          # every texture the chosen overlay draws
@@ -536,6 +560,15 @@ class LayoutEditor(QWidget):
         self.d_rule2_op.activated.connect(self._design_edit)
         self.d_rule2_val = self._spin(0, 99, 0)
         self.d_rule2_val.valueChanged.connect(self._design_edit)
+        # line a piece up inside whatever it sits in, and the design's colours
+        self.d_align_btns = [button(t, on_click=lambda _=False, a=a: self._design_align(a)) for t, a in (
+            ('Left', 'l'), ('Centre', 'c'), ('Right', 'r'), ('Top', 't'), ('Middle', 'm'), ('Bottom', 'b'))]
+        self.d_swatches = []
+        for i in range(8):
+            b = QPushButton()
+            b.setFixedHeight(theme.d(30))
+            b.clicked.connect(lambda _=False, i=i: self._design_recolour(i))
+            self.d_swatches.append(b)
         self.d_move = QComboBox()
         self.d_move.setToolTip('How this piece arrives: when the scorebug first appears, or, for a piece with a '
                                'rule, each time the rule comes true')
@@ -632,6 +665,8 @@ class LayoutEditor(QWidget):
         self.design_props = section('Chosen piece', [self.d_at[0:2], self.d_at[2:4], [self.d_color, self.d_op],
                                                      [self.d_words], [self.d_data], [self.d_size, self.d_align],
                                                      [self.d_font], [self.d_font_import]])
+        self.align_box = section('Line it up', [self.d_align_btns[0:3], self.d_align_btns[3:6]])
+        self.colour_box = section('Colours of the design', [self.d_swatches[0:4], self.d_swatches[4:8]])
         self.rule_box = section('Rule and motion', [[self.d_rule], [self.d_rule_op, self.d_rule_val], [self.d_join],
                                                     [self.d_rule2], [self.d_rule2_op, self.d_rule2_val],
                                                     [self.d_move]])
@@ -650,15 +685,15 @@ class LayoutEditor(QWidget):
         self.switch_box = section('Force a look', [[self.state_node], [self.state_pick, self.b_states_reset]])
         for w in old:
             w.deleteLater()
-        for w in (self.design_row, self.design_props, self.rule_box, self.text_row):
+        for w in (self.design_row, self.design_props, self.align_box, self.colour_box, self.rule_box, self.text_row):
             w.hide()
         side = QWidget()
         side.setObjectName('Page')
         col = QVBoxLayout(side)
         col.setContentsMargins(0, 0, theme.d(14), 0)
         col.setSpacing(theme.d(18))
-        for w in (self.place_box, self.design_row, self.design_props, self.rule_box, self.tools_row, self.text_row,
-                  self.tex_box, self.switch_box):
+        for w in (self.place_box, self.design_row, self.design_props, self.align_box, self.colour_box,
+                  self.rule_box, self.tools_row, self.text_row, self.tex_box, self.switch_box):
             col.addWidget(w)
         col.addStretch(1)
         scroll = QScrollArea()
@@ -879,9 +914,9 @@ class LayoutEditor(QWidget):
             for w in (self.tools_row, self.tex_box, self.switch_box):
                 w.show()
         self.design = None
-        self.design_row.hide()
-        self.design_props.hide()
-        self.rule_box.hide()
+        self.canvas.grab = None
+        for w in (self.design_row, self.design_props, self.align_box, self.colour_box, self.rule_box):
+            w.hide()
 
     def _design_build(self, keep=None):
         if self.design is None:
@@ -899,11 +934,20 @@ class LayoutEditor(QWidget):
         self._use(lay)
         self._pieces = list(uibuild.walk(self.design.get('pieces') or []))      # nested ones too, in drawing order
         pieces = self._pieces
-        self.d_piece.fill([(where + uibuild.describe(p), depth) for p, depth, _home, where in pieces])
+        self.d_piece.fill([(where + uibuild.describe(p), depth) for p, depth, _home, where, _in in pieces])
+        self._palette = uibuild.colours(self.design)[:8]
+        for i, b in enumerate(self.d_swatches):
+            c = self._palette[i] if i < len(self._palette) else None
+            b.setEnabled(c is not None)
+            b.setToolTip(f'{c}: change every piece of this colour' if c else '')
+            b.setStyleSheet(f'QPushButton {{ background: {c}; border: 1px solid {theme.LINE}; border-radius: 8px; }}'
+                            if c else f'QPushButton {{ background: transparent; border: 1px dashed {theme.LINE}; '
+                                      'border-radius: 8px; }')
+        self.canvas.grab = self._design_grab
         self.d_piece.setCurrentIndex(max(0, min(keep, len(pieces) - 1)) if pieces else -1)
         self.design_row.show()
-        self.design_props.setVisible(bool(pieces))
-        self.rule_box.setVisible(bool(pieces))
+        for w in (self.design_props, self.align_box, self.colour_box, self.rule_box):
+            w.setVisible(bool(pieces))
         for w in (self.tools_row, self.text_row, self.tex_box, self.switch_box):
             w.hide()
         self._design_pick()
@@ -1020,6 +1064,67 @@ class LayoutEditor(QWidget):
             if self.d_font.currentData() is not None:
                 p['font'] = self.d_font.currentData()
         self._design_build()
+
+    def _design_frame(self, index):
+        """Where a piece sits on the screen: (x, y, w, h)."""
+        n = self._design_node(index)
+        if n is None or self.node is None:
+            return None
+        x, y, w, h = n.abs_rect()
+        return (self.sx.value() + 5 + x, self.sy.value() + 53 + y, w, h)
+
+    def _design_grab(self, sx, sy):
+        """Dragging starts here: the chosen piece if the pointer is on it, else the smallest piece under the pointer.
+        A piece that fills the whole design is left alone, so dragging the background still moves the scorebug."""
+        pieces = getattr(self, '_pieces', [])
+        inside = lambda f: f and f[0] <= sx <= f[0] + f[2] and f[1] <= sy <= f[1] + f[3]
+        w, h = self.design['size']
+        best, area = None, None
+        now = self.d_piece.currentIndex()
+        for k in ([now] if 0 <= now < len(pieces) else []) + list(range(len(pieces) - 1, -1, -1)):
+            f = self._design_frame(k)
+            if not inside(f) or f[2] * f[3] >= 0.9 * w * h:
+                continue
+            if k == now and best is None:
+                best, area = k, 0
+                break
+            if area is None or f[2] * f[3] < area:
+                best, area = k, f[2] * f[3]
+        if best is None:
+            return None
+        self.d_piece.setCurrentIndex(best)
+        self._design_pick()
+        return self._design_frame(best)
+
+    def _design_nudge(self, dx, dy):
+        p = self._design_piece()
+        if p is None or (not dx and not dy):
+            return
+        at = uibuild.rect(p)
+        uibuild.set_rect(p, [round(at[0] + dx), round(at[1] + dy), at[2], at[3]])
+        self._design_build()
+
+    def _design_align(self, how):
+        """Line the chosen piece up inside what it sits in (a group, a look, or the design itself)."""
+        pieces, i = getattr(self, '_pieces', []), self.d_piece.currentIndex()
+        if not (self.design and 0 <= i < len(pieces)):
+            return
+        p, parent = pieces[i][0], pieces[i][4]
+        pw, ph = (uibuild.rect(parent)[2:] if parent is not None else self.design['size'])
+        x, y, w, h = uibuild.rect(p)
+        x = {'l': 0, 'c': (pw - w) / 2, 'r': pw - w}.get(how, x)
+        y = {'t': 0, 'm': (ph - h) / 2, 'b': ph - h}.get(how, y)
+        uibuild.set_rect(p, [round(x), round(y), w, h])
+        self._design_build()
+
+    def _design_recolour(self, i):
+        palette = getattr(self, '_palette', [])
+        if not (self.design and 0 <= i < len(palette)):
+            return
+        c = QColorDialog.getColor(QColor(palette[i]), self, 'Change this colour everywhere')
+        if c.isValid() and c.name() != palette[i]:
+            uibuild.recolour(self.design, palette[i], c.name())
+            self._design_build()
 
     def _design_rename(self, _i=0):
         p = self._design_piece()

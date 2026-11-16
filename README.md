@@ -91,6 +91,9 @@ Share your own work, not the game's original files.
 | --- | --- |
 | [Quick start](docs/QUICK_START.md) | Install, connect the game, first mod, undo everything. |
 | [Modding guide](docs/MODDING_GUIDE.md) | Where everything lives in the game and how to find what you want. |
+| [Designing your own scorebug](docs/SCOREBUG_DESIGN.md) | Build a scorebug in the sandbox or as a design file. |
+| [Game data for a scorebug](docs/SCOREBUG_DATA.md) | The live values a piece can show. |
+| [Making a scorebug with an AI](docs/SCOREBUG_AI.md) | What to paste into a chat AI so it writes a design for you. |
 | [Roster files](docs/ROSTER_FILES.md) | The roster file format, with every rating and gear slot. |
 | [Code mods](docs/CODE_MODS.md) | The samples, how to write your own, and the map of the gameplay code. |
 | [Sharing mods](community/README.md) | What a shared mod can hold, league packs, and how to send yours in. |

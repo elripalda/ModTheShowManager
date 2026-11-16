@@ -413,15 +413,36 @@ def build(design, carriers=()):
     return chunk, name_hash(name), b.static, b.live, where, b.art, list(b.kids)
 
 
-def walk(pieces, depth=0, label=''):
-    """Every piece of a design, nested ones included: (piece, depth, the list it sits in, a label for its place)."""
+def walk(pieces, depth=0, label='', parent=None):
+    """Every piece of a design, nested ones included: (piece, depth, the list it sits in, a label for its place,
+    the piece it sits inside or None)."""
     for p in pieces:
-        yield p, depth, pieces, label
+        yield p, depth, pieces, label, parent
         if 'group' in p:
-            yield from walk(p['group'], depth + 1)
+            yield from walk(p['group'], depth + 1, '', p)
         elif 'switch' in p:
             for i, look in enumerate(p.get('looks') or []):
-                yield from walk(look, depth + 1, f'look {i}: ')
+                yield from walk(look, depth + 1, f'look {i}: ', p)
+
+
+def colours(design):
+    """The colours a design uses, most used first: ['#rrggbb', ...]."""
+    seen = {}
+    for p, *_ in walk(design.get('pieces') or []):
+        if kind_of(p) in ('box', 'image', 'text'):
+            c = str(p.get('color', '#ffffff')).lower()
+            seen[c] = seen.get(c, 0) + 1
+    return sorted(seen, key=lambda c: -seen[c])
+
+
+def recolour(design, old, new):
+    """Every piece of one colour gets another. Returns how many changed."""
+    n = 0
+    for p, *_ in walk(design.get('pieces') or []):
+        if kind_of(p) in ('box', 'image', 'text') and str(p.get('color', '#ffffff')).lower() == old.lower():
+            p['color'] = new.lower()
+            n += 1
+    return n
 
 
 def install(layout, design, carriers=()):
