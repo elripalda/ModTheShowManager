@@ -110,9 +110,11 @@ def draw_text(font, sheet, text, height, color=(255, 255, 255, 255)):
     glyphs = [font.glyphs.get(code_of(c)) for c in text]
     space = (font.glyphs.get(ord('I')) or ref).advance
     width = sum((g.advance if g and g.w else space) for g in glyphs)
-    out = Image.new('RGBA', (max(1, int(width * k) + 4), max(1, int(height * 1.5) + 4)), (0, 0, 0, 0))
+    # slanted letters lean past their own advance: leave room for the last one's overhang or it is cut off
+    lean = max((g.w + 2 * PAD for g in glyphs if g and g.w), default=0)
+    out = Image.new('RGBA', (max(1, int((width + lean) * k) + 4), max(1, int(height * 1.5) + 4)), (0, 0, 0, 0))
     W, H = sheet.size
-    x = 2.0
+    x = 2.0 + PAD * k
     base = int(height * 1.2) + 2
     for g in glyphs:
         if not g or not g.w:

@@ -441,12 +441,30 @@ def test_design_rule():
     for outs, want in ((0, (0, 0, 0)), (1, (0, 0, 0)), (2, (255, 0, 0))):
         img, _ = uirender.render(L, bar, lambda n: None, {}, situation=uiquery.Situation(outs=outs), lang=lang)
         assert img.getpixel((20, 20))[:3] == want, outs
-    try:
-        uibuild.build({'name': 'X', 'size': [1, 1], 'pieces': [
-            {'box': [0, 0, 1, 1], 'when': {'data': 'SCORER OUTS', 'is': '!=', 'value': 1}}]})
-        assert False
-    except ValueError:
-        pass
+    # and, or, is not: written with the game's own if
+    rq = uibuild.rule_query
+    two, three = {'data': 'IG STRIKES', 'is': '==', 'value': 2}, {'data': 'IG BALLS', 'is': '==', 'value': 3}
+    assert rq({'all': [two, three]}) == \
+        'IF_Q_ELSE_INT [ QCOMP [ IG STRIKES , == , 2 ] , QCOMP [ IG BALLS , == , 3 ] , 0 ]'
+    assert rq({'any': [two, three]}) == \
+        'IF_Q_ELSE_INT [ QCOMP [ IG STRIKES , == , 2 ] , 1 , QCOMP [ IG BALLS , == , 3 ] ]'
+    assert rq({'data': 'SCORER OUTS', 'is': '!=', 'value': 1}) == 'IF_Q_ELSE_INT [ QCOMP [ SCORER OUTS , == , 1 ] , 0 , 1 ]'
+    full = {'name': 'MTS_T5', 'size': [100, 40], 'pieces': [
+        {'box': [0, 0, 100, 40], 'color': '#00ff00', 'when': {'all': [two, three]},
+         'enter': {'from': [0, -20], 'frames': 8}},
+        {'box': [0, 0, 10, 10], 'color': '#0000ff', 'when': {'data': 'SCORER OUTS', 'is': '!=', 'value': 1}}]}
+    L = uilayout.Layout(directory([main, row]))
+    made = uibuild.install(L, full)
+    bar = L.by_hash[H('PBInterface\\ScoreBar')]
+    L.retarget(bar.container().children[0], made)
+    L = uilayout.Layout(L.bytes())
+    bar, part = L.by_hash[H('PBInterface\\ScoreBar')], L.by_hash[H('MTS_T5_m1')]
+    assert sum(a.problems for a in L.assets) == 0 and len(part.animations()) == 1       # the part moves in on its own
+    assert not L.by_hash[H('MTS_T5')].animations()
+    for kw, want in ((dict(balls=3, strikes=2, outs=1), (0, 255, 0)), (dict(balls=3, strikes=1, outs=1), (0, 0, 0)),
+                     (dict(balls=0, strikes=0, outs=0), (0, 0, 255))):
+        img, _ = uirender.render(L, bar, lambda n: None, {}, situation=uiquery.Situation(**kw), lang=lang)
+        assert img.getpixel((5, 5))[:3] == want, kw
 
 
 def test_design_own_pictures():
@@ -455,7 +473,7 @@ def test_design_own_pictures():
     design = {'name': 'MTS_T3', 'size': [400, 90], 'pieces': [
         {'image': 'plate.png', 'at': [0, 0, 400, 90]}, {'image': 'plate.png', 'at': [0, 0, 40, 9]},
         {'image': 'gloss.png', 'at': [0, 0, 400, 45]}, {'image': 'bar', 'at': [0, 0, 10, 10]}]}
-    chunk, hsh, _s, _l, where, art = uibuild.build(design, ['spare_a', 'spare_b'])
+    chunk, hsh, _s, _l, where, art, _kids = uibuild.build(design, ['spare_a', 'spare_b'])
     assert art == {'spare_a': 'plate.png', 'spare_b': 'gloss.png'} and len(where) == 4
     refs = [struct.unpack_from('<I', chunk, 0x10 + rel + 0x30)[0] for _p, rel in where]
     assert refs == [H('spare_a'), H('spare_a'), H('spare_b'), H('bar')]

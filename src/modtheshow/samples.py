@@ -409,10 +409,10 @@ def _art_path(name):
 
 def diamond(x, y, size, on='#ffd24a', off='#ffffff', off_opacity=26):
     """The three bases as a diamond: second on top, third and first below it, each lit while a runner is on it."""
-    art, half, gap = _art_path('base.png'), size / 2, 2
+    art, step = _art_path('base.png'), size // 2 + 1
     out = []
-    for name, tab, bx, by in (('Second base', '2ND', x + half + gap / 2, y), ('Third base', '3RD', x, y + half + gap / 2),
-                              ('First base', '1ST', x + size + gap, y + half + gap / 2)):
+    for name, tab, bx, by in (('Second base', '2ND', x + step, y), ('Third base', '3RD', x, y + step),
+                              ('First base', '1ST', x + 2 * step, y + step)):
         out.append({'name': name, 'image': art, 'at': [bx, by, size, size], 'color': off, 'opacity': off_opacity})
         out.append({'name': name + ' (runner on)', 'image': art, 'at': [bx, by, size, size], 'color': on,
                     'when': {'data': f'SCOREBAR {tab}_BASE_TAB', 'is': '==', 'value': 1}})
@@ -430,14 +430,27 @@ def out_dots(x, y, size, gap=6, on='#ffd24a', off='#ffffff', off_opacity=26, cou
     return out
 
 
-def half_inning(x, y, on='#ffd24a', off='#ffffff'):
-    """Two small bars, the top one lit in the top of an inning and the bottom one in the bottom."""
-    return [{'name': 'Top of the inning', 'box': [x, y, 14, 5], 'color': off, 'opacity': 26},
-            {'name': 'Bottom of the inning', 'box': [x, y + 31, 14, 5], 'color': off, 'opacity': 26},
-            {'name': 'Top (lit)', 'box': [x, y, 14, 5], 'color': on,
+def half_inning(x, y, drop=38, size=14, on='#ffd24a', off='#ffffff'):
+    """An arrow up above the inning number and an arrow down below it: the one for this half is lit."""
+    up, down = _art_path('arrow_up.png'), _art_path('arrow_down.png')
+    return [{'name': 'Top of the inning', 'image': up, 'at': [x, y, size, size], 'color': off, 'opacity': 26},
+            {'name': 'Bottom of the inning', 'image': down, 'at': [x, y + drop, size, size], 'color': off,
+             'opacity': 26},
+            {'name': 'Top (lit)', 'image': up, 'at': [x, y, size, size], 'color': on,
              'when': {'data': 'IG IS_BOTTOM', 'is': '==', 'value': 0}},
-            {'name': 'Bottom (lit)', 'box': [x, y + 31, 14, 5], 'color': on,
+            {'name': 'Bottom (lit)', 'image': down, 'at': [x, y + drop, size, size], 'color': on,
              'when': {'data': 'IG IS_BOTTOM', 'is': '==', 'value': 1}}]
+
+
+def count(x, y, size=30, font=25, color='#ffffff'):
+    """Balls and strikes as two numbers with a dash drawn between them, so the dash never touches a number."""
+    w, h = round(size * 0.9), round(size * 1.2)
+    return [{'name': 'Balls', 'text': '^d0^', 'data': ['IG BALLS'], 'at': [x, y, w, h], 'size': size, 'font': font,
+             'align': 'right', 'color': color},
+            {'name': 'Dash', 'box': [x + w + 7, y + h // 2 - 1, round(size * 0.36), max(3, size // 8)], 'color': color},
+            {'name': 'Strikes', 'text': '^d0^', 'data': ['IG STRIKES'],
+             'at': [x + w + 14 + round(size * 0.36), y, w, h], 'size': size, 'font': font, 'align': 'left',
+             'color': color}]
 
 
 def _lit(on):
@@ -463,8 +476,8 @@ CLASSIC = {'name': 'MTS_Classic', 'size': [700, 46], 'pieces': [
      'color': '#ffd24a'},
     {'box': [446, 10, 2, 26], 'color': '#ffffff', 'opacity': 35},
     *diamond(458, 6, 16, off_opacity=30),
-    {'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [512, 5, 64, 36], 'size': 30},
-    {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [584, 5, 104, 36], 'size': 26, 'align': 'right'},
+    *count(506, 5, size=30),
+    {'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [596, 5, 92, 36], 'size': 26, 'align': 'right'},
 ]}
 
 
@@ -527,13 +540,12 @@ def _team_tiles():
     mid = {'name': 'Game state', 'group': [
         {'box': [0, 0, CW, H], 'color': '#0b0f16', 'opacity': 62},
         {'box': [0, 0, CW, 2], 'color': '#ffffff', 'opacity': 55},
-        *half_inning(12, 10),
-        {'name': 'Inning', 'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [6, 12, 26, 32], 'size': 24},
-        *diamond(44, 8, 19),
-        {'name': 'Count', 'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [102, 4, 66, 32],
-         'size': 28},
-        *out_dots(119, 38, 11),
-        {'name': 'Outs', 'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [166, 10, 58, 36], 'size': 18,
+        *half_inning(10, 3, drop=37, size=12),
+        {'name': 'Inning', 'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [3, 14, 26, 28], 'size': 20},
+        *diamond(40, 9, 20),
+        *count(96, 2, size=26),
+        *out_dots(117, 40, 9, gap=5),
+        {'name': 'Outs', 'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [168, 10, 56, 36], 'size': 17,
          'align': 'right'}],
         'at': [cx, 0, CW, H], 'enter': {'frames': 16, 'delay': 14}}
     return {'name': 'MTS_TeamTiles', 'size': [W, H], 'bars': True,
@@ -566,13 +578,12 @@ def _glass_tiles():
     mid = {'name': 'Game state', 'group': [
         {'name': 'Smoked glass', 'image': body, 'at': [0, 0, CW, H], 'color': '#0b0f16', 'opacity': 66},
         {'name': 'Sheen and rim', 'image': gloss, 'at': [0, 0, CW, H], 'opacity': 70},
-        *half_inning(22, 16),
-        {'name': 'Inning', 'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [16, 18, 26, 32], 'size': 24},
-        *diamond(58, 11, 22),
-        {'name': 'Count', 'text': '^d0^-^d1^', 'data': ['IG BALLS', 'IG STRIKES'], 'at': [124, 8, 76, 34],
-         'size': 30},
-        *out_dots(146, 46, 12),
-        {'name': 'Outs', 'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [202, 16, 62, 36], 'size': 19,
+        *half_inning(22, 5, drop=44, size=14),
+        {'name': 'Inning', 'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [14, 18, 30, 32], 'size': 22},
+        *diamond(62, 14, 24),
+        *count(126, 5, size=30),
+        *out_dots(153, 50, 10, gap=6),
+        {'name': 'Outs', 'text': '^d0^ OUT', 'data': ['SCORER OUTS'], 'at': [210, 18, 58, 32], 'size': 18,
          'align': 'right'}],
         'at': [cx, 0, CW, H], 'enter': {'frames': 16, 'delay': 16}}
     return {'name': 'MTS_GlassTiles', 'size': [W, H], 'bars': True,
@@ -583,11 +594,43 @@ def _base(on):
     return [{'box': [0, 0, 14, 14], 'color': '#ffd24a' if on else '#ffffff', 'opacity': 100 if on else 22}]
 
 
+def _night_strip():
+    """One thin dark strip along the top: logos at the ends, a line of each club's colour under its side, the game
+    state in the middle, and a FULL COUNT tag that drops out from under it on 3-2."""
+    W, H = 760, 44
+    full = {'all': [{'data': 'IG BALLS', 'is': '==', 'value': 3}, {'data': 'IG STRIKES', 'is': '==', 'value': 2}]}
+    p = [{'name': 'Strip', 'box': [0, 0, W, H], 'color': '#0a0c10', 'opacity': 86},
+         {'name': 'Away colour line', 'tint': 'away', 'at': [0, H - 4, 290, 4], 'group': [{'box': [0, 0, 290, 4]}]},
+         {'name': 'Home colour line', 'tint': 'home', 'at': [W - 290, H - 4, 290, 4],
+          'group': [{'box': [0, 0, 290, 4]}]},
+         {'name': 'Away logo', 'logo': 'away', 'kind': 2, 'at': [10, 2, 38, 38]},
+         {'name': 'Away club', 'text': '^d0^', 'data': ['AWAY_TEAM TEAM_PROF SHORT_NAME'], 'at': [58, 3, 90, 36],
+          'size': 26, 'align': 'left'},
+         {'name': 'Away score', 'text': '^d0^', 'data': ['SCORER AWAY_SCORE'], 'at': [190, 1, 90, 40], 'size': 30,
+          'font': 37, 'align': 'right'},
+         {'name': 'Home score', 'text': '^d0^', 'data': ['SCORER HOME_SCORE'], 'at': [W - 280, 1, 90, 40],
+          'size': 30, 'font': 37, 'align': 'left'},
+         {'name': 'Home club', 'text': '^d0^', 'data': ['HOME_TEAM TEAM_PROF SHORT_NAME'],
+          'at': [W - 148, 3, 90, 36], 'size': 26, 'align': 'right'},
+         {'name': 'Home logo', 'logo': 'home', 'kind': 2, 'at': [W - 48, 2, 38, 38]},
+         *half_inning(312, 1, drop=28, size=11),
+         {'name': 'Inning', 'text': '^d0^', 'data': ['SCOREBAR INNING_STR [ 0 ]'], 'at': [305, 9, 26, 22], 'size': 17},
+         *diamond(342, 5, 18),
+         *count(392, 0, size=22),
+         *out_dots(404, 30, 8, gap=5),
+         {'name': 'Full count tag', 'at': [315, H + 4, 130, 22], 'when': full,
+          'enter': {'from': [0, -14], 'frames': 12},
+          'group': [{'box': [0, 0, 130, 22], 'color': '#ffd24a'},
+                    {'text': 'FULL COUNT', 'at': [0, 0, 130, 22], 'size': 15, 'color': '#101010'}]}]
+    return {'name': 'MTS_NightStrip', 'size': [W, H + 28], 'x': (1920 - W) // 2, 'y': 44, 'pieces': p}
+
+
 LINE_SCORE = _line_score()
 TEAM_TILES = _team_tiles()
 GLASS_TILES = _glass_tiles()
 DESIGNS = {'classic': ('Classic Line', CLASSIC), 'linescore': ('Line Score', LINE_SCORE),
-           'tiles': ('Team Tiles', TEAM_TILES), 'glasstiles': ('Glass Tiles', GLASS_TILES)}
+           'tiles': ('Team Tiles', TEAM_TILES), 'glasstiles': ('Glass Tiles', GLASS_TILES),
+           'strip': ('Night Strip', _night_strip())}
 
 
 def _design_sample(game, lib, name, description, slug, design):
@@ -595,7 +638,7 @@ def _design_sample(game, lib, name, description, slug, design):
         raise ValueError('This install has no scorebug layout (THEME1.NSW).')
     from . import recipes
     lay = uilayout.Layout.open(game.original(THEME))
-    replace_scorebug(lay, design)
+    replace_scorebug(lay, design, design.get('x'), design.get('y'))
     mod = _mod(lib, name, description)
     folder = os.path.join(mod.path, 'layouts')
     os.makedirs(folder, exist_ok=True)
@@ -618,6 +661,12 @@ def scorebug_glasstiles(game, lib, current_file):
     return _design_sample(game, lib, 'Sample: Glass Tiles', 'A scorebug built from nothing: rounded glass tiles, '
                           'each club in its own colour under a sheen, sliding in from the sides.', 'glass-tiles',
                           GLASS_TILES)
+
+
+def scorebug_strip(game, lib, current_file):
+    return _design_sample(game, lib, 'Sample: Night Strip', 'A scorebug built from nothing: one thin dark strip along '
+                          'the top, with a FULL COUNT tag that drops out on 3-2.', 'night-strip',
+                          DESIGNS['strip'][1])
 
 
 def scorebug_classic(game, lib, current_file):
@@ -715,6 +764,7 @@ SAMPLES = [
      scorebug_linescore),
     ('glasstiles', 'Sample: Glass Tiles', 'A scorebug built from nothing: rounded glass tiles in team colours.',
      scorebug_glasstiles),
+    ('strip', 'Sample: Night Strip', 'A scorebug built from nothing: a thin strip along the top.', scorebug_strip),
     ('tiles', 'Sample: Team Tiles', 'A scorebug built from nothing: team-colour tiles with logos that slide in.',
      scorebug_tiles),
     ('glass', 'Sample: Glass Bar', 'A scorebug style: three floating tiles of smoked glass.', scorebug_glass),

@@ -93,8 +93,8 @@ and fades it into place over 20 frames after waiting 4. The game runs 60 frames 
 
 You don't have to write the file by hand. **Styles › New Blank Design** starts one in the sandbox, and so do
 **Classic Line** (one line of text along the bottom), **Line Score** (runs by inning, hits and errors),
-**Team Tiles** (each club on a tile of its own colour, sliding in) and **Glass Tiles** (rounded glass plates drawn
-from two pictures that come with the manager). In a design the right-hand column changes to **Layers**, **Chosen piece** and **Rule and motion**:
+**Team Tiles** (each club on a tile of its own colour, sliding in), **Glass Tiles** (rounded glass plates drawn
+from pictures that come with the manager) and **Night Strip** (a thin strip along the top). In a design the right-hand column changes to **Layers**, **Chosen piece** and **Rule and motion**:
 
 - **+ Box, + Text, + Logo, + Team Colour, + Image** add a piece. **+ Image** takes a PNG of your own. **Copy**
   and **Delete** act on the chosen one.
@@ -116,8 +116,14 @@ from two pictures that come with the manager). In a design the right-hand column
 - Drag the red box to place the whole bug.
 - **Save Design…** writes the file. **Save to My Mod** and **Save as Style…** work as they do for any layout.
 
+- A rule can ask two things, joined by **and** or **or**: *balls is 3* and *strikes is 2* is a full count.
+- A piece with a rule and a motion arrives each time its rule comes true. That is how **Night Strip** drops its
+  FULL COUNT tag.
+
 A new piece goes into the group you have chosen. In the file a rule is
-`"when": {"data": "SCORER OUTS", "is": ">=", "value": 2}` on any piece, and `"name"` is what the layer is called. **Styles › Open a Design File…** loads one.
+`"when": {"data": "SCORER OUTS", "is": ">=", "value": 2}` on any piece, two rules are
+`"when": {"all": [rule, rule]}` (or `"any"`), and `"name"` is what the layer is called. A font imported for a
+design is remembered in it as `"fonts": {"25": "Bebas Neue"}` and goes into the mod when the design is saved. **Styles › Open a Design File…** loads one.
 
 ## What a mockup needs if you hand it over
 
@@ -133,8 +139,8 @@ A flat picture is enough to copy a layout: where things sit, how big, what colou
 
 - **Mixing the two.** A design replaces the whole scorebug. Adding one new piece to a stock bug, or keeping the
   stock batter bar under a design, is next.
-- **More motion.** A piece can arrive. Moving when something happens (a flash on strike two, a score rolling
-  over) is not built.
+- **More motion.** A piece can arrive, at the start or when its rule comes true. Leaving, looping and a number
+  rolling over are not built.
 - **More than twelve pictures.** A design's own art borrows textures the scorebug never draws, and there are
   twelve of them.
 - **Pop-ups dropping down.** The bars and cards are built to rise from behind the bug. On a top bar they still

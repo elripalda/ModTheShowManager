@@ -511,14 +511,34 @@ class LayoutEditor(QWidget):
         self.d_rule.activated.connect(self._design_edit)
         self.d_rule.lineEdit().editingFinished.connect(self._design_edit)
         self.d_rule_op = QComboBox()
-        for text, op in (('is', '=='), ('is more than', '>'), ('is at least', '>='), ('is less than', '<'),
-                         ('is at most', '<=')):
+        OPS = (('is', '=='), ('is not', '!='), ('is more than', '>'), ('is at least', '>='), ('is less than', '<'),
+               ('is at most', '<='))
+        for text, op in OPS:
             self.d_rule_op.addItem(text, op)
         self.d_rule_op.activated.connect(self._design_edit)
         self.d_rule_val = self._spin(0, 99, 0)
         self.d_rule_val.valueChanged.connect(self._design_edit)
+        self.d_join = QComboBox()                      # a second thing to ask, with "and" or "or"
+        self.d_join.addItem('One rule', None)
+        self.d_join.addItem('and', 'all')
+        self.d_join.addItem('or', 'any')
+        self.d_join.setToolTip('Ask a second thing as well: both must be true (and), or either one (or)')
+        self.d_join.activated.connect(self._design_edit)
+        self.d_rule2 = QComboBox()
+        self.d_rule2.setEditable(True)
+        self.d_rule2.addItems([''] + uibuild.SWITCHES + ['SCORER AWAY_SCORE', 'SCORER HOME_SCORE', 'SCORER INNING'])
+        self.d_rule2.lineEdit().setPlaceholderText('The second thing to ask')
+        self.d_rule2.activated.connect(self._design_edit)
+        self.d_rule2.lineEdit().editingFinished.connect(self._design_edit)
+        self.d_rule2_op = QComboBox()
+        for text, op in OPS:
+            self.d_rule2_op.addItem(text, op)
+        self.d_rule2_op.activated.connect(self._design_edit)
+        self.d_rule2_val = self._spin(0, 99, 0)
+        self.d_rule2_val.valueChanged.connect(self._design_edit)
         self.d_move = QComboBox()
-        self.d_move.setToolTip('How this piece arrives when the scorebug first appears')
+        self.d_move.setToolTip('How this piece arrives: when the scorebug first appears, or, for a piece with a '
+                               'rule, each time the rule comes true')
         for text, m in MOTIONS:
             self.d_move.addItem(text, m)
         self.d_move.activated.connect(self._design_edit)
@@ -612,7 +632,9 @@ class LayoutEditor(QWidget):
         self.design_props = section('Chosen piece', [self.d_at[0:2], self.d_at[2:4], [self.d_color, self.d_op],
                                                      [self.d_words], [self.d_data], [self.d_size, self.d_align],
                                                      [self.d_font], [self.d_font_import]])
-        self.rule_box = section('Rule and motion', [[self.d_rule], [self.d_rule_op, self.d_rule_val], [self.d_move]])
+        self.rule_box = section('Rule and motion', [[self.d_rule], [self.d_rule_op, self.d_rule_val], [self.d_join],
+                                                    [self.d_rule2], [self.d_rule2_op, self.d_rule2_val],
+                                                    [self.d_move]])
         self.tools_row = section('Chosen piece', [[self.b_tint, self.p_op], [self.p_dx, self.p_dy],
                                                   [self.p_size, self.b_hide], [self.b_piece]])
         self.text_row = section('Its text', [[self.t_font], [self.t_size, self.t_align],
@@ -847,6 +869,9 @@ class LayoutEditor(QWidget):
         """Work on a design: every change rebuilds the scorebug from it."""
         import copy
         self.design = copy.deepcopy(design)
+        if self.design.get('fonts'):
+            self._fonts = None                            # start from the game's fonts, then draw the design's in
+            self._design_fonts()
         self._design_build(0)
 
     def _design_stop(self):
@@ -908,14 +933,23 @@ class LayoutEditor(QWidget):
         if p is None:
             return
         widgets = self.d_at + [self.d_op, self.d_words, self.d_data, self.d_size, self.d_align, self.d_move,
-                               self.d_font, self.d_rule, self.d_rule_op, self.d_rule_val]
+                               self.d_font]
         rule = p.get('when') or {}
-        self.d_rule.blockSignals(True)
-        self.d_rule.setEditText(str(rule.get('data', '')))
-        self.d_rule_op.blockSignals(True)
-        self.d_rule_op.setCurrentIndex(max(0, self.d_rule_op.findData(rule.get('is', '=='))))
-        self.d_rule_val.blockSignals(True)
-        self.d_rule_val.setValue(int(rule.get('value', 1)))
+        join = 'all' if 'all' in rule else 'any' if 'any' in rule else None
+        first, second = ((rule[join] + [{}, {}])[:2]) if join else (rule, {})
+        rules = (self.d_rule, self.d_rule_op, self.d_rule_val, self.d_join, self.d_rule2, self.d_rule2_op,
+                 self.d_rule2_val)
+        for w in rules:
+            w.blockSignals(True)
+        for r, (wd, wo, wv) in ((first, rules[0:3]), (second, rules[4:7])):
+            wd.setEditText(str(r.get('data', '')))
+            wo.setCurrentIndex(max(0, wo.findData(r.get('is', '=='))))
+            wv.setValue(int(r.get('value', 1)))
+        self.d_join.setCurrentIndex(max(0, self.d_join.findData(join)))
+        for w in rules[4:7]:
+            w.setEnabled(join is not None)
+        for w in rules:
+            w.blockSignals(False)
         if 'text' in p:
             self._load_fonts()
         for w in widgets:
@@ -952,9 +986,16 @@ class LayoutEditor(QWidget):
         uibuild.set_rect(p, [sp.value() for sp in self.d_at])
         if self.d_op.value() < 100 or 'opacity' in p:
             p['opacity'] = self.d_op.value()
-        data = self.d_rule.currentText().strip()
-        if data:
-            p['when'] = {'data': data, 'is': self.d_rule_op.currentData(), 'value': int(self.d_rule_val.value())}
+        ask = [{'data': wd.currentText().strip(), 'is': wo.currentData(), 'value': int(wv.value())}
+               for wd, wo, wv in ((self.d_rule, self.d_rule_op, self.d_rule_val),
+                                  (self.d_rule2, self.d_rule2_op, self.d_rule2_val))]
+        join = self.d_join.currentData()
+        for w in (self.d_rule2, self.d_rule2_op, self.d_rule2_val):
+            w.setEnabled(join is not None)
+        if ask[0]['data'] and join and ask[1]['data']:
+            p['when'] = {join: ask}
+        elif ask[0]['data']:
+            p['when'] = ask[0]
         else:
             p.pop('when', None)
         move = self.d_move.currentData()
@@ -1246,6 +1287,7 @@ class LayoutEditor(QWidget):
             with open(os.path.join(folder, slug + '.json'), 'w', encoding='utf-8') as f:
                 json.dump([entry], f)
             self._write_art(mod)
+            self._write_fonts(mod)
             own = self.main.active_mod(rel=self._pack)          # and the pieces you repainted for it
             src = os.path.dirname(self.main.lib.texture_path(own, self._pack, 'x')) if own else None
             if src and os.path.isdir(src) and own.path != mod.path:
@@ -1733,6 +1775,37 @@ class LayoutEditor(QWidget):
                 self.layout.set_text_color(n, rgb=(c.red(), c.green(), c.blue()))
             self._redraw()
 
+    def _design_fonts(self):
+        """Draw the fonts a design names into the preview's copy of the game fonts. They are written to a mod when
+        the design is saved."""
+        named = (self.design or {}).get('fonts') or {}
+        loaded = self._load_fonts() if named else None
+        if not loaded:
+            return
+        table, sheet = loaded
+        lib = dict(fontlib.LIBRARY)
+        try:
+            for slot, src in named.items():
+                path = fontlib.library_path(lib[src]) if src in lib else (
+                    src if os.path.isabs(src) else os.path.join(self.design.get('_folder', ''), src))
+                sheet, _n = fontlib.import_font(table, sheet, int(slot), path)
+        except Exception as x:
+            self.note.setText(f'A font this design names could not be drawn in: {x}')
+        self._fonts = (table, sheet)
+        self._fill_font_combo()
+
+    def _write_fonts(self, mod):
+        """The game fonts as the design changed them, into a mod."""
+        if not mod or not (self.design or {}).get('fonts') or not self._fonts:
+            return
+        import tempfile
+        table, sheet = self._fonts
+        tmp = os.path.join(tempfile.mkdtemp(prefix='mts_'), os.path.basename(fontlib.FONTS))
+        with open(tmp, 'wb') as f:
+            f.write(table.bytes())
+        self.main.lib.add_file(mod, fontlib.FONTS, tmp)
+        self.main.lib.add_texture(mod, fontlib.SHEETS, 'english', sheet)
+
     def _import_font(self, path=None):
         t = self._text_targets()
         fonts = self._load_fonts()
@@ -1748,6 +1821,9 @@ class LayoutEditor(QWidget):
         if not mod:
             return
         slot = self.layout.text_font(t[0])
+        if self.design is not None:                       # the design remembers the font, so it travels with it
+            lib = {fontlib.library_path(f): n for n, f in fontlib.LIBRARY}
+            self.design.setdefault('fonts', {})[str(slot)] = lib.get(path, path)
         table, sheet = fonts
         try:
             sheet2, drawn = fontlib.import_font(table, sheet, slot, path)
@@ -1839,5 +1915,6 @@ class LayoutEditor(QWidget):
                     self.main.lib.add_file(mod, lrel, tmp)
                     self.main.changed('')
             self._write_art(self.main.active_mod(rel=self.rel))
+            self._write_fonts(self.main.active_mod(rel=self.rel))
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Save', str(x))

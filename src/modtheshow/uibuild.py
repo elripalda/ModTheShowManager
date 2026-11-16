@@ -41,7 +41,28 @@ DATA = ['AWAY_TEAM TEAM_PROF SHORT_NAME', 'HOME_TEAM TEAM_PROF SHORT_NAME', 'SCO
         'CURRENT_BATTER SEASON_STATS RBI', 'PITCH_BAT_STATS PITCH_COUNT', 'SCOREBAR SPEED', 'SCORER PITCH_CLOCK',
         'BoxScore HITS [ 0 ]', 'BoxScore HITS [ 1 ]', 'BoxScore ERRORS [ 0 ]', 'BoxScore ERRORS [ 1 ]',
         'BoxScore INNING_VAL [ 0 , 0 ]', 'BoxScore INNING_VAL [ 1 , 0 ]']
-RULES = ['==', '>', '>=', '<', '<=']        # what a "when" rule can ask of a number
+RULES = ['==', '!=', '>', '>=', '<', '<=']  # what a "when" rule can ask of a number
+
+
+def rule_query(rule):
+    """A rule as a game query that answers 1 or 0. A rule is {"data", "is", "value"}, or {"all": [rules]} for
+    every one of them, or {"any": [rules]} for at least one. Built from the game's own QCOMP and IF_Q_ELSE_INT."""
+    for key, both in (('all', True), ('any', False)):
+        if key in rule:
+            parts = [rule_query(r) for r in rule[key] if r]
+            if not parts:
+                raise ValueError('a rule needs something to ask')
+            out = parts[-1]
+            for q in reversed(parts[:-1]):
+                out = f'IF_Q_ELSE_INT [ {q} , {out} , 0 ]' if both else f'IF_Q_ELSE_INT [ {q} , 1 , {out} ]'
+            return out
+    op = rule.get('is', '==')
+    if op not in RULES or not rule.get('data'):
+        raise ValueError(f'a rule names some data and compares it with one of {" ".join(RULES)}')
+    data, value = str(rule['data']).strip(), int(rule.get('value', 1))
+    if op == '!=':
+        return f'IF_Q_ELSE_INT [ QCOMP [ {data} , == , {value} ] , 0 , 1 ]'
+    return f'QCOMP [ {data} , {op} , {value} ]'
 SWITCHES = ['IG IS_BOTTOM', 'SCORER OUTS', 'SCOREBAR 1ST_BASE_TAB', 'SCOREBAR 2ND_BASE_TAB', 'SCOREBAR 3RD_BASE_TAB',
             'IG BALLS', 'IG STRIKES']
 
@@ -100,6 +121,8 @@ class Builder:
         self.fix = []                 # (position of a u64 in the tree, query text)
         self.static, self.live = {}, {}
         self.n_text = 0
+        self.top = self               # the design's own builder, when this one builds a part of it
+        self.kids = []                # chunks of the smaller assets a design is split into
         self.where = []               # (piece, position in the tree of the node it became)
         self.carriers = []            # textures of the theme pack nothing draws: a picture of ours takes one over
         self.art = {}                 # {carrier texture: path of the picture}
@@ -218,16 +241,20 @@ class Builder:
         start = len(self.tree)
         if not s.get('_plain') and not s.get('_ruled'):
             self.where.append((s, start))
-        if s.get('enter') and not s.get('_ruled'):
+        rule = s.get('when') if not s.get('_ruled') else None
+        if s.get('enter') and not s.get('_ruled') and not rule:
             self.motions.append((start, [float(at[0]), float(at[1])], col[3], dict(s['enter'])))
-        rule = s.get('when')
-        if rule and rule.get('data') and not s.get('_ruled'):      # shown only while the rule holds
+        if rule:                                           # shown only while the rule holds
             inner = dict(s, _ruled=True)
             set_rect(inner, [0, 0, at[2], at[3]])
-            op = rule.get('is', '==')
-            if op not in RULES:
-                raise ValueError(f'a rule can compare with {" ".join(RULES)}, not {op}')
-            self.switch(at, f'QCOMP [ {rule["data"]} , {op} , {int(rule.get("value", 1))} ]', [[], [inner]])
+            if s.get('enter'):
+                # a piece that arrives each time its rule comes true: it becomes a small asset of its own, which
+                # plays its entrance when it appears
+                part = {k: v for k, v in inner.items() if k not in ('when', '_ruled', 'name')}
+                name = f'{self.top.name}_m{len(self.top.kids) + 1}'
+                self.top.kids.append(_compile(name, at[2], at[3], [part], self.top)[0])
+                inner = {'asset': name, 'at': [0, 0, at[2], at[3]], '_ruled': True}
+            self.switch(at, rule_query(rule), [[], [inner]])
             return
         if 'tint' in s:
             side, kids, w, h = s['tint'], s.get('group') or [], at[2], at[3]
@@ -316,17 +343,18 @@ def fit_art(img, cw, ch):
     return img.convert('RGBA').resize((cw * m, ch * m), Image.LANCZOS)
 
 
-def build(design, carriers=()):
-    """(chunk bytes, hash, fixed words {id: text}, live words {id: (text, [token lists])}, where each piece went,
-    {texture: picture} for the design's own art) for a design."""
-    name = str(design['name'])
-    w, h = design['size']
+def _compile(name, w, h, pieces, top=None, carriers=(), team_colors=None):
+    """(chunk, builder) for one asset made of pieces. top: the builder of the design it is a part of, whose words,
+    pictures and team colours it shares."""
     b = Builder(name)
-    b.carriers = list(carriers)
-    b.team_colors = {str(k).upper(): v for k, v in (design.get('team_colors') or {}).items()}
+    if top is not None:
+        b.top, b.static, b.live, b.art = top, top.static, top.live, top.art
+        b.carriers, b.team_colors = top.carriers, top.team_colors
+    else:
+        b.carriers, b.team_colors = list(carriers), dict(team_colors or {})
     b.tree += b._head(0x0F, (0, 0, w, h))                       # root, with the pieces in one group under it
     b.tree[0x1E:0x22] = bytes(4)
-    b.group((0, 0, w, h), design.get('pieces') or [])
+    b.group((0, 0, w, h), pieces)
     struct.pack_into('<Q', b.tree, 0x38, 0x50)
     struct.pack_into('<II', b.tree, 0x48, len(b.tree), 0x8000 | 1)
     tree_at = 0x90
@@ -334,7 +362,7 @@ def build(design, carriers=()):
     anim_at = tree_at + len(b.tree)
     named_at = anim_at + len(motion)
     start_at = named_at + 16 * len(NAMED)
-    # what to do when the design first appears: play the animation (written the way the game's team row does it)
+    # what to do when the asset appears: play the animation (written the way the game's team row does it)
     start = struct.pack('<QQQQQ', start_at + 24, tree_at, 0x14444, 0x82A, anim_at) if motion else b''
     pool_at = start_at + len(start)
     pool, where = bytearray(), {}
@@ -371,9 +399,18 @@ def build(design, carriers=()):
         body += struct.pack('<IIQ', hsh, 0, 0)
     body += start + pool + label
     body += bytes(-len(body) % 16)
-    hsh = name_hash(name)
-    where = [(piece, tree_at + pos) for piece, pos in b.where]
-    return b'VOIDASS0' + struct.pack('<II', hsh, len(body)) + bytes(body), hsh, b.static, b.live, where, b.art
+    return b'VOIDASS0' + struct.pack('<II', name_hash(name), len(body)) + bytes(body), b
+
+
+def build(design, carriers=()):
+    """(chunk bytes, hash, fixed words {id: text}, live words {id: (text, [token lists])}, where each piece went,
+    {texture: picture} for the design's own art, chunks of the smaller assets it is split into) for a design."""
+    name = str(design['name'])
+    w, h = design['size']
+    colors = {str(k).upper(): v for k, v in (design.get('team_colors') or {}).items()}
+    chunk, b = _compile(name, w, h, design.get('pieces') or [], None, carriers, colors)
+    where = [(piece, 0x90 + pos) for piece, pos in b.where]
+    return chunk, name_hash(name), b.static, b.live, where, b.art, list(b.kids)
 
 
 def walk(pieces, depth=0, label=''):
@@ -391,9 +428,11 @@ def install(layout, design, carriers=()):
     """Compile a design into a layout file and return its asset. Its words are kept on the layout
     (layout.words) for the .LANG file that goes with it, and layout.piece_at says which node each piece became
     ({id(piece): offset in the asset's body})."""
-    chunk, hsh, static, live, where, art = build(design, carriers)
+    chunk, hsh, static, live, where, art, kids = build(design, carriers)
     layout.piece_at = {id(piece): rel for piece, rel in where}
     layout.art = dict(art)                       # {texture of the pack: the picture that takes it over}
+    for kid in kids:                             # the parts that arrive on a rule, each an asset of its own
+        layout.add_asset(kid)
     asset = layout.add_asset(chunk)
     layout.designs.append(design)
     layout.words[0].update(static)
