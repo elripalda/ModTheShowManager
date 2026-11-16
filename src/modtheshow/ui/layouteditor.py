@@ -1,7 +1,4 @@
 """Move and scale UI layouts (the scorebug) on a 1920x1080 screen, saved into the active mod."""
-import os
-import tempfile
-
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
@@ -156,15 +153,6 @@ class LayoutEditor(QWidget):
         s.setMinimumWidth(90)
         return s
 
-    def _source(self, rel):
-        hit = self.main.mod_file(rel)
-        mod = self.main.active_mod()
-        if mod:
-            own = os.path.join(mod.path, 'romfs', *rel.split('/'))
-            if os.path.exists(own):
-                return own
-        return hit[1] if hit else self.main.game.original(rel)
-
     def open(self, pack_rel):
         """pack_rel: the theme's texture pack, e.g. NSW/UI/GAME/THEME1.TEX."""
         rel = pack_rel[:-4] + '.NSW'
@@ -179,7 +167,7 @@ class LayoutEditor(QWidget):
             self.canvas.update()
             return
         try:
-            self.layout = uilayout.Layout.open(self._source(rel))
+            self.layout = uilayout.Layout.open(self.main.current_file(rel))
             self._orig = uilayout.Layout.open(self.main.game.original(rel))
         except Exception as x:
             self.layout = None
@@ -274,15 +262,13 @@ class LayoutEditor(QWidget):
     def save(self):
         if not self.layout:
             return
-        mod = self.main.active_mod(ask=True)
-        if not mod:
-            return
-        tmp = os.path.join(tempfile.mkdtemp(prefix='mts_'), os.path.basename(self.rel))
-        with open(tmp, 'wb') as f:
-            f.write(self.layout.bytes())
+        data = self.layout.bytes()
+
+        def write(path):
+            with open(path, 'wb') as f:
+                f.write(data)
         try:
-            self.main.lib.add_file(mod, self.rel, tmp)
+            self.main.save_file(self.rel, write,
+                                self.which.currentText() + ' layout saved into {mod}. Apply, then check it in a game.')
         except Exception as x:
             QMessageBox.warning(self, 'Could Not Save', str(x))
-            return
-        self.main.changed(f'{self.which.currentText()} layout saved into {mod.name}. Apply, then check it in a game.')

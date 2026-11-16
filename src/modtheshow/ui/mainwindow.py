@@ -280,6 +280,28 @@ class MainWindow(QMainWindow):
         _, files = self._win()
         return files.get(rel.upper())
 
+    def current_file(self, rel):
+        """Where a whole-file edit should start from: the active mod's copy, else whatever mod wins, else the game."""
+        mod = self.active_mod()
+        if mod:
+            own = os.path.join(mod.path, 'romfs', *rel.upper().split('/'))
+            if os.path.exists(own):
+                return own
+        hit = self.mod_file(rel)
+        return hit[1] if hit and os.path.exists(hit[1]) else self.game.original(rel)
+
+    def save_file(self, rel, write, message):
+        """Write a whole file into the active mod. write(path) produces it."""
+        import tempfile
+        mod = self.active_mod(ask=True)
+        if not mod:
+            return False
+        tmp = os.path.join(tempfile.mkdtemp(prefix='mts_'), os.path.basename(rel))
+        write(tmp)
+        self.lib.add_file(mod, rel, tmp)
+        self.changed(message.format(mod=mod.name))
+        return True
+
     def active_mod(self, ask=False):
         folder = self.settings.get('active_mod')
         for m in self.lib.list():

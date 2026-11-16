@@ -67,10 +67,24 @@ QPushButton#Chip:checked {{ background: {S2}; color: {TEXT}; border-color: {LINE
 QPushButton#Icon {{ min-height: 34px; min-width: 34px; padding: 0 8px; background: transparent; border-color: transparent;
                    color: {MUTED}; }}
 QPushButton#Icon:hover {{ background: {S2}; border-color: {LINE}; color: {TEXT}; }}
-QDoubleSpinBox {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; padding: 0 6px; min-height: 38px;
-    color: {TEXT}; selection-background-color: {RED}; }}
-QDoubleSpinBox:focus {{ border-color: {LINE_HI}; }}
-QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ width: 16px; border: none; background: transparent; }}
+QDoubleSpinBox, QSpinBox, QDateEdit {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; padding: 0 6px;
+    min-height: 38px; color: {TEXT}; selection-background-color: {RED}; }}
+QDoubleSpinBox:focus, QSpinBox:focus, QDateEdit:focus {{ border-color: {LINE_HI}; }}
+QDoubleSpinBox:disabled, QSpinBox:disabled, QDateEdit:disabled, QLineEdit:disabled, QComboBox:disabled {{ color: #56617d; }}
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button, QSpinBox::up-button, QSpinBox::down-button {{ width: 16px;
+    border: none; background: transparent; }}
+QDateEdit::drop-down {{ border: none; width: 22px; }}
+QCalendarWidget QWidget {{ background: {S1}; alternate-background-color: {S2}; }}
+QCalendarWidget QToolButton {{ background: transparent; color: {TEXT}; font-weight: 600; padding: 4px 8px; }}
+QCalendarWidget QAbstractItemView {{ selection-background-color: {RED}; selection-color: white; }}
+QTableWidget {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px; outline: none; gridline-color: {LINE};
+    selection-background-color: {S2}; selection-color: {TEXT}; }}
+QTableWidget::item {{ padding: 0 10px; border-bottom: 1px solid {LINE}; color: {SOFT}; }}
+QTableWidget::item:selected {{ background: {S2}; color: {TEXT}; }}
+QHeaderView {{ background: transparent; }}
+QHeaderView::section {{ background: {S1}; color: {MUTED}; border: none; border-bottom: 1px solid {LINE}; padding: 8px 10px;
+    font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }}
+QTableCornerButton::section {{ background: {S1}; border: none; }}
 QLineEdit, QComboBox, QPlainTextEdit {{ background: {S1}; border: 1px solid {LINE}; border-radius: {R}px;
     padding: 0 10px; min-height: 38px; selection-background-color: {RED}; }}
 QPlainTextEdit {{ padding: 8px; font-family: 'Consolas', monospace; font-size: 12px; }}

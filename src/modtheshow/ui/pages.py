@@ -12,7 +12,7 @@ class CollectionPage(QWidget):
     TITLE = ''
     SUB = ''
     SEARCH = 'Find'
-    MODE_HIDES_INSPECTOR = False
+    MODE_HIDES_INSPECTOR = ()   # modes that use the whole width
 
     def __init__(self, main):
         super().__init__()
@@ -117,8 +117,7 @@ class CollectionPage(QWidget):
         self.stack.setCurrentIndex(i)
         self.filter.setVisible(i == 0)
         self.export_btn.setVisible(i == 0)
-        if self.MODE_HIDES_INSPECTOR:
-            self.inspector.setVisible(i == 0)
+        self.inspector.setVisible(i not in self.MODE_HIDES_INSPECTOR)
         self.mode_changed(i)
 
     def mode_changed(self, i):
@@ -253,12 +252,18 @@ class UniformsPage(CollectionPage):
     TITLE = 'Uniforms'
     SUB = 'Pick a team and a uniform, then swap any part with your own PNG. Export a part first to get the exact template.'
     SEARCH = 'Find a team'
+    MODE_HIDES_INSPECTOR = (2, 3)
 
     def __init__(self, main):
         super().__init__(main)
         from .playerpreview import PlayerPreview
+        from .schedule import ScheduleEditor, TeamUniforms, UniformList
         self.preview = PlayerPreview(main)
-        self.add_modes(('Textures', 'On a Player'), [self.preview])
+        data = TeamUniforms(main)
+        self.schedule = ScheduleEditor(main, data)
+        self.unilist = UniformList(main, data)
+        self.add_modes(('Textures', 'On a Player', 'Schedule', 'Uniform List'), [self.preview, self.schedule, self.unilist])
+        self._team_shown = None
 
     def _folder(self):
         return self.packs[0].rsplit('/', 1)[0] if getattr(self, 'packs', None) else None
@@ -266,11 +271,18 @@ class UniformsPage(CollectionPage):
     def mode_changed(self, i):
         if i == 1 and self._folder():
             self.preview.show_uniform(self._folder())
+        elif i in (2, 3) and self.key:
+            self.vscroll.setVisible(False)
+            league, team = self.key
+            self.mid_title.set(self._name, [])
+            (self.schedule if i == 2 else self.unilist).show_team(f'{league}/{team}', self._name)
+        if i in (0, 1) and self.key:
+            self.vscroll.setVisible(len(self.variants_for(self.key)) > 1)
 
     def _set_packs(self, packs, variant):
         super()._set_packs(packs, variant)
-        if self.stack.currentIndex() == 1 and self._folder():
-            self.preview.show_uniform(self._folder())
+        if self.mode():
+            self.mode_changed(self.mode())
 
     def refresh_overrides(self):
         super().refresh_overrides()
@@ -322,7 +334,7 @@ class ScoreboardsPage(_ListOfPacks):
     SUB = "Scorebug themes, broadcast graphics and every other in-game overlay. Reskin any piece; moving pieces comes " \
           "with Layout."
     SEARCH = 'Find a theme'
-    MODE_HIDES_INSPECTOR = True
+    MODE_HIDES_INSPECTOR = (1,)
 
     def __init__(self, main):
         super().__init__(main)
