@@ -214,6 +214,7 @@ class TeamsPage(QWidget):
         m.addAction('Add a Random Pitcher to This Team', lambda: self.random_player(True))
         m.addSeparator()
         m.addAction('Team Builder Names', self.team_builder)
+        m.addAction('Swap a University', self.college_swap)
         b.setMenu(m)
         return b
 
@@ -376,6 +377,15 @@ class TeamsPage(QWidget):
             self._dirty(True)
             self._fill_roster()
             self.main.toast(f'{dlg.count} players changed. Save to My Mod to keep it.')
+
+    def college_swap(self):
+        from .collegeswap import CollegeSwap, colleges
+        if not self.db or not colleges(self.db):
+            QMessageBox.information(self, 'Not Found', 'This install has no college teams.')
+            return
+        CollegeSwap(self).exec()
+        if not self.db.dirty():              # show the new names, but never at the cost of edits not saved yet
+            self.load()
 
     def team_builder(self):
         from .teambuilder import NAMES, PLACES, TeamBuilderDialog

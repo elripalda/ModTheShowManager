@@ -36,11 +36,21 @@ def _weight(rgb, color, tol):
     return np.clip(1.0 - d / tol, 0.0, 1.0)
 
 
-def apply(img, swaps=(), stripes=None, logo=None, logos=(), quality=1):
+def lettering(normal, grow=5):
+    """Where a part's sewn-on logos and lettering are, from its normal texture (they shine: its alpha). A PIL 'L'
+    mask the size of the normal texture, a few pixels wider than the art, or None when the part has none."""
+    from PIL import Image, ImageFilter
+    a = np.asarray(normal.convert('RGBA'))[:, :, 3] > 24
+    if not a.any() or a.mean() > 0.35:
+        return None
+    return Image.fromarray((a * 255).astype(np.uint8), 'L').filter(ImageFilter.MaxFilter(2 * grow + 1))
+
+
+def apply(img, swaps=(), stripes=None, logo=None, logos=(), quality=1, erase=None):
     """img: PIL RGBA. swaps: [(from rgb, to rgb)]. stripes: dict(color, spacing, width) drawn on the fabric (the most
     common colour). logos: [dict(image PIL RGBA, x, y, width)] with x, y the centre as fractions of the texture.
-    quality 2 or 4 builds the part at that many times the game's size, so logos and stripes stay sharp. Returns a new
-    PIL RGBA image."""
+    quality 2 or 4 builds the part at that many times the game's size, so logos and stripes stay sharp. erase: a mask
+    (see lettering) of old art to paint over with the fabric colour first. Returns a new PIL RGBA image."""
     from PIL import Image
     quality = int(quality) if quality in (2, 4, 8) else 1
     if quality > 1:
@@ -48,6 +58,13 @@ def apply(img, swaps=(), stripes=None, logo=None, logos=(), quality=1):
     src = np.asarray(img.convert('RGBA'), np.float32)
     rgb, alpha = src[:, :, :3].copy(), src[:, :, 3]
     base = np.array(palette(img, 1)[0][0], np.float32)
+    if erase is not None:                        # the old lettering goes: plain fabric where it was
+        from PIL import ImageFilter
+        near = erase.filter(ImageFilter.MaxFilter(25))            # and its outline or shadow just outside it
+        gone = np.asarray(erase.resize(img.size, Image.BILINEAR), np.float32) / 255.0
+        ring = np.asarray(near.resize(img.size, Image.BILINEAR), np.float32) / 255.0
+        gone = np.maximum(gone, ring * (_weight(rgb, base, 46.0) < 0.6))[:, :, None]
+        rgb = rgb * (1 - gone) + base * gone
     orig = rgb.copy()
     fabric = _weight(orig, base, 46.0)
     for old, new in swaps:

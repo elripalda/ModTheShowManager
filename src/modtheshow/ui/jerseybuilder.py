@@ -40,7 +40,7 @@ class Mannequin(PlayerPreview):
 
 
 def _blank():
-    return dict(new={}, stripes=False, stripe_color=(20, 30, 70), spacing=36, width=3, logos=[], cur=-1)
+    return dict(new={}, stripes=False, stripe_color=(20, 30, 70), spacing=36, width=3, logos=[], cur=-1, erase=False)
 
 
 class JerseyBuilder(QWidget):
@@ -54,6 +54,7 @@ class JerseyBuilder(QWidget):
         self.drafts = {}                # (pack rel, texture name) -> PNG the player preview wears
         self._tmp = tempfile.mkdtemp(prefix='mts-builder-')
         self._loading = False
+        self._masks = {}
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(18)
@@ -108,6 +109,10 @@ class JerseyBuilder(QWidget):
         side.addWidget(self.logo_pick)
         lrow = QHBoxLayout()
         lrow.setSpacing(8)
+        self.erase = QCheckBox('Remove the old lettering and logos')
+        self.erase.setToolTip('Paints plain fabric over what is sewn on this part, so yours can go in its place.')
+        self.erase.toggled.connect(self._later)
+        side.addWidget(self.erase)
         self.b_logo = button('Add a PNG', on_click=self._pick_logo)
         self.b_nologo = button('Take It Off', on_click=self._drop_logo)
         lrow.addWidget(self.b_logo, 1)
@@ -194,7 +199,7 @@ class JerseyBuilder(QWidget):
 
     def _enable(self, on):
         for w in (self.stripes, self.b_stripe, self.spacing, self.width, self.b_logo, self.b_nologo, self.lx, self.ly,
-                  self.lw, self.b_reset, self.b_save, self.logo_pick, self.quality):
+                  self.lw, self.b_reset, self.b_save, self.logo_pick, self.quality, self.erase):
             w.setEnabled(on)
 
     # ---- loading
@@ -256,6 +261,7 @@ class JerseyBuilder(QWidget):
             self.sw_grid.addWidget(b, n // 4, n % 4)
         self._loading = True
         self.stripes.setChecked(st['stripes'])
+        self.erase.setChecked(bool(st.get('erase')))
         _paint(self.b_stripe, st['stripe_color'])
         for key, sl in (('spacing', self.spacing), ('width', self.width)):
             sl.setValue(st[key])
@@ -346,7 +352,8 @@ class JerseyBuilder(QWidget):
         if self._loading or self.base_img is None:
             return
         st = self._st()
-        st.update(stripes=self.stripes.isChecked(), spacing=self.spacing.value(), width=self.width.value())
+        st.update(stripes=self.stripes.isChecked(), spacing=self.spacing.value(), width=self.width.value(),
+                  erase=self.erase.isChecked())
         if 0 <= st['cur'] < len(st['logos']):
             st['logos'][st['cur']].update(x=self.lx.value(), y=self.ly.value(), w=self.lw.value())
         self._timer.setInterval(450 if self.views.currentIndex() == 1 else 90)
@@ -363,7 +370,7 @@ class JerseyBuilder(QWidget):
 
     @staticmethod
     def _edited(st):
-        return bool(st['new'] or st['stripes'] or st['logos'])
+        return bool(st['new'] or st['stripes'] or st['logos'] or st.get('erase'))
 
     def _made(self, i, small=None, quality=1):
         """The part with its edits (full size, or on the small preview copy)."""
@@ -379,7 +386,23 @@ class JerseyBuilder(QWidget):
             stripes = dict(color=st['stripe_color'], spacing=max(2, round(st['spacing'] * scale)),
                            width=max(1, round(st['width'] * scale)))
         logos = [dict(image=lg['image'], x=lg['x'] / 100, y=lg['y'] / 100, width=lg['w'] / 100) for lg in st['logos']]
-        return UB.apply(img, swaps, stripes, logos=logos, quality=quality)
+        return UB.apply(img, swaps, stripes, logos=logos, quality=quality,
+                        erase=self._lettering(rel, name) if st.get('erase') else None)
+
+    def _lettering(self, rel, name):
+        """Where the part's sewn-on art is, from its normal texture (kept once found)."""
+        key = (rel, name)
+        if key not in self._masks:
+            mask = None
+            try:
+                tex = self.main.tex(rel)
+                hit = tex.find(name[:-6] + '-normal') if tex and name.endswith('-color') else []
+                if hit and tex.readable(hit[0]):
+                    mask = UB.lettering(tex.image(hit[0]))
+            except Exception:
+                mask = None
+            self._masks[key] = mask
+        return self._masks[key]
 
     def _drafts(self):
         """Write every edited part where the player preview picks it up."""

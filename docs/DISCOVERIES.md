@@ -225,6 +225,15 @@ error, each hit's type, power, spin and air density. That log is how a code mod 
 - Six screens have their own debug readout behind one byte each (trades, contracts, the free agent board, the
   custom team editor and two career screens). Debug Readouts sets them.
 
+## Colleges
+
+The 19 colleges are teams 135 to 153. A college's short name is the key to everything of its own: its logos are
+`logo1uni_`, `logo2uni_` and `logo4uni_` plus that name in the three logo packs, its recruiting numbers are its
+line in `FRONTEND/RTTS/COLLEGES.XML`, and `MLBUNIS.JSON` points its team number at a home and a road uniform under
+`NSW/UNIFORMS/NCAA`. Its two display names are in the roster file. Swap a University (Teams, Tools) changes the
+names, logos and uniforms and leaves the short name and the ballpark alone. The long school names on the
+recruiting screens are in `COMMON.NSW_EN`, which the manager cannot write yet.
+
 ## Stitching on a jersey
 
 A sewn-on logo is in two textures: its colours in `jersey-color`, and in `jersey-normal` its raised shape plus a

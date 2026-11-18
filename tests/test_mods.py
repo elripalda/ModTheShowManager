@@ -588,3 +588,32 @@ def test_developer_switches(tmp_path):
     assert not bad and {'debug_menu', 'franchise_extras', 'debug_readouts', 'unlock_all_equipment', 'unlimited_tokens'} <= {s[0] for s in sets}
     assert codemods.GROUPS['unlock_all_equipment'] == 'Unlocks' and len(D.SWITCHES) % 3 == 0
     assert codemods.GROUPS['debug_menu'] == 'Developer'
+
+
+def test_old_lettering_can_be_painted_out():
+    # the jersey builder can clear what is sewn on a part (found by its shine), outline included, before new art goes on
+    import numpy as np
+    from PIL import Image, ImageDraw
+    from modtheshow import uniformbuilder as UB
+    color = Image.new('RGBA', (512, 256), (230, 200, 40, 255))
+    d = ImageDraw.Draw(color)
+    d.rectangle((96, 56, 184, 144), fill=(20, 20, 20, 255))            # an outline a little wider than the letters
+    d.rectangle((100, 60, 180, 140), fill=(90, 30, 130, 255))
+    d.rectangle((400, 200, 420, 210), fill=(90, 30, 130, 255))         # printed on, not sewn: it stays
+    normal = Image.new('RGBA', (512, 256), (129, 128, 253, 0))
+    ImageDraw.Draw(normal).rectangle((100, 60, 180, 140), fill=(128, 128, 128, 255))
+    mask = UB.lettering(normal)
+    assert mask is not None and UB.lettering(Image.new('RGBA', (64, 64), (129, 128, 253, 0))) is None
+    out = np.asarray(UB.apply(color, erase=mask).convert('RGB'), int)
+    assert abs(out[100, 140] - (230, 200, 40)).max() < 6 and abs(out[58, 98] - (230, 200, 40)).max() < 6
+    assert abs(out[205, 410] - (90, 30, 130)).max() < 6
+    assert UB.settle_normal(Image.fromarray(out.astype('uint8')), normal) is not None     # and Apply drops its stitching
+
+
+def test_swap_a_university_finds_every_college():
+    # each college's logos and uniforms hang on its short name and its place in the team table
+    from modtheshow.ui import collegeswap as C
+    assert C.pack(2) == 'NSW/UI/ART/TEXTURES/LOGO2.TEX' and [n for _t, n, _w in C.LOGOS] == [1, 2, 4]
+    from PIL import Image
+    art = C._square(Image.new('RGBA', (600, 200), (255, 0, 0, 255)), 256, 256)
+    assert art.size == (256, 256) and art.getpixel((128, 128))[3] == 255 and art.getpixel((128, 4))[3] == 0
