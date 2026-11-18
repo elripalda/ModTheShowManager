@@ -204,6 +204,12 @@ error, each hit's type, power, spin and air density. That log is how a code mod 
   code still asks for about a hundred of them by a hash of the name. `devswitches.py` has the ones known by name.
   The hash: upper-case the name, run the classic ELF hash over it to get `h`, and the result is
   `h * 0x9E3779B7 + ~h * 0x61C88641`.
+  Named so far: FastPlay, AIvAI, NoCrowd, NoTips, NoWarmup, NoIdle, CatcherView, NoDOF, FastLoad,
+  UnlockedEquipment, DisableUIElem, DisableJumboBink, Tutorial, Pregame, TestStorylines, GameOnly, HRDerbyOnly,
+  TrainOnly, GetStadiumData, OpenBetaDemo, Mobile, No_Trophy, NewDevice, ForcePlayGo, Disable_Compression,
+  Savedata_Compression_Test. GameOnly, HRDerbyOnly and TrainOnly start the game straight into a match from a data
+  file the shipped game does not have.
+- **A second game in the files.** The `AND` folder holds the phone version's art, and the code has a Mobile switch.
 - **Retro Mode is "Ken Griffey Jr. Mode"** inside, with its own sound banks.
 - **Leagues.** Custom Leagues runs on the old online franchise code. Half of its screens have no menu any more
   (draft, free agents, trades by vote, awards, Hall of Fame), and all of it talks to the game's servers.

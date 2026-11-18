@@ -16,9 +16,9 @@ SWITCHES = [
     ('FastPlay', 'Fast Play', 'Skips the waiting between pitches.'),
     ('AIvAI', 'CPU vs CPU', 'The CPU plays both sides.'),
     ('NoCrowd', 'No Crowd', 'An empty ballpark.'),
-    ('NoTips', 'No Tips', 'No hints on screen.'),
     ('CatcherView', 'Catcher View', 'Starts from the catcher’s side.'),
     ('NoDOF', 'No Depth of Field', 'Nothing in the picture is blurred.'),
+    ('UnlockedEquipment', 'Unlocked Equipment', 'Every piece of equipment is there to pick.'),
 ]
 NAMES = [s[0] for s in SWITCHES]
 

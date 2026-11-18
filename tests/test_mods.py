@@ -580,9 +580,9 @@ def test_developer_switches(tmp_path):
     assert 'Inning=9' in lines and 'FastPlay' not in lines             # what the game's own file set stays set
     assert not D.write(g, set()) and not os.path.exists(g.path(D.USER))
     with open(g.path(D.USER), 'w') as f:                               # a file someone made by hand keeps their lines
-        f.write('MySwitch\nNoTips\n')
-    assert D.read(g) == {'NoTips'} and D.write(g, set()) and 'MySwitch' in open(g.path(D.USER)).read()
-    assert D.write(g, {'NoDOF'}) and D.write(g, set()) and open(g.path(D.USER)).read().split() == ['MySwitch']
+        f.write('MySwitch\nNoDOF\n')
+    assert D.read(g) == {'NoDOF'} and D.write(g, set()) and 'MySwitch' in open(g.path(D.USER)).read()
+    assert D.write(g, {'FastPlay'}) and D.write(g, set()) and open(g.path(D.USER)).read().split() == ['MySwitch']
     # the two code mods in the Developer box are built in, and each writes its yes before the game reads it
     sets, text, bad = codemods.collect([])
     assert not bad and {'debug_menu', 'franchise_extras'} <= {s[0] for s in sets}
