@@ -216,6 +216,15 @@ error, each hit's type, power, spin and air density. That log is how a code mod 
 - **Raids.** Diamond Quest's name in the code, with invites, teams and captains nobody can reach.
 - **Retired numbers** are a table in the code: last name, first name, team, number.
 
+## Road to the Show
+
+- **Tokens** are one 16-bit number in the career data, at 0x12c0, and one small function (`44012c`) hands it to
+  every screen that shows or spends it. Unlimited Tokens fills it there.
+- **Locked equipment** hangs on a developers' byte, read in two places (`6a038c`, `69b5e8`) for the player being
+  dressed. Unlock All Equipment answers yes in both.
+- Six screens have their own debug readout behind one byte each (trades, contracts, the free agent board, the
+  custom team editor and two career screens). Debug Readouts sets them.
+
 ## Stitching on a jersey
 
 A sewn-on logo is in two textures: its colours in `jersey-color`, and in `jersey-normal` its raised shape plus a
@@ -230,6 +239,5 @@ its own `jersey-normal` is left alone.
 - Head meshes; putting a mascot's head and textures on a player.
 - Franchise and Road to the Show saves.
 - Runner speed, fielding and the pitch speed shown on screen, in the code.
-- Where Road to the Show keeps its tokens.
 - Taking caps, helmets and gloves off, and building a player the way the game builds a mascot.
 - What pulls the outer PCI in on a swing (see Contact in CODE_MODS.md), and the size of the ball.

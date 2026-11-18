@@ -75,9 +75,10 @@ key, and switching it off there puts the effects out too.
 
 ### Developer
 
-A box on the right of the Code Mods page, for what the game's developers left in. Debug Menu and Franchise Extras
-are code mods like the rest (Rebuild Game after switching one on). The others are the game's own start-up switches
-and take effect the next time it starts. None of it was meant for players: expect some of it to do nothing.
+A box on the right of the Code Mods page, for what the game's developers left in. Debug Menu, Franchise Extras and
+Debug Readouts are code mods like the rest (Rebuild Game after switching one on). Start-up Switches opens the
+game's own switches, which take effect the next time it starts. None of it was meant for players: expect some of
+it to do nothing.
 
 ## Checking that one works
 

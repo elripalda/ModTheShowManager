@@ -4,7 +4,7 @@ import os
 import shutil
 
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QGridLayout, QHBoxLayout, QLineEdit, QListWidget,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPlainTextEdit, QSlider, QVBoxLayout, QWidget)
 
 from .. import codemods, devswitches
@@ -18,10 +18,67 @@ KEYS = ('F4 opens the list in the game. Up and Down move, Enter switches a mod o
         'game’s fps readout is on (F10), and it is switched on for them.')
 
 
-DEVELOPER = ('Left in by the game’s developers, and not all of it works. The first two need Rebuild Game; the rest '
-             'are read when the game starts.')
+DEVELOPER = ('Left in by the game’s developers, and not all of it works. These three need Rebuild Game; the start-up '
+             'switches are read when the game starts.')
 DEV_GROUP = 'Developer'
-DEV_SETS = ('debug_menu', 'franchise_extras')
+DEV_SETS = ('debug_menu', 'franchise_extras', 'debug_readouts')
+
+
+class SwitchesDialog(QDialog):
+    """The game's own start-up switches, every one known by name."""
+
+    def __init__(self, page):
+        super().__init__(page)
+        self.setWindowTitle('Start-up Switches')
+        self.page = page
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 20, 22, 20)
+        lay.setSpacing(14)
+        lay.addWidget(label('The game looks for these when it starts. They were the developers’ own, so some may do '
+                            'nothing and a few can keep the game from starting: untick it here and start again.',
+                            'Soft', wrap=True))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(22)
+        grid.setVerticalSpacing(12)
+        on = devswitches.read(page.main.game)
+        self.boxes = {}
+        for i, (name, title, what) in enumerate(devswitches.SWITCHES):
+            cell = QVBoxLayout()
+            cell.setSpacing(2)
+            b = QCheckBox(title)
+            b.setChecked(name in on)
+            b.toggled.connect(self._write)
+            note = label(what, 'Sub', wrap=True)
+            note.setContentsMargins(28, 0, 0, 0)
+            note.setMinimumHeight(note.fontMetrics().lineSpacing() * 2 + 4)
+            note.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            cell.addWidget(b)
+            cell.addWidget(note)
+            cell.addStretch(1)
+            grid.addLayout(cell, i // 3, i % 3)
+            self.boxes[name] = b
+        for c in range(3):
+            grid.setColumnStretch(c, 1)
+            grid.setColumnMinimumWidth(c, 250)
+        lay.addLayout(grid)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(button('All Off', on_click=self._clear))
+        row.addWidget(button('Done', primary=True, on_click=self.accept))
+        lay.addLayout(row)
+
+    def _write(self, *_):
+        try:
+            devswitches.write(self.page.main.game, {n for n, b in self.boxes.items() if b.isChecked()})
+        except OSError as e:
+            self.page.main.toast(f'Could not write the game’s switch file: {e}')
+
+    def _clear(self):
+        for b in self.boxes.values():
+            b.blockSignals(True)
+            b.setChecked(False)
+            b.blockSignals(False)
+        self._write()
 
 
 class Row(QWidget):
@@ -150,14 +207,15 @@ class PluginsPage(QWidget):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(4)
         self.dev = {}
-        boxes = [(n, codemods.nice(n), codemods.DESCRIPTIONS.get(n, '')) for n in DEV_SETS] + devswitches.SWITCHES
-        for i, (name, title, tip) in enumerate(boxes):
-            b = QCheckBox(title)
+        for i, name in enumerate(DEV_SETS):
+            b = QCheckBox(codemods.nice(name))
             b.setMinimumHeight(24)
-            b.setToolTip(tip)
+            b.setToolTip(codemods.DESCRIPTIONS.get(name, ''))
             b.toggled.connect(lambda on, n=name: self._developer(n, on))
             grid.addWidget(b, i // 2, i % 2)
             self.dev[name] = b
+        self.b_switches = button('Start-up Switches', on_click=self._switches)
+        grid.addWidget(self.b_switches, 1, 1)
         rl.addLayout(grid)
         rl.addWidget(section_title('In the game'))
         rl.addWidget(label(KEYS, 'Sub', wrap=True))
@@ -305,12 +363,13 @@ class PluginsPage(QWidget):
         self.b_build.style().polish(self.b_build)
         self.b_restore.setEnabled(os.path.exists(os.path.join(root, 'mlb.original.exe')))
         self.last.setText(self._last_game_text(current))
-        on = devswitches.read(self.main.game)
         for name, b in self.dev.items():
             b.blockSignals(True)
-            b.setChecked(sw.get(name, False) if name in DEV_SETS else name in on)
-            b.setEnabled(name not in DEV_SETS or name not in misfit)
+            b.setChecked(sw.get(name, False))
+            b.setEnabled(name not in misfit)
             b.blockSignals(False)
+        n = len(devswitches.read(self.main.game))
+        self.b_switches.setText(f'Start-up Switches ({n} on)' if n else 'Start-up Switches')
         self._fit()
         QTimer.singleShot(0, self._fit)       # once more when the list has its real width
 
@@ -368,16 +427,12 @@ class PluginsPage(QWidget):
         self.write_switches()
 
     def _developer(self, name, on):
-        if name in DEV_SETS:
-            self.toggle(name, on)
-            self.refresh()
-            return
-        picked = {n for n, b in self.dev.items() if n not in DEV_SETS and b.isChecked()}
-        try:
-            devswitches.write(self.main.game, picked)
-        except OSError as e:
-            self.main.toast(f'Could not write the game’s switch file: {e}')
-            self.refresh()
+        self.toggle(name, on)
+        self.refresh()
+
+    def _switches(self):
+        SwitchesDialog(self).exec()
+        self.refresh()
 
     def turn(self, dial, value):
         self.dial_values()[dial] = value

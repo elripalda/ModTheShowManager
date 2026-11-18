@@ -585,5 +585,6 @@ def test_developer_switches(tmp_path):
     assert D.write(g, {'FastPlay'}) and D.write(g, set()) and open(g.path(D.USER)).read().split() == ['MySwitch']
     # the two code mods in the Developer box are built in, and each writes its yes before the game reads it
     sets, text, bad = codemods.collect([])
-    assert not bad and {'debug_menu', 'franchise_extras'} <= {s[0] for s in sets}
+    assert not bad and {'debug_menu', 'franchise_extras', 'debug_readouts', 'unlock_all_equipment', 'unlimited_tokens'} <= {s[0] for s in sets}
+    assert codemods.GROUPS['unlock_all_equipment'] == 'Unlocks' and len(D.SWITCHES) % 3 == 0
     assert codemods.GROUPS['debug_menu'] == 'Developer'

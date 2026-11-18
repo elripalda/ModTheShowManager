@@ -296,7 +296,7 @@ def globals_of(patch_text):
             if m}
 
 
-BUILD_REV = 8      # goes up when the way the manager builds changes, so an older build is offered a rebuild
+BUILD_REV = 9      # goes up when the way the manager builds changes, so an older build is offered a rebuild
 SWITCH_FILE = 'mts-code.cfg'
 SWITCH_LOG = 'mts-code.log'
 
@@ -848,6 +848,24 @@ site on_fire main 167a6ac d103c3ff d103c3ff
 set  fireworks MLB_MOD_FIREWORKS 0
 site fireworks main 167a6b0 6d053bef 6d053bef
 
+#group Unlocks
+
+# The game has a switch of its developers' for this: one byte, read in the two places that decide whether a piece of
+# equipment is locked for the player you are dressing. Each site reads a yes in its place.
+#: unlock_all_equipment: Every piece of equipment is there to pick for your player, with nothing left locked.
+#tag unlock_all_equipment: Experimental
+set  unlock_all_equipment MLB_MOD_ALLEQUIPMENT 0
+site unlock_all_equipment main 6a038c 39400128 52800028
+site unlock_all_equipment main 69b5e8 39400308 52800028
+
+# Road to the Show keeps its tokens as one number in the career, and everything that wants to know it asks one small
+# function. The site sits where that function reads the number and puts 9,999 there first, so the count is full again
+# every time anything looks at it.
+#: unlimited_tokens: Road to the Show always has 9,999 tokens to spend on your player.
+#tag unlimited_tokens: Experimental
+set  unlimited_tokens MLB_MOD_TOKENS 0
+site unlimited_tokens main 44014c 79658100 5284e1e0 79258100
+
 #group Developer
 
 # The game's menus ask two questions the game always answers no to: whether to show its debug screens, and whether to
@@ -862,6 +880,18 @@ site debug_menu main 49de84 9112e908 9112e908 52800022 39000102
 #tag franchise_extras: Experimental
 set  franchise_extras MLB_MOD_FRANEXTRAS 0
 site franchise_extras main 49de90 9112e508 9112e508 52800022 39000102
+
+# Six screens ask for their own debug readout the same way: trades, contract talks, the free agent board, the custom
+# team editor and two Road to the Show screens.
+#: debug_readouts: The numbers the developers watched, on the trade, contract, free agency, custom team and Road to the Show screens.
+#tag debug_readouts: Experimental
+set  debug_readouts MLB_MOD_DEBUGREADOUTS 0
+site debug_readouts main d006a8 9101d108 9101d108 52800022 39000102
+site debug_readouts main cc7838 91038508 91038508 52800022 39000102
+site debug_readouts main 491d80 91004108 91004108 52800022 39000102
+site debug_readouts main bf9834 91166508 91166508 52800022 39000102
+site debug_readouts main 4d53f8 913a4d08 913a4d08 52800022 39000102
+site debug_readouts main 4d9910 39400108 52800028
 '''
 
 
