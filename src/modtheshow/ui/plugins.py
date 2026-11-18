@@ -4,10 +4,10 @@ import os
 import shutil
 
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-                               QPlainTextEdit, QSlider, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QFileDialog, QGridLayout, QHBoxLayout, QLineEdit, QListWidget,
+                               QListWidgetItem, QMessageBox, QPlainTextEdit, QSlider, QVBoxLayout, QWidget)
 
-from .. import codemods
+from .. import codemods, devswitches
 from .common import badge, button, header, label, panel, section_title
 from .widgets import Toggle
 from .workers import Job, start
@@ -16,6 +16,12 @@ KEYS = ('F4 opens the list in the game. Up and Down move, Enter switches a mod o
         'dial. Changes take effect at once and are remembered. The game ignores the controller while the list is '
         'open, so close it with F4 before the next pitch. F6 sets off Fireworks. The Effects show while the '
         'game’s fps readout is on (F10), and it is switched on for them.')
+
+
+DEVELOPER = ('Left in by the game’s developers, and not all of it works. The first two need Rebuild Game; the rest '
+             'are read when the game starts.')
+DEV_GROUP = 'Developer'
+DEV_SETS = ('debug_menu', 'franchise_extras')
 
 
 class Row(QWidget):
@@ -138,6 +144,21 @@ class PluginsPage(QWidget):
         rl.addWidget(section_title('Last game'))
         self.last = label('', 'Soft', wrap=True)
         rl.addWidget(self.last)
+        rl.addWidget(section_title('Developer'))
+        rl.addWidget(label(DEVELOPER, 'Sub', wrap=True))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(4)
+        self.dev = {}
+        boxes = [(n, codemods.nice(n), codemods.DESCRIPTIONS.get(n, '')) for n in DEV_SETS] + devswitches.SWITCHES
+        for i, (name, title, tip) in enumerate(boxes):
+            b = QCheckBox(title)
+            b.setMinimumHeight(24)
+            b.setToolTip(tip)
+            b.toggled.connect(lambda on, n=name: self._developer(n, on))
+            grid.addWidget(b, i // 2, i % 2)
+            self.dev[name] = b
+        rl.addLayout(grid)
         rl.addWidget(section_title('In the game'))
         rl.addWidget(label(KEYS, 'Sub', wrap=True))
         row.addWidget(right, 2)
@@ -226,6 +247,8 @@ class PluginsPage(QWidget):
 
         shown = 0
         for group, members in codemods.grouped(sets):
+            if group == DEV_GROUP:              # these sit in the Developer box on the right
+                continue
             members = [m for m in members if not want or want in codemods.nice(m[0]).lower()
                        or want in codemods.DESCRIPTIONS.get(m[0], '').lower() or want in group.lower()]
             if not members:
@@ -282,6 +305,12 @@ class PluginsPage(QWidget):
         self.b_build.style().polish(self.b_build)
         self.b_restore.setEnabled(os.path.exists(os.path.join(root, 'mlb.original.exe')))
         self.last.setText(self._last_game_text(current))
+        on = devswitches.read(self.main.game)
+        for name, b in self.dev.items():
+            b.blockSignals(True)
+            b.setChecked(sw.get(name, False) if name in DEV_SETS else name in on)
+            b.setEnabled(name not in DEV_SETS or name not in misfit)
+            b.blockSignals(False)
         self._fit()
         QTimer.singleShot(0, self._fit)       # once more when the list has its real width
 
@@ -337,6 +366,18 @@ class PluginsPage(QWidget):
         self.switches()[name] = on
         self.main.save_settings()
         self.write_switches()
+
+    def _developer(self, name, on):
+        if name in DEV_SETS:
+            self.toggle(name, on)
+            self.refresh()
+            return
+        picked = {n for n, b in self.dev.items() if n not in DEV_SETS and b.isChecked()}
+        try:
+            devswitches.write(self.main.game, picked)
+        except OSError as e:
+            self.main.toast(f'Could not write the game’s switch file: {e}')
+            self.refresh()
 
     def turn(self, dial, value):
         self.dial_values()[dial] = value

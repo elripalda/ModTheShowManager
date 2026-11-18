@@ -72,3 +72,75 @@ def apply(img, swaps=(), stripes=None, logo=None, logos=(), quality=1):
         out.paste(art, (cx - w // 2, cy - h // 2), art)
     out.putalpha(keep)                           # the mask stays as the game made it
     return out
+
+
+def _blobs(mask):
+    """Connected patches of a small boolean grid: (labels, count), 0 for off."""
+    h, w = mask.shape
+    labels = np.zeros((h, w), np.int32)
+    count = 0
+    for y, x in zip(*np.nonzero(mask)):
+        if labels[y, x]:
+            continue
+        count += 1
+        labels[y, x] = count
+        todo = [(y, x)]
+        while todo:
+            cy, cx = todo.pop()
+            for ny in (cy - 1, cy, cy + 1):
+                for nx in (cx - 1, cx, cx + 1):
+                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not labels[ny, nx]:
+                        labels[ny, nx] = count
+                        todo.append((ny, nx))
+    return labels, count
+
+
+def settle_normal(color, normal, cell=8):
+    """A part's normal texture with the stitching of logos that are no longer on the part taken out.
+
+    The normal texture carries each sewn-on logo twice: raised in its colours, and as a shine mask in its alpha. When a
+    mod changes the colour texture and the old logo is gone from it, both stay behind and show as a glossy ghost of the
+    old logo. A patch of shine is kept when the new colour texture still has an outline where the patch ends (the logo
+    is still there, recoloured or not) and is flattened when it does not. color: the new colour texture, normal: the
+    game's normal texture (PIL). Returns the new normal, or None when nothing had to change."""
+    from PIL import Image
+    n = np.asarray(normal.convert('RGBA')).copy()
+    h, w = n.shape[:2]
+    if h % cell or w % cell or min(h, w) < cell * 8:
+        return None
+    shine = n[:, :, 3] > 24
+    if not shine.any() or shine.mean() > 0.35:
+        return None
+    c = np.asarray(color.convert('RGB').resize((w, h), Image.BILINEAR), np.int16)
+    d = 3
+    step = np.zeros((h, w), np.int16)
+    step[:, d:-d] = np.abs(c[:, 2 * d:] - c[:, :-2 * d]).max(-1)
+    step[d:-d, :] = np.maximum(step[d:-d, :], np.abs(c[2 * d:, :] - c[:-2 * d, :]).max(-1))
+    inner = shine.copy()
+    inner[1:, :] &= shine[:-1, :]
+    inner[:-1, :] &= shine[1:, :]
+    inner[:, 1:] &= shine[:, :-1]
+    inner[:, :-1] &= shine[:, 1:]
+    rim = shine & ~inner
+    small = shine.reshape(h // cell, cell, w // cell, cell).any((1, 3))
+    labels, count = _blobs(small)
+    big = np.repeat(np.repeat(labels, cell, 0), cell, 1)
+    gone = np.zeros(count + 1, bool)
+    for k in range(1, count + 1):
+        edge = rim & (big == k)
+        total = int(edge.sum())
+        gone[k] = total > 0 and float((step[edge] > 28).sum()) / total < 0.5
+    if not gone.any():
+        return None
+    area = shine & gone[big]
+    for _ in range(4):                         # a few pixels wider, to take the raised edge with it
+        wide = area.copy()
+        wide[1:, :] |= area[:-1, :]
+        wide[:-1, :] |= area[1:, :]
+        wide[:, 1:] |= area[:, :-1]
+        wide[:, :-1] |= area[:, 1:]
+        area = wide
+    area &= ~(shine & ~gone[big])              # but never into a patch that stays
+    flat = np.median(n[~shine][::7, :3], axis=0)
+    n[area] = (int(flat[0]), int(flat[1]), int(flat[2]), 0)
+    return Image.fromarray(n, 'RGBA')

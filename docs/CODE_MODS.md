@@ -73,6 +73,12 @@ game's space and draws them over the picture every frame. They are drawn on the 
 out, so they show while its fps readout is on. The manager switches that on for them; F10 is the readout's own
 key, and switching it off there puts the effects out too.
 
+### Developer
+
+A box on the right of the Code Mods page, for what the game's developers left in. Debug Menu and Franchise Extras
+are code mods like the rest (Rebuild Game after switching one on). The others are the game's own start-up switches
+and take effect the next time it starts. None of it was meant for players: expect some of it to do nothing.
+
 ## Checking that one works
 
 Code Mods shows it for you after a game:

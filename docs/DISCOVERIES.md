@@ -194,6 +194,29 @@ error, each hit's type, power, spin and air density. That log is how a code mod 
   parts of the body file, which a mascot's doesn't have. Mascots as players will have to come from the code that
   puts a player together.
 
+## What the developers left in
+
+- **Debug screens.** The menu file still has them (stats editor, trade finder, roster export and more). The menus
+  ask the game whether to show them and the game always says no: the answer is one byte nothing ever sets. Debug
+  Menu in Code Mods sets it. The same goes for a second byte that hides unfinished franchise screens.
+- **Start-up switches.** The game reads `BOOT/CONFIG_MAIN.TXT` when it starts, or `BOOT/CONFIG_MAIN_USER.TXT` when
+  that exists. One switch name a line, `#` for a comment. The shipped file has every switch commented out, but the
+  code still asks for about a hundred of them by a hash of the name. `devswitches.py` has the ones known by name.
+  The hash: upper-case the name, run the classic ELF hash over it to get `h`, and the result is
+  `h * 0x9E3779B7 + ~h * 0x61C88641`.
+- **Retro Mode is "Ken Griffey Jr. Mode"** inside, with its own sound banks.
+- **Leagues.** Custom Leagues runs on the old online franchise code. Half of its screens have no menu any more
+  (draft, free agents, trades by vote, awards, Hall of Fame), and all of it talks to the game's servers.
+- **Raids.** Diamond Quest's name in the code, with invites, teams and captains nobody can reach.
+- **Retired numbers** are a table in the code: last name, first name, team, number.
+
+## Stitching on a jersey
+
+A sewn-on logo is in two textures: its colours in `jersey-color`, and in `jersey-normal` its raised shape plus a
+shine mask in the alpha. Change only the colours and the old logo stays behind as a glossy ghost. Apply now takes
+that out where the logo is gone from the colours, and leaves it where the logo is still there. A mod that brings
+its own `jersey-normal` is left alone.
+
 ## Still open
 
 - Layout animations (the rules that pick each look are solved; the keyframes aren't).

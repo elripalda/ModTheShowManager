@@ -296,7 +296,7 @@ def globals_of(patch_text):
             if m}
 
 
-BUILD_REV = 7      # goes up when the way the manager builds changes, so an older build is offered a rebuild
+BUILD_REV = 8      # goes up when the way the manager builds changes, so an older build is offered a rebuild
 SWITCH_FILE = 'mts-code.cfg'
 SWITCH_LOG = 'mts-code.log'
 
@@ -847,6 +847,21 @@ site on_fire main 167a6ac d103c3ff d103c3ff
 #turns fireworks fireworks_from
 set  fireworks MLB_MOD_FIREWORKS 0
 site fireworks main 167a6b0 6d053bef 6d053bef
+
+#group Developer
+
+# The game's menus ask two questions the game always answers no to: whether to show its debug screens, and whether to
+# show its unfinished franchise screens. Each site sits where the answer is fetched and writes a yes there first.
+# What the menus then show is whatever the developers left in: some of it may do nothing, and some may not work.
+#: debug_menu: The game's own debug screens, left in by its developers, wherever its menus have them.
+#tag debug_menu: Experimental
+set  debug_menu MLB_MOD_DEBUGMENU 0
+site debug_menu main 49de84 9112e908 9112e908 52800022 39000102
+
+#: franchise_extras: Franchise screens the developers left switched off.
+#tag franchise_extras: Experimental
+set  franchise_extras MLB_MOD_FRANEXTRAS 0
+site franchise_extras main 49de90 9112e508 9112e508 52800022 39000102
 '''
 
 

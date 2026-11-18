@@ -541,3 +541,49 @@ def test_code_mods_follow_the_game_version():
     wanted = {int(f[3], 16) for f in (r.split('#', 1)[0].split() for r in codemods.ARCADE.splitlines())
               if len(f) >= 6 and f[0] == 'site'}
     assert wanted <= set(codesigs.LOOKS)                               # every built-in site has its picture
+
+
+def test_old_stitching_goes_with_the_logo():
+    # a part's normal texture keeps a sewn-on logo raised and shiny (alpha); when the colours no longer show the logo,
+    # that goes, and a logo that is still there (recoloured or not) keeps it
+    import numpy as np
+    from PIL import Image, ImageDraw
+    from modtheshow import uniformbuilder as UB
+    color = Image.new('RGBA', (512, 256), (230, 230, 215, 255))
+    d = ImageDraw.Draw(color)
+    d.rectangle((100, 60, 180, 140), fill=(170, 20, 40, 255))          # the chest logo
+    d.rectangle((380, 20, 400, 30), fill=(10, 30, 90, 255))            # a small league patch
+    normal = Image.new('RGBA', (512, 256), (129, 128, 253, 0))
+    d = ImageDraw.Draw(normal)
+    d.rectangle((100, 60, 180, 140), fill=(128, 128, 128, 255))
+    d.rectangle((380, 20, 400, 30), fill=(128, 128, 128, 255))
+    assert UB.settle_normal(color, normal) is None
+    assert UB.settle_normal(UB.apply(color, [((170, 20, 40), (20, 60, 200))]), normal) is None
+    plain = color.copy()
+    ImageDraw.Draw(plain).rectangle((90, 50, 190, 150), fill=(230, 230, 215, 255))
+    out = np.asarray(UB.settle_normal(plain, normal))
+    assert out[100, 140, 3] == 0 and tuple(out[100, 140, :3]) == (129, 128, 253)      # chest: flat and matte again
+    assert out[25, 390, 3] == 255                                                     # the patch that stayed keeps its own
+    assert UB.settle_normal(plain.resize((1024, 512)), normal) is not None            # a sharper colour texture too
+
+
+def test_developer_switches(tmp_path):
+    from modtheshow import devswitches as D
+    from modtheshow.game import Game
+    g = Game(str(tmp_path))
+    os.makedirs(os.path.dirname(g.path(D.SHIPPED)))
+    with open(g.path(D.SHIPPED), 'w') as f:
+        f.write('#FastPlay\r\n## Always run AI vs AI game.\r\n#AIvAI\r\nInning=9\r\n')
+    assert D.read(g) == set() and not D.write(g, set()) and not os.path.exists(g.path(D.USER))
+    assert D.write(g, {'AIvAI', 'NoCrowd'}) and D.read(g) == {'AIvAI', 'NoCrowd'}
+    lines = open(g.path(D.USER)).read().split()
+    assert 'Inning=9' in lines and 'FastPlay' not in lines             # what the game's own file set stays set
+    assert not D.write(g, set()) and not os.path.exists(g.path(D.USER))
+    with open(g.path(D.USER), 'w') as f:                               # a file someone made by hand keeps their lines
+        f.write('MySwitch\nNoTips\n')
+    assert D.read(g) == {'NoTips'} and D.write(g, set()) and 'MySwitch' in open(g.path(D.USER)).read()
+    assert D.write(g, {'NoDOF'}) and D.write(g, set()) and open(g.path(D.USER)).read().split() == ['MySwitch']
+    # the two code mods in the Developer box are built in, and each writes its yes before the game reads it
+    sets, text, bad = codemods.collect([])
+    assert not bad and {'debug_menu', 'franchise_extras'} <= {s[0] for s in sets}
+    assert codemods.GROUPS['debug_menu'] == 'Developer'

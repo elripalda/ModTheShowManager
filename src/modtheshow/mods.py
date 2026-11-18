@@ -466,6 +466,32 @@ class Library:
         log(f'Restored {len(rels)} original file(s)')
         return rels
 
+    @staticmethod
+    def _settle_stitching(t, rel, names):
+        """A uniform part whose colours a mod changed loses the stitching of logos that are no longer on it, unless a
+        mod brings its own normal texture. Returns how many normal textures were redone."""
+        if 'UNIFORMS/' not in rel:
+            return 0
+        from PIL import Image
+        from .uniformbuilder import settle_normal
+        given = {k.split('__')[0] for k in names}
+        n = 0
+        for name, (_m, png) in sorted(names.items()):
+            part = name.split('__')[0]
+            if not part.endswith('-color') or part[:-6] + '-normal' in given:
+                continue
+            for e in t.find(part[:-6] + '-normal'):
+                try:
+                    if not t.readable(e):
+                        continue
+                    new = settle_normal(Image.open(png), t.image(e))
+                    if new is not None:
+                        t.replace(e, new)
+                        n += 1
+                except Exception:
+                    pass                      # the colours still go in; the stitching just stays as it was
+        return n
+
     def apply(self, log=print, progress=lambda done, total: None):
         """Install every enabled mod. Returns (files changed, problems)."""
         from PIL import Image
@@ -512,6 +538,7 @@ class Library:
                     problems.append(f'{m.name}: {name}: {x}')
                 done += 1
                 progress(done, total)
+            n += self._settle_stitching(t, rel, names)
             os.chmod(self.game.path(rel), 0o666)
             t.save(self.game.path(rel))
             changed.append(rel)
